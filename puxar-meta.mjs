@@ -220,6 +220,60 @@ async function puxarCriativos(versao, conta, token, comThumbs){
   return saida;
 }
 
+/* ------------------------------------------------- teste de conexão */
+const STATUS_CONTA = { 1:"ativa", 2:"desativada", 3:"não paga", 7:"em análise", 8:"pendente", 9:"em período de graça", 100:"fechada", 101:"qualquer" };
+
+async function listarContas(token, versaoPedida){
+  let versao = null, eu = null, ultimoErro = null;
+  for (const v of (versaoPedida ? [versaoPedida] : VERSOES)){
+    try { eu = await graph(v, "me", { fields:"id,name" }, token); versao = v; break; }
+    catch(e){
+      ultimoErro = e;
+      if (/unsupported|version/i.test(e.message)) continue;
+      break;
+    }
+  }
+  if (!eu){
+    console.error("✗ O token não foi aceito.");
+    const c = ultimoErro && ultimoErro.meta && ultimoErro.meta.code;
+    if (c === 190) console.error("  Código 190: token expirado ou revogado. Gere outro — veja o README.md.");
+    else if (ultimoErro) console.error("  " + ultimoErro.message);
+    process.exit(1);
+  }
+  console.error(`✓ Token válido — autenticado como ${eu.name || eu.id} (Graph ${versao})\n`);
+
+  let contas;
+  try {
+    contas = await graphTodas(versao, "me/adaccounts", {
+      fields: "id,account_id,name,currency,account_status,timezone_name", limit: 200
+    }, token, "contas");
+  } catch(e){
+    console.error("✗ O token não consegue listar contas de anúncios.");
+    if (e.meta && (e.meta.code === 200 || e.meta.code === 10 || /permission/i.test(e.message)))
+      console.error("  Falta a permissão ads_read. Gere o token de novo marcando ads_read.");
+    else console.error("  " + e.message);
+    process.exit(1);
+  }
+
+  if (!contas.length){
+    console.error("✗ O token é válido, mas não enxerga nenhuma conta de anúncios.");
+    console.error("  Confira se este usuário tem acesso à conta no Gerenciador — e, se for");
+    console.error("  usuário do sistema, se a conta foi atribuída a ele em 'Adicionar ativos'.");
+    process.exit(1);
+  }
+
+  console.error(`Contas visíveis para este token (${contas.length}):\n`);
+  const larg = Math.min(46, Math.max(...contas.map(c => (c.name || "").length), 12));
+  for (const c of contas){
+    const st = STATUS_CONTA[c.account_status] || ("status " + c.account_status);
+    console.error(`  ${(c.name || "(sem nome)").slice(0,larg).padEnd(larg)}  ${String(c.id).padEnd(20)} ${(c.currency||"").padEnd(4)} ${st}`);
+  }
+  const alvo = contas.find(c => /ituran/i.test(c.name || "")) || contas[0];
+  console.error(`\n  Para puxar a conta "${alvo.name || alvo.id}":\n`);
+  console.error(`    export META_AD_ACCOUNT_ID="${alvo.id}"`);
+  console.error(`    node puxar-meta.mjs --desde ${primeiroDoMes()}\n`);
+}
+
 /* --------------------------------------------------------------- main */
 async function main(){
   lerDotEnv();
@@ -237,6 +291,9 @@ puxar-meta.mjs — baixa os resultados da conta de anúncios da API do Meta
   --sem-thumbs          não baixa as miniaturas dos criativos
   --api    v23.0        versão da Graph API
 
+  --contas              testa o token e lista as contas que ele enxerga
+                        (use antes da primeira puxada)
+
 O token vem de META_ACCESS_TOKEN (variável de ambiente ou arquivo .env).
 `);
     return;
@@ -245,6 +302,12 @@ O token vem de META_ACCESS_TOKEN (variável de ambiente ou arquivo .env).
   const token = process.env.META_ACCESS_TOKEN;
   const conta0 = args.conta || process.env.META_AD_ACCOUNT_ID || "";
   if (!token){ console.error("✗ Falta META_ACCESS_TOKEN. Veja o README.md."); process.exit(1); }
+
+  // testar a conexão não exige id de conta — é justamente para descobrir qual usar
+  if (args.contas || args.testar || args.teste){
+    await listarContas(token, args.api);
+    return;
+  }
   if (!conta0){ console.error("✗ Falta META_AD_ACCOUNT_ID (ou --conta act_...). Veja o README.md."); process.exit(1); }
   const conta = conta0.startsWith("act_") ? conta0 : "act_" + conta0.replace(/\D/g,"");
 

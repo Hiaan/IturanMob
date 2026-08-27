@@ -32,14 +32,36 @@ A diferença está no fim deste arquivo.
 4. **Gerar novo token** → escolha o app → marque `ads_read` → gerar
 5. Copie e guarde — o Meta mostra o token uma vez só
 
-### 2. O id da conta de anúncios
-
-É o número depois de `act_` na URL do Gerenciador:
-`business.facebook.com/adsmanager/manage/campaigns?act=**1234567890**`
-
-### 3. Rodar
+### 2. Testar a conexão
 
 Precisa de Node 18 ou mais novo (`node --version`). Não instala nada.
+
+```bash
+export META_ACCESS_TOKEN="EAAG..."
+node puxar-meta.mjs --contas
+```
+
+Ele diz se o token vale, com qual usuário você está autenticado, e lista todas as
+contas de anúncios que esse token enxerga — já com o `act_...` pronto para copiar:
+
+```
+✓ Token válido — autenticado como Fulano (Graph v23.0)
+
+Contas visíveis para este token (2):
+
+  Ituran Mob      act_1234567890       BRL  ativa
+  Teste antigo    act_9876543210       BRL  desativada
+
+  Para puxar a conta "Ituran Mob":
+
+    export META_AD_ACCOUNT_ID="act_1234567890"
+    node puxar-meta.mjs --desde 2026-08-01
+```
+
+Se preferir pegar o id à mão, é o número depois de `act_` na URL do Gerenciador:
+`business.facebook.com/adsmanager/manage/campaigns?act=**1234567890**`
+
+### 3. Puxar
 
 ```bash
 export META_ACCESS_TOKEN="EAAG..."
@@ -66,6 +88,7 @@ Opções:
 --nivel-cortes  ad|adset|campaign         nível dos recortes (padrão: campaign)
 --sem-thumbs          não baixa as miniaturas dos criativos
 --api    v23.0        versão da Graph API
+--contas              testa o token e lista as contas que ele enxerga
 ```
 
 ### 4. Abrir o painel
@@ -117,7 +140,9 @@ aparece em dias e posicionamentos diferentes. O painel marca esses casos com `�
 
 | mensagem | o que fazer |
 |---|---|
-| `code 190` / token expirou | gere outro token; para não repetir isso, use um usuário do sistema |
+| `O token não foi aceito` / `code 190` | token expirado ou revogado; gere outro. Para não repetir isso, use um usuário do sistema |
+| `não consegue listar contas de anúncios` | falta `ads_read`; gere o token de novo com essa permissão marcada |
+| `não enxerga nenhuma conta` | o usuário não tem acesso à conta. Se for usuário do sistema, atribua a conta a ele em *Adicionar ativos* |
 | `code 100` id inválido | confira o número depois de `act_` na URL do Gerenciador |
 | `limite de chamadas do Meta` | o script já espera e tenta de novo sozinho; períodos longos demoram mais |
 | `(#3018) breakdown` num recorte | aquele recorte não existe para essa conta/objetivo — o painel esconde a seção e segue |

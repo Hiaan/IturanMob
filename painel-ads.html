@@ -492,9 +492,11 @@ footer{
         </p>
         <ol class="steps">
           <li><span><b>Pegue um token de acesso.</b> Em <code>developers.facebook.com</code> → Ferramentas → Graph API Explorer, escolha o app, marque a permissão <code>ads_read</code> e gere. Para um token que dura, crie um <b>usuário do sistema</b> nas configurações do Business Manager.</span></li>
-          <li><span><b>Pegue o id da conta:</b> é o número depois de <code>act_</code> na URL do Gerenciador de Anúncios.</span></li>
-          <li><span><b>Rode o script</b> na pasta do projeto:<br>
-            <code class="bloco">META_ACCESS_TOKEN="EAAG…" META_AD_ACCOUNT_ID="act_123…" \
+          <li><span><b>Teste a conexão</b> na pasta do projeto — ele já lista suas contas com o <code>act_…</code> pronto:<br>
+            <code class="bloco">export META_ACCESS_TOKEN="EAAG…"
+node puxar-meta.mjs --contas</code></span></li>
+          <li><span><b>Puxe o período:</b><br>
+            <code class="bloco">export META_AD_ACCOUNT_ID="act_123…"
 node puxar-meta.mjs --desde 2026-08-01</code></span></li>
           <li><span><b>Solte o <code>dados-meta.json</code></b> que ele gerar aqui ao lado.</span></li>
         </ol>
