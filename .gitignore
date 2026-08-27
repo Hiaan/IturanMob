@@ -1,0 +1,8 @@
+# credenciais e dados da conta de anúncios — nunca versionar
+.env
+dados-meta.json
+dados-meta*.json
+*.local.json
+
+node_modules/
+.DS_Store

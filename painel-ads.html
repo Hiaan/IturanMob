@@ -382,12 +382,54 @@ textarea{
   padding:9px 12px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size:13px; color: var(--ink);
 }
 
+/* ---------- caminhos de importação ---------- */
+.via{ margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+.via:first-of-type{ border-top:0; padding-top:0; }
+.via-cab{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.via-cab b{ font-family: var(--disp); font-size:15px; letter-spacing:-.015em; }
+.via-txt{ margin:8px 0 0; font-size:13.5px; color: var(--ink-2); max-width:62ch; }
+.via .steps{ margin-top:12px; }
+code.bloco{
+  display:block; margin-top:6px; padding:9px 11px; white-space:pre-wrap; word-break:break-all;
+  background: var(--surface-3); border-radius: var(--r-sm); font-size:11.5px; line-height:1.55;
+  border-left:3px solid var(--accent-mark);
+}
+
 /* ---------- mapeamento de colunas ---------- */
 .map-grid{ display:grid; gap:10px 16px; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); }
 .map-row{ display:flex; flex-direction:column; gap:4px; }
 .map-row .k{ font-family: var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color: var(--ink-3); font-weight:600; }
 .map-row select{ width:100%; }
 .map-row.miss select{ border-color: color-mix(in srgb, var(--crit) 45%, var(--line)); }
+
+/* ---------- matriz demográfica ---------- */
+.matriz{ width:100%; border-collapse: separate; border-spacing:3px; font-variant-numeric: tabular-nums; }
+.matriz th{ font-family: var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+  color: var(--ink-3); font-weight:600; padding:4px 6px; white-space:nowrap; border:0; position:static; background:transparent; }
+.matriz thead th{ text-align:center; }
+.matriz tbody th{ text-align:right; text-transform:none; font-size:12.5px; letter-spacing:0; color: var(--ink-2); }
+.matriz td{ text-align:center; padding:9px 8px; border-radius: var(--r-sm); font-family: var(--mono);
+  font-size:13px; color: var(--ink); border:1px solid var(--line-soft); white-space:nowrap; }
+.matriz td.tot, .matriz th.tot{ background: var(--surface-3); font-weight:600; }
+.matriz td.vaz{ color: var(--ink-4); background: transparent; }
+.matriz td small{ display:block; font-size:10.5px; color: var(--ink-3); margin-top:2px; }
+
+/* ---------- funil de vídeo ---------- */
+.funil{ display:flex; flex-direction:column; gap:6px; }
+.fase{ display:grid; grid-template-columns: 132px 1fr auto; gap:12px; align-items:center; }
+.fase .et{ font-size:13px; color: var(--ink-2); }
+.fase .tr{ height:22px; background: var(--surface-3); border-radius:4px; overflow:hidden; }
+.fase .fl{ height:100%; background: var(--s1); border-radius:4px; }
+.fase .vl{ font-family: var(--mono); font-size:12.5px; white-space:nowrap; }
+.fase .vl b{ color: var(--ink); }
+.fase .vl span{ color: var(--ink-3); }
+
+/* ---------- miniatura do criativo ---------- */
+.thumb{ width:44px; height:44px; border-radius:6px; object-fit:cover; border:1px solid var(--line);
+  background: var(--surface-3); flex:none; }
+.thumb-cel{ display:flex; align-items:center; gap:11px; }
+.thumb-vazia{ width:44px; height:44px; border-radius:6px; border:1px dashed var(--line);
+  display:grid; place-items:center; color: var(--ink-4); font-size:15px; flex:none; }
 
 /* ---------- notas ---------- */
 .notes{ display:grid; gap:18px; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); }
@@ -435,30 +477,48 @@ footer{
   <!-- ============ IMPORTADOR ============ -->
   <section class="import" id="importPanel">
     <div>
-      <h2>Traga o relatório de agosto</h2>
+      <h2>De onde vêm os números</h2>
       <p class="note" style="margin:10px 0 0">
         O painel lê o arquivo aqui no seu navegador — nada é enviado para lugar nenhum.
-        Funciona com o export do Gerenciador de Anúncios em português ou inglês, separado
-        por vírgula, ponto e vírgula ou tabulação.
+        Há dois caminhos, e o primeiro traz muito mais coisa.
       </p>
-      <ol class="steps">
-        <li><span><b>Abra o Gerenciador de Anúncios</b> na conta da Ituran Mob e escolha o período <code>1 de ago</code> até hoje.</span></li>
-        <li><span><b>Nas colunas, use “Desempenho e cliques”</b> e garanta que apareçam: valor gasto, impressões, alcance, cliques no link e o resultado de cadastro/lead.</span></li>
-        <li><span><b>Em “Divisão”, marque <code>Por dia</code></b> — e, se quiser o mapa de onde os anúncios apareceram, também <code>Plataforma</code> e <code>Posicionamento</code>.</span></li>
-        <li><span><b>Exporte em CSV</b> (Relatórios → Exportar → <code>.csv</code>) e solte o arquivo ao lado.</span></li>
-      </ol>
-      <p class="note" style="margin-top:14px; color: var(--ink-3); font-size:12.5px">
-        Exportou no nível de anúncio? Melhor ainda — é assim que o painel consegue comparar criativo por criativo.
-      </p>
+
+      <div class="via">
+        <div class="via-cab"><span class="chip on"><span class="dot"></span>completo</span>
+          <b>Direto da API do Meta</b></div>
+        <p class="via-txt">
+          Traz o que o CSV não carrega: idade e gênero cruzados, região, hora do dia,
+          retenção de vídeo, todos os tipos de conversão e a miniatura de cada criativo.
+        </p>
+        <ol class="steps">
+          <li><span><b>Pegue um token de acesso.</b> Em <code>developers.facebook.com</code> → Ferramentas → Graph API Explorer, escolha o app, marque a permissão <code>ads_read</code> e gere. Para um token que dura, crie um <b>usuário do sistema</b> nas configurações do Business Manager.</span></li>
+          <li><span><b>Pegue o id da conta:</b> é o número depois de <code>act_</code> na URL do Gerenciador de Anúncios.</span></li>
+          <li><span><b>Rode o script</b> na pasta do projeto:<br>
+            <code class="bloco">META_ACCESS_TOKEN="EAAG…" META_AD_ACCOUNT_ID="act_123…" \
+node puxar-meta.mjs --desde 2026-08-01</code></span></li>
+          <li><span><b>Solte o <code>dados-meta.json</code></b> que ele gerar aqui ao lado.</span></li>
+        </ol>
+      </div>
+
+      <div class="via">
+        <div class="via-cab"><span class="chip"><span class="dot"></span>rápido</span>
+          <b>CSV do Gerenciador</b></div>
+        <p class="via-txt">Sem token e sem terminal, mas só com o que couber nas colunas do export.</p>
+        <ol class="steps">
+          <li><span><b>Gerenciador de Anúncios</b> → período <code>1 de ago</code> até hoje, colunas “Desempenho e cliques”.</span></li>
+          <li><span><b>Divisão:</b> <code>Por dia</code> e, se quiser o mapa de posicionamentos, <code>Plataforma</code> e <code>Posicionamento</code>.</span></li>
+          <li><span><b>Relatórios → Exportar → <code>.csv</code></b> e solte o arquivo ao lado.</span></li>
+        </ol>
+      </div>
     </div>
 
     <div style="display:flex; flex-direction:column; gap:14px">
       <div class="drop" id="drop">
-        <span class="big">Solte o CSV aqui</span>
+        <span class="big">Solte o arquivo aqui</span>
         <span class="sm">ou</span>
         <button class="btn-primary" id="btnPick">Escolher arquivo</button>
-        <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="vh">
-        <span class="sm">CSV, TSV ou TXT — até uns 10 MB</span>
+        <input type="file" id="file" accept=".json,.csv,.tsv,.txt,application/json,text/csv,text/plain" class="vh">
+        <span class="sm"><code>dados-meta.json</code> da API, ou CSV/TSV do Gerenciador</span>
       </div>
 
       <div>
@@ -512,6 +572,10 @@ footer{
       <div class="fgroup" id="fAdsetWrap">
         <span class="ctrl-lbl">Conjunto</span>
         <select id="fAdset" aria-label="Filtrar por conjunto"><option value="">Todos</option></select>
+      </div>
+      <div class="fgroup hidden" id="fLeadWrap">
+        <span class="ctrl-lbl">Conta como lead</span>
+        <select id="fLead" aria-label="Qual ação da conta é contada como lead"></select>
       </div>
       <span class="spacer"></span>
       <span class="count" id="rowCount"></span>
@@ -584,6 +648,31 @@ footer{
       <div id="whereBody"></div>
     </section>
 
+    <!-- Demografia -->
+    <section class="card hidden" id="secDemo">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Quem viu e quem virou lead</h2>
+          <p class="note">Cruzamento de faixa etária com gênero. A intensidade do azul acompanha o valor; a coluna e a linha de total fecham o recorte.</p>
+        </div>
+        <div class="ctrls">
+          <select id="demoMetric" aria-label="Métrica da matriz"></select>
+        </div>
+      </div>
+      <div class="tbl-wrap" id="demoBody"></div>
+    </section>
+
+    <!-- Vídeo -->
+    <section class="card hidden" id="secVideo">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Até onde as pessoas assistem</h2>
+          <p class="note" id="videoNote"></p>
+        </div>
+      </div>
+      <div id="videoBody"></div>
+    </section>
+
     <!-- Criativos -->
     <section class="card" id="secCreative">
       <div class="card-head">
@@ -603,6 +692,17 @@ footer{
         <div class="tip" id="scTip" role="status"></div>
       </div>
       <div class="tbl-wrap"><table id="creaTable"></table></div>
+    </section>
+
+    <!-- O que os anúncios geraram -->
+    <section class="card hidden" id="secAcoes">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Tudo que os anúncios geraram</h2>
+          <p class="note">Cada ação que o Meta registrou no período, não só o lead. Clique em “usar como lead” para recalcular o painel inteiro em cima de outra conversão.</p>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table id="acoesTable"></table></div>
     </section>
 
     <!-- Tabela geral -->
@@ -647,6 +747,10 @@ footer{
         <div class="note-b">
           <strong>Atribuição é a do Meta</strong>
           Os números vêm da janela de atribuição configurada na conta (normalmente 7 dias clique / 1 dia visualização). Lead atribuído no dia do clique, não no dia em que o comercial atendeu — por isso o painel raramente bate com o CRM na comparação diária.
+        </div>
+        <div class="note-b">
+          <strong>Cada recorte é uma consulta separada</strong>
+          Posicionamento, demografia, região e hora do dia vêm de perguntas diferentes feitas à API. Cada uma fecha dentro de si, mas somar duas delas conta a mesma pessoa duas vezes — e nenhuma bate casa decimal com o total da conta, porque o Meta deduplica por pessoa dentro de cada divisão. Compare fatias dentro do mesmo recorte, nunca entre recortes.
         </div>
         <div class="note-b">
           <strong>Variação vs. período anterior</strong>
@@ -697,8 +801,20 @@ const norm = s => String(s||"")
 
 /* ---- formatação pt-BR ---- */
 const nfInt  = new Intl.NumberFormat("pt-BR", {maximumFractionDigits:0});
-const nfBrl0 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",maximumFractionDigits:0});
-const nfBrl2 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
+let MOEDA = "BRL", MOEDA_SIG = "R$";
+let nfBrl0 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",maximumFractionDigits:0});
+let nfBrl2 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
+function setMoeda(code){
+  const c = String(code || "BRL").toUpperCase();
+  if (!/^[A-Z]{3}$/.test(c) || c === MOEDA) return;
+  try {
+    const a = new Intl.NumberFormat("pt-BR", {style:"currency",currency:c,maximumFractionDigits:0});
+    const b = new Intl.NumberFormat("pt-BR", {style:"currency",currency:c,minimumFractionDigits:2,maximumFractionDigits:2});
+    a.format(1);
+    nfBrl0 = a; nfBrl2 = b; MOEDA = c;
+    MOEDA_SIG = (b.formatToParts(1).find(x => x.type === "currency") || {value:c}).value;
+  } catch(e){}
+}
 const nf2    = new Intl.NumberFormat("pt-BR", {minimumFractionDigits:2,maximumFractionDigits:2});
 const nf1    = new Intl.NumberFormat("pt-BR", {minimumFractionDigits:1,maximumFractionDigits:1});
 const DASH = "—";
@@ -716,7 +832,7 @@ function fmt(v, kind){
 }
 function fmtCompact(v, kind){
   if (v == null || !isFinite(v)) return DASH;
-  const a = Math.abs(v), pre = kind === "brl" ? "R$ " : "";
+  const a = Math.abs(v), pre = kind === "brl" ? MOEDA_SIG + " " : "";
   if (kind === "int" || kind === "brl"){
     if (a >= 1e9) return pre + nf2.format(v/1e9).replace(",00","") + " bi";
     if (a >= 1e6) return pre + nf2.format(v/1e6).replace(",00","") + " mi";
@@ -861,6 +977,7 @@ const FIELDS = {
   gender:      { label:"Gênero",            kind:"dim", syn:["genero","gender","sexo"] },
   region:      { label:"Região",            kind:"dim", syn:["regiao","region","estado","cidade","city","dma region"] },
   country:     { label:"País",              kind:"dim", syn:["pais","country"] },
+  hour:        { label:"Hora do dia",       kind:"dim", syn:["hora","hour","horario","hora do dia"] },
 
   spend:       { label:"Investimento",      kind:"num",
     syn:["valor usado brl","valor usado","valor gasto brl","valor gasto","amount spent brl","amount spent","spend","gasto","custo","investimento","valor investido","total spent"],
@@ -933,6 +1050,12 @@ const STATE = {
   dayFirst: true,
   avail: { dims: [], metrics: [] },
   mode: "empty",       // empty | demo | real
+  fonte: "csv",        // csv | api
+  cuts: {},            // recortes extras que só a API entrega
+  acoes: null,         // catálogo de tipos de ação
+  leadAction: null,    // qual ação conta como lead
+  criativos: {},       // ad_id -> {thumb, tipo, titulo, texto}
+  origem: null,
   fileName: "",
   // controles
   metric: "leads",
@@ -940,6 +1063,7 @@ const STATE = {
   form: "bar",
   split: "",
   whereDim: "platform",
+  demoMetric: "leads",
   whereMetric: "spend",
   whereSort: "desc",
   creaLevel: "ad",
@@ -1030,6 +1154,9 @@ function detectAvail(rows){
   if (has("impressions") && has("reach")) derived.push("freq");
   const order = ["spend","leads","cpl","impressions","reach","clicks","ctr","cpc","cpm","cvr","freq"];
   const all = metrics.concat(derived);
+  for (const extra of Object.values(STATE.cuts || {}))
+    for (const k of DIM_KEYS)
+      if (!dims.includes(k) && extra.some(r => r[k])) dims.push(k);
   return { dims, metrics: order.filter(k => all.includes(k)) };
 }
 </script>
@@ -1049,15 +1176,25 @@ function metricOf(a, key){
   if (!den) return null;
   return (a[m.num] / den) * (m.mult || 1);
 }
-function filtered(){
+function aplicarFiltros(rows){
   const { d1, d2, fCamp, fAdset } = STATE;
-  return STATE.rows.filter(r => {
+  const temAdset = fAdset ? rows.some(r => r.adset) : false;
+  return rows.filter(r => {
     if (d1 && r.date && r.date < d1) return false;
     if (d2 && r.date && r.date > d2) return false;
-    if (fCamp && r.campaign !== fCamp) return false;
-    if (fAdset && r.adset !== fAdset) return false;
+    if (fCamp && r.campaign && r.campaign !== fCamp) return false;
+    if (fAdset && temAdset && r.adset !== fAdset) return false;
     return true;
   });
+}
+function filtered(){ return aplicarFiltros(STATE.rows); }
+/* cada dimensão sai do recorte certo — somar recortes diferentes contaria duas vezes */
+const CUT_DE = { platform:"posicionamento", placement:"posicionamento", device:"posicionamento",
+                 age:"demografia", gender:"demografia", region:"regiao", country:"regiao", hour:"hora" };
+function rowsDaDim(dim){
+  const c = CUT_DE[dim];
+  if (c && STATE.cuts[c] && STATE.cuts[c].length) return aplicarFiltros(STATE.cuts[c]);
+  return filtered();
 }
 function prevWindow(){
   const { d1, d2 } = STATE;
@@ -1128,9 +1265,9 @@ function axisFmt(v, unit){
     return (Number.isInteger(q) ? nfInt.format(q) : nf1.format(q)) + suf;
   };
   if (unit === "brl" || unit === "brl2"){
-    if (Math.abs(v) >= 1e6) return "R$ " + kilo(v, 1e6, " mi");
-    if (Math.abs(v) >= 1000) return "R$ " + kilo(v, 1000, "k");
-    return "R$ " + (Number.isInteger(v) ? nfInt.format(v) : nf2.format(v).replace(",00",""));
+    if (Math.abs(v) >= 1e6) return MOEDA_SIG + " " + kilo(v, 1e6, " mi");
+    if (Math.abs(v) >= 1000) return MOEDA_SIG + " " + kilo(v, 1000, "k");
+    return MOEDA_SIG + " " + (Number.isInteger(v) ? nfInt.format(v) : nf2.format(v).replace(",00",""));
   }
   if (unit === "int"){
     if (Math.abs(v) >= 1e6) return kilo(v, 1e6, " mi");
@@ -1430,7 +1567,7 @@ function renderWhere(){
       "<b>Seu export não tem recorte de posicionamento.</b>Volte ao Gerenciador, abra <b>Divisão → Por veiculação</b> e marque <b>Plataforma</b> e <b>Posicionamento</b>. Exporte de novo e solte aqui: esta seção monta sozinha."}));
     return;
   }
-  const rows = filtered();
+  const rows = rowsDaDim(dim);
   const mk = STATE.whereMetric, M = METRICS[mk];
   const g = groupBy(rows, dim);
   let items = [...g.entries()].map(([name, a]) => ({ name, a, v: metricOf(a, mk) }))
@@ -1593,8 +1730,23 @@ function renderCreative(){
   for (const d of ranked.slice(0, 12)){
     const tr = h("tr");
     const th = h("th",{scope:"row"});
-    th.appendChild(document.createTextNode(d.name));
-    if (lvl !== "campaign" && d.a && rowsNameFor(rows, lvl, d.name)) th.appendChild(h("small",{text: rowsNameFor(rows, lvl, d.name)}));
+    const cri = (lvl === "ad" && STATE.adPorNome) ? STATE.criativos[STATE.adPorNome[d.name]] : null;
+    const rot = h("div");
+    rot.appendChild(document.createTextNode(d.name));
+    const sub = rowsNameFor(rows, lvl, d.name);
+    const extra = [sub, cri && cri.tipo ? cri.tipo.toLowerCase() : "", cri && cri.status === "PAUSED" ? "pausado" : ""].filter(Boolean).join(" · ");
+    if (extra) rot.appendChild(h("small",{text: extra}));
+    if (cri && cri.thumb){
+      const cel = h("div",{class:"thumb-cel"});
+      cel.appendChild(h("img",{class:"thumb", src: cri.thumb, alt:"", loading:"lazy"}));
+      cel.appendChild(rot);
+      th.appendChild(cel);
+    } else if (cri){
+      const cel = h("div",{class:"thumb-cel"});
+      cel.appendChild(h("div",{class:"thumb-vazia", text: cri.tipo === "VIDEO" ? "\u25B6" : "\u25A3", "aria-hidden":"true"}));
+      cel.appendChild(rot);
+      th.appendChild(cel);
+    } else th.appendChild(rot);
     tr.appendChild(th);
     for (const c of cols){
       const v = metricOf(d.a, c);
@@ -1690,6 +1842,82 @@ function renderTable(){
 
 <script>
 "use strict";
+/* ============================================================
+   11b. arquivo da Marketing API (gerado pelo puxar-meta.mjs)
+   ============================================================ */
+const ACAO_ROTULO = {
+  "lead":"Cadastros (lead)",
+  "leadgen_grouped":"Formulário instantâneo",
+  "onsite_conversion.lead_grouped":"Leads no Meta (agrupado)",
+  "onsite_conversion.lead_form":"Formulário instantâneo",
+  "offsite_conversion.fb_pixel_lead":"Lead no site (pixel)",
+  "offsite_conversion.fb_pixel_complete_registration":"Cadastro concluído (pixel)",
+  "offsite_conversion.fb_pixel_purchase":"Compra (pixel)",
+  "offsite_conversion.fb_pixel_add_to_cart":"Carrinho (pixel)",
+  "offsite_conversion.fb_pixel_view_content":"Conteúdo visto (pixel)",
+  "onsite_conversion.messaging_conversation_started_7d":"Conversa iniciada",
+  "onsite_conversion.messaging_first_reply":"Primeira resposta",
+  "link_click":"Cliques no link",
+  "landing_page_view":"Visualizações da página",
+  "post_engagement":"Engajamento com a publicação",
+  "page_engagement":"Engajamento com a página",
+  "video_view":"Visualizações do vídeo",
+  "post_reaction":"Reações", "comment":"Comentários", "post":"Compartilhamentos",
+  "onsite_conversion.post_save":"Salvamentos", "like":"Curtidas na página"
+};
+const rotuloAcao = t => ACAO_ROTULO[t] || String(t||"").replace(/^offsite_conversion\./,"").replace(/^onsite_conversion\./,"").replace(/[._]/g," ");
+function horaCurta(h){
+  const m = String(h||"").match(/^(\d{1,2})/);
+  return m ? String(+m[1]).padStart(2,"0") + "h" : String(h||"");
+}
+function linhaAPI(r){
+  return {
+    date: r.d || null,
+    campaign: r.c || "", adset: r.s || "", ad: r.a || "", _aid: r.aid || null,
+    platform: pretty(r.pl || ""), placement: pretty(r.pp || ""), device: pretty(r.dv || ""),
+    age: r.id || "", gender: pretty(r.gn || ""), region: r.rg || "", country: r.pa || "",
+    hour: r.hr ? horaCurta(r.hr) : "",
+    spend: r.gasto || 0, impressions: r.impr || 0, reach: r.alc || 0,
+    clicks: r.lcliq || r.cliq || 0, leads: 0,
+    _ac: r.ac || null, _vd: r.vd || null
+  };
+}
+function aplicarAcaoLead(){
+  const k = STATE.leadAction;
+  const marca = rows => { for (const r of rows) r.leads = (k && r._ac) ? (r._ac[k] || 0) : 0; };
+  marca(STATE.rows);
+  for (const v of Object.values(STATE.cuts)) marca(v);
+}
+function ingestJSON(obj, nome){
+  if (!obj || obj.formato !== "painel-ituranmob/1" || !obj.cortes || !obj.cortes.diario){
+    msg("#importMsg","err","<b>Esse JSON não veio do <code>puxar-meta.mjs</code>.</b> Rode o script de novo e solte o <code>dados-meta.json</code> que ele gerar. Para planilhas, use o CSV.");
+    return false;
+  }
+  STATE.fonte = "api";
+  STATE.origem = obj;
+  setMoeda(obj.conta && obj.conta.moeda);
+  STATE.acoes = obj.acoes || { disponiveis: [], sugerida: null };
+  const disp = STATE.acoes.disponiveis || [];
+  STATE.leadAction = STATE.acoes.sugerida || (disp[0] && disp[0].tipo) || null;
+  STATE.criativos = {};
+  for (const c of (obj.criativos || [])) if (c.aid) STATE.criativos[c.aid] = c;
+  STATE.rows = (obj.cortes.diario || []).map(linhaAPI);
+  STATE.cuts = {};
+  for (const [k, v] of Object.entries(obj.cortes)) if (k !== "diario" && Array.isArray(v)) STATE.cuts[k] = v.map(linhaAPI);
+  STATE.adPorNome = {};
+  for (const r of STATE.rows) if (r.ad && r._aid && !STATE.adPorNome[r.ad]) STATE.adPorNome[r.ad] = r._aid;
+  aplicarAcaoLead();
+  if (!STATE.rows.length){
+    msg("#importMsg","err","<b>O arquivo não tem linhas no recorte diário.</b> Rode o <code>puxar-meta.mjs</code> com um período em que a conta teve veiculação.");
+    return false;
+  }
+  STATE.avail = detectAvail(STATE.rows);
+  STATE.fileName = nome || "dados-meta.json";
+  STATE.mode = "real";
+  bootDash();
+  return true;
+}
+
 /* ============================================================
    12. dados de exemplo (fictícios — só para demonstrar o painel)
    ============================================================ */
@@ -1844,6 +2072,20 @@ function buildMapPanel(){
 }
 
 function loadText(text, name, isDemo){
+  const cru = String(text).replace(/^\uFEFF/,"").trim();
+  if (cru.startsWith("{")){
+    let obj = null;
+    try { obj = JSON.parse(cru); }
+    catch(e){ msg("#importMsg","err","<b>JSON inválido.</b> O arquivo parece truncado. Rode o <code>puxar-meta.mjs</code> de novo."); return false; }
+    STATE.fonte = "api";
+    const ok = ingestJSON(obj, name);
+    if (ok){
+      if (text.length < 4000000) store.set(LS_DATA, JSON.stringify({ text, name })); else store.del(LS_DATA);
+    }
+    return ok;
+  }
+  STATE.fonte = "csv"; STATE.cuts = {}; STATE.acoes = null; STATE.leadAction = null;
+  STATE.criativos = {}; STATE.origem = null; setMoeda("BRL");
   const { rows } = parseDelimited(text);
   STATE.fileName = name || "";
   STATE.mode = isDemo ? "demo" : "real";
@@ -1856,6 +2098,8 @@ function loadText(text, name, isDemo){
   return ok;
 }
 function loadRows(rawRows, name, isDemo){
+  STATE.fonte = "csv"; STATE.cuts = {}; STATE.acoes = null; STATE.leadAction = null;
+  STATE.criativos = {}; STATE.origem = null; setMoeda("BRL");
   STATE.fileName = name || "";
   STATE.mode = isDemo ? "demo" : "real";
   return ingest(rawRows, {});
@@ -1900,7 +2144,7 @@ function bootDash(){
   refreshAdsets();
 
   // recortes disponíveis
-  const whereDims = STATE.avail.dims.filter(d => ["platform","placement","device","age","gender","region","country"].includes(d));
+  const whereDims = STATE.avail.dims.filter(d => ["platform","placement","device","region","country","hour","age","gender"].includes(d));
   const wd = $("#whereDim"); wd.innerHTML = "";
   whereDims.forEach(d => wd.appendChild(opt(d, FIELDS[d].label)));
   if (!whereDims.includes(STATE.whereDim)) STATE.whereDim = whereDims[0] || "";
@@ -1932,6 +2176,21 @@ function bootDash(){
   if (!STATE.avail.dims.includes(STATE.tblDim)) STATE.tblDim = STATE.avail.dims[0];
   td.value = STATE.tblDim;
   if (!STATE.avail.metrics.includes(STATE.tblSort.key)) STATE.tblSort = { key: STATE.avail.metrics[0], dir:"desc" };
+
+  // o que conta como lead (só com dados da API)
+  const lw = $("#fLeadWrap"), fl = $("#fLead");
+  if (STATE.fonte === "api" && STATE.acoes && (STATE.acoes.disponiveis || []).length){
+    lw.classList.remove("hidden"); fl.innerHTML = "";
+    for (const a of STATE.acoes.disponiveis)
+      fl.appendChild(opt(a.tipo, `${rotuloAcao(a.tipo)} · ${nfInt.format(Math.round(a.total))}`, a.tipo === STATE.leadAction));
+    fl.value = STATE.leadAction || "";
+  } else lw.classList.add("hidden");
+  $("#btnRemap").hidden = STATE.fonte === "api";
+
+  const dm = $("#demoMetric"); dm.innerHTML = "";
+  STATE.avail.metrics.forEach(m => dm.appendChild(opt(m, METRICS[m].label)));
+  if (!STATE.avail.metrics.includes(STATE.demoMetric)) STATE.demoMetric = STATE.avail.metrics.includes("leads") ? "leads" : STATE.avail.metrics[0];
+  dm.value = STATE.demoMetric;
 
   // métrica principal
   if (!STATE.avail.metrics.includes(STATE.metric)) STATE.metric = STATE.avail.metrics[0];
@@ -1967,12 +2226,25 @@ function renderAll(){
   renderResumo();
   drawTimeSeries();
   renderWhere();
+  renderDemografia();
+  renderVideo();
   renderCreative();
+  renderAcoes();
   renderTable();
-  const src = STATE.mode === "demo"
-    ? "Números fictícios, gerados só para demonstrar o painel — não vieram da conta da Ituran Mob."
-    : `Fonte: ${STATE.fileName || "arquivo local"}, exportado do Gerenciador de Anúncios do Meta. O arquivo é lido no seu navegador e não sai daqui.`;
-  $("#footNote").textContent = src + " Todos os cálculos são refeitos a partir das linhas do export, respeitando os filtros ativos.";
+  let src;
+  if (STATE.mode === "demo"){
+    src = "Números fictícios, gerados só para demonstrar o painel — não vieram da conta da Ituran Mob.";
+  } else if (STATE.fonte === "api" && STATE.origem){
+    const o = STATE.origem;
+    const q = o.origem || {};
+    src = `Fonte: Marketing API do Meta (${q.api || "?"}), conta ${o.conta && o.conta.nome ? o.conta.nome : o.conta.id}, período ${o.periodo.de} a ${o.periodo.ate}, baixado em ${String(q.gerado_em||"").slice(0,10)} por puxar-meta.mjs. Cada recorte é uma consulta própria à API — por isso posicionamento, demografia e região fecham entre si, mas não devem ser somados uns aos outros.`;
+  } else {
+    src = `Fonte: ${STATE.fileName || "arquivo local"}, exportado do Gerenciador de Anúncios do Meta. O arquivo é lido no seu navegador e não sai daqui.`;
+  }
+  $("#footNote").textContent = src + " Todos os cálculos são refeitos a partir das linhas de origem, respeitando os filtros ativos.";
+  if (STATE.fonte === "api" && STATE.origem && STATE.origem.conta && STATE.origem.conta.nome){
+    $("#srcTxt").textContent = STATE.origem.conta.nome;
+  }
 }
 
 function renderResumo(){
@@ -2017,6 +2289,222 @@ function renderResumo(){
 }
 
 /* ============================================================
+   14b. seções que só a API entrega
+   ============================================================ */
+function ordIdade(a,b){
+  const n = x => { const m = String(x).match(/(\d+)/); return m ? +m[1] : 999; };
+  return n(a) - n(b);
+}
+function ordGenero(a,b){
+  const r = { "Homens":0, "Mulheres":1 };
+  const v = x => (x in r) ? r[x] : 2;
+  return v(a) - v(b) || (a < b ? -1 : 1);
+}
+function renderDemografia(){
+  const sec = $("#secDemo"), body = $("#demoBody");
+  const cut = STATE.cuts.demografia;
+  if (!cut || !cut.length){ sec.classList.add("hidden"); return; }
+  const rows = aplicarFiltros(cut);
+  const idades = [...new Set(rows.map(r => r.age).filter(Boolean))].sort(ordIdade);
+  const generos = [...new Set(rows.map(r => r.gender).filter(Boolean))].sort(ordGenero);
+  if (!idades.length || !generos.length){ sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  body.innerHTML = "";
+
+  const mk = STATE.demoMetric && METRICS[STATE.demoMetric] ? STATE.demoMetric : "leads";
+  const M = METRICS[mk];
+  const cel = new Map(), porIdade = new Map(), porGenero = new Map(), geral = emptyAgg();
+  for (const r of rows){
+    if (!r.age || !r.gender) continue;
+    const k = r.age + "\u0000" + r.gender;
+    if (!cel.has(k)) cel.set(k, emptyAgg());
+    addTo(cel.get(k), r);
+    if (!porIdade.has(r.age)) porIdade.set(r.age, emptyAgg());
+    addTo(porIdade.get(r.age), r);
+    if (!porGenero.has(r.gender)) porGenero.set(r.gender, emptyAgg());
+    addTo(porGenero.get(r.gender), r);
+    addTo(geral, r);
+  }
+  const vals = [];
+  for (const a of cel.values()){ const v = metricOf(a, mk); if (v != null) vals.push(v); }
+  const lo = Math.min(...vals, Infinity), hi = Math.max(...vals, -Infinity);
+  const wash = v => {
+    if (v == null || !isFinite(v) || hi === lo) return "transparent";
+    const p = (v - lo) / (hi - lo);
+    return `color-mix(in srgb, var(--s1) ${(7 + p * 46).toFixed(0)}%, var(--surface))`;
+  };
+
+  const t = h("table",{class:"matriz"});
+  const thead = h("thead"), trh = h("tr");
+  trh.appendChild(h("th",{text:""}));
+  for (const g of generos) trh.appendChild(h("th",{scope:"col", text:g}));
+  trh.appendChild(h("th",{scope:"col", class:"tot", text:"Total"}));
+  thead.appendChild(trh); t.appendChild(thead);
+
+  const tb = h("tbody");
+  for (const id of idades){
+    const tr = h("tr");
+    tr.appendChild(h("th",{scope:"row", text:id}));
+    for (const g of generos){
+      const a = cel.get(id + "\u0000" + g);
+      const v = a ? metricOf(a, mk) : null;
+      const td = h("td",{class: v == null ? "vaz" : ""});
+      td.textContent = fmt(v, M.unit);
+      if (v != null){
+        td.style.background = wash(v);
+        td.title = `${id} · ${g} — ${fmt(a.spend,"brl")} investidos, ${fmt(a.leads,"int")} leads`;
+        if (mk !== "leads" && a.leads) td.appendChild(h("small",{text: fmt(a.leads,"int") + " leads"}));
+      }
+      tr.appendChild(td);
+    }
+    const at = porIdade.get(id);
+    tr.appendChild(h("td",{class:"tot", text: fmt(at ? metricOf(at, mk) : null, M.unit)}));
+    tb.appendChild(tr);
+  }
+  const trf = h("tr");
+  trf.appendChild(h("th",{scope:"row", class:"tot", text:"Total"}));
+  for (const g of generos){
+    const a = porGenero.get(g);
+    trf.appendChild(h("td",{class:"tot", text: fmt(a ? metricOf(a, mk) : null, M.unit)}));
+  }
+  trf.appendChild(h("td",{class:"tot", text: fmt(metricOf(geral, mk), M.unit)}));
+  tb.appendChild(trf);
+  t.appendChild(tb);
+  body.appendChild(t);
+
+  // leitura curta
+  const totalGeral = aggRows(filtered());
+  const dif = totalGeral.spend ? Math.abs(geral.spend - totalGeral.spend) / totalGeral.spend : 0;
+  const legenda = h("p",{class:"note", style:"margin:12px 0 0; color:var(--ink-3); font-size:12.5px"});
+  legenda.innerHTML = `Este recorte é uma consulta própria à API e fecha em <b>${fmt(geral.spend,"brl")}</b> / ${fmt(geral.leads,"int")} leads.` +
+    (dif > 0.02 ? ` O total da conta no mesmo período é ${fmt(totalGeral.spend,"brl")} — o Meta calcula cada divisão em separado e faz a deduplicação por pessoa dentro dela, então os recortes não batem casa decimal com o total.` : "");
+  body.appendChild(legenda);
+
+  const cands = [...cel.entries()].map(([k,a]) => ({ k, a, cpl: metricOf(a,"cpl") }))
+    .filter(d => d.cpl != null && d.a.leads >= 3).sort((x,y) => x.cpl - y.cpl);
+  if (cands.length > 1){
+    const nome = d => d.k.split("\u0000").reverse().join(", ");
+    body.appendChild(h("p",{class:"note", style:"margin:14px 0 0",
+      html:`Lead mais barato em <b>${nome(cands[0])}</b> (${fmt(cands[0].cpl,"brl2")}); mais caro em <b>${nome(cands[cands.length-1])}</b> (${fmt(cands[cands.length-1].cpl,"brl2")}). Só entram recortes com 3 leads ou mais.`}));
+  }
+}
+
+function renderVideo(){
+  const sec = $("#secVideo"), body = $("#videoBody");
+  const rows = filtered().filter(r => r._vd);
+  if (!rows.length){ sec.classList.add("hidden"); return; }
+  const t = { play:0, p25:0, p50:0, p75:0, p100:0, thru:0 };
+  for (const r of rows) for (const k in t) t[k] += (r._vd[k] || 0);
+  const base = t.play || t.p25;
+  if (!base){ sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  body.innerHTML = "";
+
+  const fases = [
+    ["Começaram a ver", t.play],
+    ["Chegaram a 25%",  t.p25],
+    ["Chegaram a 50%",  t.p50],
+    ["Chegaram a 75%",  t.p75],
+    ["Viram até o fim", t.p100]
+  ];
+  const box = h("div",{class:"funil"});
+  fases.forEach(([et, v], i) => {
+    const linha = h("div",{class:"fase"});
+    linha.appendChild(h("div",{class:"et", text: et}));
+    const tr = h("div",{class:"tr"});
+    const fl = h("div",{class:"fl", style:`width:${Math.max(0.6, v/base*100).toFixed(1)}%; opacity:${(1 - i*0.13).toFixed(2)}`});
+    tr.appendChild(fl); linha.appendChild(tr);
+    const vl = h("div",{class:"vl"});
+    vl.appendChild(h("b",{text: fmt(v,"int")}));
+    vl.appendChild(h("span",{text: "  " + nf1.format(v/base*100) + "%"}));
+    linha.appendChild(vl);
+    box.appendChild(linha);
+  });
+  body.appendChild(box);
+
+  const ret = t.p100 / base, gasto = rows.reduce((s,r) => s + r.spend, 0);
+  $("#videoNote").innerHTML = `Funil de retenção dos criativos em vídeo: de cada 100 pessoas que começam, <b>${nf1.format(ret*100)}</b> chegam ao fim. ${t.thru ? `ThruPlay (15s ou o vídeo inteiro): <b>${fmt(t.thru,"int")}</b>. ` : ""}Base de ${fmt(gasto,"brl")} investidos em vídeo no recorte.`;
+
+  // criativos por retenção
+  const g = new Map();
+  for (const r of rows){
+    const nm = r.ad || r.campaign || "(sem nome)";
+    if (!g.has(nm)) g.set(nm, { play:0, p100:0, spend:0, leads:0 });
+    const o = g.get(nm);
+    o.play += r._vd.play || 0; o.p100 += r._vd.p100 || 0;
+    o.spend += r.spend; o.leads += r.leads;
+  }
+  const lista = [...g.entries()].filter(([,o]) => o.play >= 50)
+    .map(([nm,o]) => ({ nm, ...o, ret: o.p100 / o.play })).sort((a,b) => b.ret - a.ret);
+  if (lista.length > 1){
+    const tab = h("table",{style:"margin-top:18px"});
+    const th = h("thead"), tr = h("tr");
+    ["Criativo","Começaram","Até o fim","Retenção","Investido","Leads"].forEach((c,i) =>
+      tr.appendChild(h("th",{scope:"col", text:c})));
+    th.appendChild(tr); tab.appendChild(th);
+    const tb = h("tbody");
+    for (const d of lista.slice(0,10)){
+      const r2 = h("tr");
+      r2.appendChild(h("th",{scope:"row", text:d.nm}));
+      r2.appendChild(h("td",{text: fmt(d.play,"int")}));
+      r2.appendChild(h("td",{text: fmt(d.p100,"int")}));
+      const td = h("td",{text: nf1.format(d.ret*100) + "%"});
+      td.className = d.ret >= ret ? "pos" : "neg";
+      r2.appendChild(td);
+      r2.appendChild(h("td",{text: fmt(d.spend,"brl")}));
+      r2.appendChild(h("td",{text: fmt(d.leads,"int")}));
+      tb.appendChild(r2);
+    }
+    tab.appendChild(tb);
+    const cap = h("caption",{text:"Verde é retenção acima da média da conta. Só criativos com 50 reproduções ou mais."});
+    cap.style.cssText = "caption-side:bottom;text-align:left;font-size:12.5px;color:var(--ink-3);padding-top:10px";
+    tab.appendChild(cap);
+    body.appendChild(h("div",{class:"tbl-wrap"},[tab]));
+  }
+}
+
+function renderAcoes(){
+  const sec = $("#secAcoes");
+  if (STATE.fonte !== "api"){ sec.classList.add("hidden"); return; }
+  const rows = filtered();
+  const tot = {}; let gasto = 0;
+  for (const r of rows){
+    gasto += r.spend;
+    for (const [k, v] of Object.entries(r._ac || {})) tot[k] = (tot[k] || 0) + v;
+  }
+  const lista = Object.entries(tot).map(([tipo, total]) => ({ tipo, total })).sort((a,b) => b.total - a.total);
+  if (!lista.length){ sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+
+  const t = $("#acoesTable"); t.innerHTML = "";
+  const th = h("thead"), tr = h("tr");
+  ["Ação","Total","Custo por ação","Nome no Meta",""].forEach(c => tr.appendChild(h("th",{scope:"col", text:c})));
+  th.appendChild(tr); t.appendChild(th);
+  const tb = h("tbody");
+  for (const d of lista){
+    const r2 = h("tr");
+    const nome = h("th",{scope:"row"});
+    nome.appendChild(document.createTextNode(rotuloAcao(d.tipo)));
+    if (d.tipo === STATE.leadAction) nome.appendChild(h("small",{text:"contando como lead neste painel"}));
+    r2.appendChild(nome);
+    r2.appendChild(h("td",{text: fmt(d.total,"int")}));
+    r2.appendChild(h("td",{text: d.total ? fmt(gasto/d.total,"brl2") : DASH}));
+    const cru = h("td",{text: d.tipo});
+    cru.style.cssText = "color:var(--ink-4);font-size:11.5px;text-align:left";
+    r2.appendChild(cru);
+    const acao = h("td");
+    if (d.tipo !== STATE.leadAction){
+      const b = h("button",{class:"btn-ghost btn-sm", type:"button", text:"usar como lead"});
+      b.addEventListener("click", () => { STATE.leadAction = d.tipo; $("#fLead").value = d.tipo; aplicarAcaoLead(); renderAll(); });
+      acao.appendChild(b);
+    }
+    r2.appendChild(acao);
+    tb.appendChild(r2);
+  }
+  t.appendChild(tb);
+}
+
+/* ============================================================
    15. eventos
    ============================================================ */
 function on(sel, ev, fn){ const n = $(sel); if (n) n.addEventListener(ev, fn); }
@@ -2055,6 +2543,10 @@ on("#btnLoadReal","click", () => {
 on("#btnReset","click", () => {
   store.del(LS_DATA);
   STATE.rows = []; STATE.mode = "empty"; STATE.d1 = STATE.d2 = null; STATE.fCamp = STATE.fAdset = "";
+  STATE.cuts = {}; STATE.acoes = null; STATE.leadAction = null; STATE.criativos = {};
+  STATE.origem = null; STATE.fonte = "csv"; setMoeda("BRL");
+  ["#secDemo","#secVideo","#secAcoes"].forEach(x => $(x).classList.add("hidden"));
+  $("#fLeadWrap").classList.add("hidden");
   document.body.dataset.mode = "empty";
   $("#dash").classList.add("hidden");
   $("#mapPanel").classList.add("hidden");
@@ -2112,6 +2604,8 @@ on("#whereMetric","change", e => { STATE.whereMetric = e.target.value; renderWhe
 on("#creaLevel","change", e => { STATE.creaLevel = e.target.value; renderCreative(); });
 on("#creaY","change", e => { STATE.creaY = e.target.value; renderCreative(); });
 on("#tblDim","change", e => { STATE.tblDim = e.target.value; renderTable(); });
+on("#demoMetric","change", e => { STATE.demoMetric = e.target.value; renderDemografia(); });
+on("#fLead","change", e => { STATE.leadAction = e.target.value; aplicarAcaoLead(); renderAll(); });
 on("#tblSearch","input", e => { STATE.tblQ = e.target.value; renderTable(); });
 
 let rz;
