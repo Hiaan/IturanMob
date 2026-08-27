@@ -1,0 +1,7 @@
+# arquivos de lote precisam de CRLF para o cmd do Windows não engasgar
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.mjs text eol=lf
+*.html text eol=lf
+*.md   text eol=lf

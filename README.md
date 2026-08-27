@@ -6,6 +6,8 @@ Relatório interativo dos anúncios do Meta. Dois arquivos:
 |---|---|
 | `painel-ads.html` | o painel. Abre no navegador, lê o arquivo de dados localmente. Nada é enviado para servidor nenhum. |
 | `puxar-meta.mjs` | baixa os resultados direto da Marketing API do Meta e grava `dados-meta.json`. |
+| `conectar.bat` | atalho do Windows: pede o token, testa a conexão e lista suas contas. Dois cliques. |
+| `puxar.bat` | atalho do Windows: baixa o período e grava `dados-meta.json`. |
 
 O painel também aceita o CSV do Gerenciador de Anúncios, se você não quiser mexer com token.
 A diferença está no fim deste arquivo.
@@ -35,6 +37,11 @@ A diferença está no fim deste arquivo.
 ### 2. Testar a conexão
 
 Precisa de Node 18 ou mais novo (`node --version`). Não instala nada.
+
+**No Windows, o caminho curto:** dê dois cliques em **`conectar.bat`**. Ele pede o
+token, guarda no `.env` e já lista suas contas. Pulando para o passo 3 depois disso.
+
+Pela linha de comando:
 
 **macOS / Linux:**
 
