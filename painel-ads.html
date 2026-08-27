@@ -492,12 +492,12 @@ footer{
         </p>
         <ol class="steps">
           <li><span><b>Pegue um token de acesso.</b> Em <code>developers.facebook.com</code> → Ferramentas → Graph API Explorer, escolha o app, marque a permissão <code>ads_read</code> e gere. Para um token que dura, crie um <b>usuário do sistema</b> nas configurações do Business Manager.</span></li>
-          <li><span><b>Teste a conexão</b> na pasta do projeto — ele já lista suas contas com o <code>act_…</code> pronto:<br>
-            <code class="bloco">export META_ACCESS_TOKEN="EAAG…"
-node puxar-meta.mjs --contas</code></span></li>
-          <li><span><b>Puxe o período:</b><br>
-            <code class="bloco">export META_AD_ACCOUNT_ID="act_123…"
-node puxar-meta.mjs --desde 2026-08-01</code></span></li>
+          <li><span><b>Guarde o token</b> num arquivo <code>.env</code> na pasta do projeto — funciona igual no Windows, no Mac e no Linux:<br>
+            <code class="bloco">META_ACCESS_TOKEN=EAAG…</code></span></li>
+          <li><span><b>Teste a conexão</b> — ele já lista suas contas com o <code>act_…</code> pronto para copiar:<br>
+            <code class="bloco">node puxar-meta.mjs --contas</code></span></li>
+          <li><span><b>Puxe o período</b> (o id da conta vai na mesma linha ou no <code>.env</code>):<br>
+            <code class="bloco">node puxar-meta.mjs --conta act_123… --desde 2026-08-01</code></span></li>
           <li><span><b>Solte o <code>dados-meta.json</code></b> que ele gerar aqui ao lado.</span></li>
         </ol>
       </div>

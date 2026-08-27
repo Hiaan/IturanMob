@@ -13,6 +13,8 @@
  */
 
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const VERSOES = ["v23.0", "v22.0", "v21.0", "v20.0"];
 const BASE = process.env.META_GRAPH_BASE || "https://graph.facebook.com";
@@ -30,13 +32,41 @@ function lerArgs(argv){
   return o;
 }
 function lerDotEnv(){
-  try {
-    if (!fs.existsSync(".env")) return;
-    for (const linha of fs.readFileSync(".env","utf8").split("\n")){
-      const m = linha.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g,"");
-    }
-  } catch(e){}
+  // procura na pasta atual e ao lado do próprio script
+  const aqui = path.dirname(fileURLToPath(import.meta.url));
+  for (const alvo of [path.resolve(".env"), path.join(aqui, ".env")]){
+    try {
+      if (!fs.existsSync(alvo)) continue;
+      for (const linha of fs.readFileSync(alvo, "utf8").split(/\r?\n/)){
+        const m = linha.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+        if (!m) continue;
+        const chave = m[1].toUpperCase();
+        if (process.env[chave]) continue;
+        process.env[chave] = m[2].replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
+      }
+      return;
+    } catch(e){}
+  }
+}
+
+/* O `set` do cmd guarda espaços em branco do fim da linha dentro do valor,
+   e é fácil colar o token com aspas ou quebra de linha. Limpo os três casos. */
+function limpar(v){
+  return String(v == null ? "" : v).trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
+}
+const WIN = process.platform === "win32";
+function comoDefinir(nome, exemplo){
+  if (WIN){
+    return `  No Prompt de Comando (cmd), sem aspas e sem espaço antes do "=":\n` +
+           `    set ${nome}=${exemplo}\n\n` +
+           `  No PowerShell:\n` +
+           `    $env:${nome} = "${exemplo}"\n\n` +
+           `  Ou crie um arquivo .env na pasta do projeto com a linha:\n` +
+           `    ${nome}=${exemplo}`;
+  }
+  return `  export ${nome}="${exemplo}"\n\n` +
+         `  Ou crie um arquivo .env na pasta do projeto com a linha:\n` +
+         `    ${nome}=${exemplo}`;
 }
 const hoje = () => new Date().toISOString().slice(0,10);
 const primeiroDoMes = () => hoje().slice(0,8) + "01";
@@ -299,17 +329,34 @@ O token vem de META_ACCESS_TOKEN (variável de ambiente ou arquivo .env).
     return;
   }
 
-  const token = process.env.META_ACCESS_TOKEN;
-  const conta0 = args.conta || process.env.META_AD_ACCOUNT_ID || "";
-  if (!token){ console.error("✗ Falta META_ACCESS_TOKEN. Veja o README.md."); process.exit(1); }
+  const token = limpar(process.env.META_ACCESS_TOKEN);
+  const conta0 = limpar(args.conta || process.env.META_AD_ACCOUNT_ID || "");
+  if (!token){
+    console.error("✗ Falta o token de acesso (META_ACCESS_TOKEN).\n");
+    console.error(comoDefinir("META_ACCESS_TOKEN", "EAAG..."));
+    console.error("\n  Como gerar o token está no README.md.");
+    process.exit(1);
+  }
 
   // testar a conexão não exige id de conta — é justamente para descobrir qual usar
   if (args.contas || args.testar || args.teste){
     await listarContas(token, args.api);
     return;
   }
-  if (!conta0){ console.error("✗ Falta META_AD_ACCOUNT_ID (ou --conta act_...). Veja o README.md."); process.exit(1); }
-  const conta = conta0.startsWith("act_") ? conta0 : "act_" + conta0.replace(/\D/g,"");
+  if (!conta0){
+    console.error("✗ Falta o id da conta de anúncios (META_AD_ACCOUNT_ID).\n");
+    console.error("  Rode  node puxar-meta.mjs --contas  para ver as suas e copiar o id.\n");
+    console.error(comoDefinir("META_AD_ACCOUNT_ID", "act_1234567890"));
+    console.error("\n  Ou passe direto:  node puxar-meta.mjs --conta act_1234567890");
+    process.exit(1);
+  }
+  const so = conta0.replace(/\D/g, "");
+  const conta = /^act_\d+$/.test(conta0) ? conta0 : (so ? "act_" + so : conta0);
+  if (!/^act_\d+$/.test(conta)){
+    console.error(`✗ "${conta0}" não parece um id de conta. Esperado algo como act_1234567890.`);
+    console.error("  Rode  node puxar-meta.mjs --contas  para ver as suas.");
+    process.exit(1);
+  }
 
   const cfg = {
     desde: args.desde || primeiroDoMes(),

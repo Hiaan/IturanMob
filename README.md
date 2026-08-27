@@ -36,10 +36,37 @@ A diferença está no fim deste arquivo.
 
 Precisa de Node 18 ou mais novo (`node --version`). Não instala nada.
 
+**macOS / Linux:**
+
 ```bash
 export META_ACCESS_TOKEN="EAAG..."
 node puxar-meta.mjs --contas
 ```
+
+**Windows — Prompt de Comando (cmd):** é `set`, sem aspas e sem espaço antes do `=`.
+
+```bat
+set META_ACCESS_TOKEN=EAAG...
+node puxar-meta.mjs --contas
+```
+
+**Windows — PowerShell:**
+
+```powershell
+$env:META_ACCESS_TOKEN = "EAAG..."
+node puxar-meta.mjs --contas
+```
+
+**Funciona igual em todos:** crie um arquivo chamado `.env` na pasta do projeto
+(sem nome antes do ponto) e escreva as duas linhas abaixo. O script lê sozinho, e
+o `.env` já está no `.gitignore`.
+
+```
+META_ACCESS_TOKEN=EAAG...
+META_AD_ACCOUNT_ID=act_1234567890
+```
+
+Com o `.env` pronto, é só `node puxar-meta.mjs --contas` — sem `set` nem `export`.
 
 Ele diz se o token vale, com qual usuário você está autenticado, e lista todas as
 contas de anúncios que esse token enxerga — já com o `act_...` pronto para copiar:
@@ -63,11 +90,17 @@ Se preferir pegar o id à mão, é o número depois de `act_` na URL do Gerencia
 
 ### 3. Puxar
 
-```bash
-export META_ACCESS_TOKEN="EAAG..."
-export META_AD_ACCOUNT_ID="act_1234567890"
+Com o `.env` preenchido, basta:
 
+```bash
 node puxar-meta.mjs --desde 2026-08-01
+```
+
+Sem `.env`, defina também o id da conta antes (`set` no cmd, `$env:` no PowerShell,
+`export` no macOS/Linux) — ou passe direto na linha de comando:
+
+```bash
+node puxar-meta.mjs --conta act_1234567890 --desde 2026-08-01
 ```
 
 Ou crie um arquivo `.env` na mesma pasta (já está no `.gitignore`):
@@ -147,6 +180,8 @@ aparece em dias e posicionamentos diferentes. O painel marca esses casos com `�
 | `limite de chamadas do Meta` | o script já espera e tenta de novo sozinho; períodos longos demoram mais |
 | `(#3018) breakdown` num recorte | aquele recorte não existe para essa conta/objetivo — o painel esconde a seção e segue |
 | não consegui falar com graph.facebook.com | rede, proxy ou VPN bloqueando |
+| `'export' não é reconhecido...` | você está no Windows: use `set` no cmd, `$env:` no PowerShell, ou o arquivo `.env` |
+| `'node' não é reconhecido...` | Node não instalado ou fora do PATH — instale em nodejs.org e **abra um terminal novo** |
 
 ---
 
