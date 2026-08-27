@@ -1,0 +1,2136 @@
+<title>Painel de Mídia Ituran Mob</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
+
+<style>
+/* ============================================================
+   TOKENS — painel de instrumentos: face fria, sinal âmbar
+   ============================================================ */
+:root{
+  color-scheme: light;
+  --plane:      #eef1f4;
+  --surface:    #ffffff;
+  --surface-2:  #f7f9fb;
+  --surface-3:  #eff3f7;
+  --line:       #d8dfe6;
+  --line-soft:  #e8edf2;
+  --ink:        #0e1319;
+  --ink-2:      #4a5563;
+  --ink-3:      #7a8695;
+  --ink-4:      #a3adb9;
+
+  --accent:     #9a6000;   /* âmbar de texto (contraste em fundo claro) */
+  --accent-mark:#f0a500;   /* âmbar de marca / régua */
+  --accent-wash:#fdf3dc;
+
+  --s1: #2a78d6;  --s2: #eb6834;  --s3: #1baf7a;  --s4: #4a3aa7;
+  --s1-wash: rgba(42,120,214,.12);
+
+  --good: #0ca30c;  --warn: #b8860b;  --crit: #d03b3b;
+  --good-wash: rgba(12,163,12,.10);
+  --crit-wash: rgba(208,59,59,.10);
+
+  --grid:     #e4e9ee;
+  --baseline: #c4ced8;
+  --ring:     rgba(14,19,25,.09);
+  --shadow:   0 1px 1px rgba(14,19,25,.04), 0 6px 18px rgba(14,19,25,.05);
+  --shadow-lg:0 2px 4px rgba(14,19,25,.06), 0 18px 44px rgba(14,19,25,.10);
+
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --disp: "Archivo", "Public Sans", ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:      #0b0e12;
+    --surface:    #151a21;
+    --surface-2:  #1a2028;
+    --surface-3:  #212832;
+    --line:       #2a323d;
+    --line-soft:  #212832;
+    --ink:        #eef2f6;
+    --ink-2:      #a9b4c1;
+    --ink-3:      #7c8794;
+    --ink-4:      #5f6a77;
+
+    --accent:     #ffb020;
+    --accent-mark:#ffb020;
+    --accent-wash:#2c2312;
+
+    --s1: #3987e5;  --s2: #d95926;  --s3: #199e70;  --s4: #9085e9;
+    --s1-wash: rgba(57,135,229,.18);
+
+    --good: #0ca30c;  --warn: #fab219;  --crit: #e66767;
+    --good-wash: rgba(12,163,12,.16);
+    --crit-wash: rgba(230,103,103,.14);
+
+    --grid:     #232a34;
+    --baseline: #333c48;
+    --ring:     rgba(255,255,255,.10);
+    --shadow:   0 1px 1px rgba(0,0,0,.34), 0 6px 18px rgba(0,0,0,.30);
+    --shadow-lg:0 2px 4px rgba(0,0,0,.4), 0 18px 44px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:      #0b0e12;
+  --surface:    #151a21;
+  --surface-2:  #1a2028;
+  --surface-3:  #212832;
+  --line:       #2a323d;
+  --line-soft:  #212832;
+  --ink:        #eef2f6;
+  --ink-2:      #a9b4c1;
+  --ink-3:      #7c8794;
+  --ink-4:      #5f6a77;
+
+  --accent:     #ffb020;
+  --accent-mark:#ffb020;
+  --accent-wash:#2c2312;
+
+  --s1: #3987e5;  --s2: #d95926;  --s3: #199e70;  --s4: #9085e9;
+  --s1-wash: rgba(57,135,229,.18);
+
+  --good: #0ca30c;  --warn: #fab219;  --crit: #e66767;
+  --good-wash: rgba(12,163,12,.16);
+  --crit-wash: rgba(230,103,103,.14);
+
+  --grid:     #232a34;
+  --baseline: #333c48;
+  --ring:     rgba(255,255,255,.10);
+  --shadow:   0 1px 1px rgba(0,0,0,.34), 0 6px 18px rgba(0,0,0,.30);
+  --shadow-lg:0 2px 4px rgba(0,0,0,.4), 0 18px 44px rgba(0,0,0,.45);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+*{ box-sizing: border-box; }
+html{ -webkit-text-size-adjust: 100%; }
+body{
+  margin:0; background: var(--plane); color: var(--ink);
+  font-family: var(--sans); font-size: 15px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible{ outline: 2px solid var(--accent-mark); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce){ *{ animation: none !important; transition: none !important; } }
+
+.wrap{ max-width: 1280px; margin: 0 auto; padding: 0 clamp(14px,3vw,32px) 88px; }
+
+/* ---------- topo ---------- */
+.top{
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--plane) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.top-in{
+  max-width:1280px; margin:0 auto; padding: 14px clamp(14px,3vw,32px);
+  display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap; justify-content:space-between;
+}
+.mark{ display:flex; align-items:center; gap:11px; }
+.mark-tick{ width:4px; height:30px; border-radius:2px; background: var(--accent-mark); flex:none; }
+.mark h1{
+  margin:0; font-family: var(--disp); font-weight:800; letter-spacing:-.028em;
+  font-size: clamp(19px,2.4vw,25px); line-height:1.05; text-wrap: balance;
+}
+.mark .sub{
+  margin:2px 0 0; font-family: var(--mono); font-size:11px; letter-spacing:.1em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.top-acts{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+
+/* ---------- controles ---------- */
+button, select, input[type="date"], input[type="search"]{
+  font-family: var(--sans); font-size: 13.5px; color: var(--ink);
+  background: var(--surface); border:1px solid var(--line);
+  border-radius: var(--r-sm); padding: 7px 11px; line-height:1.3;
+}
+select{ padding-right: 26px; appearance:none;
+  background-image: linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+button{ cursor:pointer; font-weight:600; }
+button:hover, select:hover{ border-color: var(--ink-4); }
+.btn-primary{
+  background: var(--ink); color: var(--plane); border-color: var(--ink); font-weight:700;
+}
+.btn-primary:hover{ background: var(--ink-2); border-color: var(--ink-2); }
+.btn-ghost{ background: transparent; }
+.btn-sm{ padding:5px 9px; font-size:12.5px; }
+
+.seg{ display:inline-flex; border:1px solid var(--line); border-radius: var(--r-sm); overflow:hidden; background: var(--surface); }
+.seg button{
+  border:0; border-radius:0; background:transparent; padding:6px 11px;
+  font-size:12.5px; font-weight:600; color: var(--ink-2);
+  border-left:1px solid var(--line);
+}
+.seg button:first-child{ border-left:0; }
+.seg button[aria-pressed="true"]{ background: var(--ink); color: var(--plane); }
+.seg button:hover:not([aria-pressed="true"]){ background: var(--surface-3); }
+
+.chip{
+  display:inline-flex; align-items:center; gap:6px;
+  font-family: var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.09em;
+  text-transform: uppercase; padding:4px 8px; border-radius:999px;
+  border:1px solid var(--line); color: var(--ink-3); background: var(--surface);
+  white-space: nowrap;
+}
+.chip.on{ color: var(--accent); border-color: color-mix(in srgb, var(--accent-mark) 45%, var(--line)); background: var(--accent-wash); }
+.chip .dot{ width:6px; height:6px; border-radius:50%; background: currentColor; flex:none; }
+
+/* ---------- faixa demo ---------- */
+.demo-bar{
+  display:none; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:10px clamp(14px,3vw,32px);
+  background: repeating-linear-gradient(135deg, var(--accent-wash) 0 12px, color-mix(in srgb,var(--accent-mark) 16%, var(--accent-wash)) 12px 24px);
+  border-bottom:1px solid color-mix(in srgb, var(--accent-mark) 40%, var(--line));
+  color: var(--accent); font-weight:700; font-size:13px;
+}
+body[data-mode="demo"] .demo-bar{ display:flex; }
+.demo-bar .txt{ color: var(--ink-2); font-weight:500; }
+.demo-bar .txt b{ color: var(--accent); }
+.tag-demo{ display:none; }
+body[data-mode="demo"] .tag-demo{ display:inline-flex; }
+
+/* ---------- seções / cartões ---------- */
+main{ display:flex; flex-direction:column; gap: 20px; padding-top: 22px; }
+section{ scroll-margin-top: 84px; }
+.card{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow); padding: 18px clamp(14px,2.4vw,22px) 20px;
+  display:flex; flex-direction:column; gap:16px;
+}
+.card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+.card-head .ttl{ display:flex; flex-direction:column; gap:3px; min-width: 200px; }
+h2{
+  margin:0; font-family: var(--disp); font-weight:700; letter-spacing:-.02em;
+  font-size: 17px; display:flex; align-items:center; gap:9px;
+}
+h2::before{ content:""; width:3px; height:14px; border-radius:2px; background: var(--accent-mark); flex:none; }
+.card-head .note{ margin:0; font-size:13px; color: var(--ink-2); max-width: 62ch; }
+.ctrls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ctrl-lbl{
+  font-family: var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+  color: var(--ink-3); font-weight:600;
+}
+
+/* ---------- filtros ---------- */
+.filters{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--r-md);
+  padding: 11px 14px; box-shadow: var(--shadow);
+}
+.fgroup{ display:flex; align-items:center; gap:7px; }
+.fgroup .sep{ color: var(--ink-4); font-size:12px; }
+.filters .spacer{ flex:1 1 auto; }
+.count{ font-family: var(--mono); font-size:12px; color: var(--ink-3); }
+
+/* ---------- grade de métricas (também é o seletor) ---------- */
+.kpis{ display:grid; gap:10px; grid-template-columns: repeat(auto-fill, minmax(178px,1fr)); }
+.kpi{
+  position:relative; text-align:left; cursor:pointer;
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--r-md);
+  padding: 13px 13px 9px; display:flex; flex-direction:column; gap:5px;
+  box-shadow: var(--shadow); transition: border-color .12s, transform .12s;
+  overflow:hidden;
+}
+.kpi::before{
+  content:""; position:absolute; inset:0 0 auto 0; height:2px; background: transparent;
+}
+.kpi:hover{ border-color: var(--ink-4); }
+.kpi[aria-pressed="true"]{ border-color: color-mix(in srgb, var(--accent-mark) 55%, var(--line)); }
+.kpi[aria-pressed="true"]::before{ background: var(--accent-mark); }
+.kpi .lbl{
+  font-family: var(--mono); font-size:10.5px; letter-spacing:.085em; text-transform: uppercase;
+  color: var(--ink-3); font-weight:600; display:flex; align-items:center; gap:5px;
+}
+.kpi .val{
+  font-family: var(--disp); font-weight:700; letter-spacing:-.03em;
+  font-size: clamp(19px,2.1vw,23px); line-height:1.1; color: var(--ink);
+}
+.kpi .foot{ display:flex; align-items:flex-end; justify-content:space-between; gap:8px; margin-top:2px; }
+.kpi .spark{ width:76px; height:24px; flex:none; }
+.kpi .delta{ font-family: var(--mono); font-size:11.5px; font-weight:600; white-space:nowrap; }
+.delta.up{ color: var(--good); } .delta.down{ color: var(--crit); } .delta.flat{ color: var(--ink-3); }
+
+/* ---------- gráficos ---------- */
+.plot-wrap{ position:relative; }
+.plot{ width:100%; display:block; overflow:visible; }
+.scroll-x{ overflow-x:auto; overflow-y:hidden; }
+.scroll-x > svg{ min-width: 560px; }
+text{ font-family: var(--sans); }
+.ax{ font-family: var(--mono); font-size:10.5px; fill: var(--ink-3); }
+.ax-y{ font-family: var(--mono); font-size:10.5px; fill: var(--ink-3); }
+.gridline{ stroke: var(--grid); stroke-width:1; }
+.gridline.zero{ stroke: var(--baseline); }
+.mk-bar{ fill: var(--s1); }
+.mk-line{ fill:none; stroke: var(--s1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.mk-area{ fill: var(--s1); opacity:.10; }
+.mk-dot{ fill: var(--s1); stroke: var(--surface); stroke-width:2; }
+.mk-ref{ stroke: var(--ink-3); stroke-width:1.5; stroke-dasharray:5 4; fill:none; }
+.hover-line{ stroke: var(--ink-3); stroke-width:1; stroke-dasharray:3 3; }
+.hit{ fill: transparent; cursor: crosshair; }
+
+.legend{ display:flex; flex-wrap:wrap; gap:14px; font-size:12.5px; color: var(--ink-2); }
+.legend span{ display:inline-flex; align-items:center; gap:6px; }
+.swatch{ width:11px; height:11px; border-radius:3px; flex:none; }
+
+.tip{
+  position:absolute; z-index:30; pointer-events:none; opacity:0; transform: translate(-50%,-100%);
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--r-sm);
+  box-shadow: var(--shadow-lg); padding:8px 10px; min-width:120px; transition: opacity .09s;
+}
+.tip .t-h{ font-family: var(--mono); font-size:11px; letter-spacing:.03em; color: var(--ink-2); font-weight:600; margin-bottom:5px; max-width:280px; }
+.tip .t-r{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; font-size:12.5px; }
+.tip .t-r + .t-r{ margin-top:2px; }
+.tip .t-k{ color: var(--ink-2); display:inline-flex; align-items:center; gap:6px; }
+.tip .t-v{ font-family: var(--mono); font-weight:600; color: var(--ink); }
+
+/* ---------- barras horizontais (ranking) ---------- */
+.hbars{ display:flex; flex-direction:column; gap:2px; }
+.hbar{
+  display:grid; grid-template-columns: minmax(150px, 290px) minmax(90px,1fr) auto; gap:14px; align-items:center;
+  padding:8px; border-radius: var(--r-sm); border:1px solid transparent;
+}
+@media (max-width: 640px){ .hbar{ grid-template-columns: 1fr auto; } .hbar .track{ grid-column: 1 / -1; } }
+.hbar:hover{ background: var(--surface-2); border-color: var(--line-soft); }
+.hbar .nm{ font-size:13.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hbar .nm small{ display:block; font-family: var(--mono); font-size:10.5px; color: var(--ink-3); font-weight:400; white-space:normal; line-height:1.35; }
+.hbar .track{ height:12px; background: var(--surface-3); border-radius:3px; position:relative; overflow:hidden; }
+.hbar .fill{ position:absolute; inset:0 auto 0 0; background: var(--s1); border-radius:3px; }
+.hbar .vals{ display:flex; align-items:baseline; gap:10px; font-family: var(--mono); font-size:13px; white-space:nowrap; }
+.hbar .vals .pc{ color: var(--ink-3); font-size:11.5px; min-width:44px; text-align:right; }
+
+/* ---------- tabelas ---------- */
+.tbl-wrap{ overflow-x:auto; }
+table{ width:100%; border-collapse: collapse; font-size:13.5px; font-variant-numeric: tabular-nums; }
+thead th{
+  position: sticky; top:0; background: var(--surface); z-index:2;
+  text-align:right; padding:0 0 9px 14px; white-space:nowrap;
+  font-family: var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+  color: var(--ink-3); font-weight:600; border-bottom:1px solid var(--line);
+}
+thead th:first-child{ text-align:left; padding-left:0; }
+thead th.sortable{ cursor:pointer; user-select:none; }
+thead th.sortable:hover{ color: var(--ink); }
+thead th .arrow{ opacity:0; margin-left:4px; }
+thead th[aria-sort] .arrow{ opacity:1; color: var(--accent); }
+tbody th{ text-align:left; font-weight:500; padding:8px 14px 8px 0; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+tbody th small{ display:block; font-family: var(--mono); font-size:10.5px; color: var(--ink-3); font-weight:400; }
+tbody td{ text-align:right; padding:8px 0 8px 14px; color: var(--ink-2); white-space:nowrap; font-family: var(--mono); font-size:12.5px; }
+tbody tr{ border-top:1px solid var(--line-soft); }
+tbody tr:hover{ background: var(--surface-2); }
+tfoot th{ text-align:left; padding:11px 14px 0 0; font-weight:700; font-size:13.5px; }
+tfoot td{ text-align:right; padding:11px 0 0 14px; font-family: var(--mono); font-weight:600; color: var(--ink); white-space:nowrap; }
+tfoot tr{ border-top:2px solid var(--baseline); }
+td.pos{ color: var(--good); font-weight:600; }
+td.neg{ color: var(--crit); font-weight:600; }
+
+/* ---------- estados vazios ---------- */
+.empty{
+  border:1px dashed var(--line); border-radius: var(--r-md); padding:22px;
+  color: var(--ink-2); font-size:13.5px; background: var(--surface-2);
+}
+.empty b{ color: var(--ink); display:block; margin-bottom:4px; font-size:14px; }
+
+/* ---------- importador ---------- */
+.import{
+  background: var(--surface); border:1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow); padding: clamp(20px,3.4vw,34px);
+  display:grid; gap: clamp(20px,3vw,34px); grid-template-columns: minmax(0,1.05fr) minmax(0,1fr);
+}
+@media (max-width: 880px){ .import{ grid-template-columns: 1fr; } }
+.import h2{ font-size:20px; }
+.steps{ counter-reset: st; display:flex; flex-direction:column; gap:12px; margin:14px 0 0; padding:0; list-style:none; }
+.steps li{ counter-increment: st; display:grid; grid-template-columns: 24px 1fr; gap:11px; font-size:13.5px; color: var(--ink-2); }
+.steps li::before{
+  content: counter(st); font-family: var(--mono); font-size:11px; font-weight:600;
+  width:22px; height:22px; border-radius:50%; display:grid; place-items:center;
+  background: var(--accent-wash); color: var(--accent);
+  border:1px solid color-mix(in srgb, var(--accent-mark) 40%, transparent);
+}
+.steps li b{ color: var(--ink); font-weight:600; }
+.steps code{
+  font-family: var(--mono); font-size:12px; background: var(--surface-3);
+  padding:1px 5px; border-radius:4px; color: var(--ink);
+}
+.drop{
+  border:2px dashed var(--line); border-radius: var(--r-md); padding: 26px 20px; text-align:center;
+  background: var(--surface-2); transition: border-color .12s, background .12s;
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+}
+.drop.over{ border-color: var(--accent-mark); background: var(--accent-wash); }
+.drop .big{ font-family: var(--disp); font-weight:700; font-size:16px; letter-spacing:-.02em; }
+.drop .sm{ font-size:12.5px; color: var(--ink-3); }
+.drop .or{ font-family: var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color: var(--ink-4); }
+textarea{
+  width:100%; min-height:96px; resize:vertical; font-family: var(--mono); font-size:12px;
+  border:1px solid var(--line); border-radius: var(--r-sm); padding:9px 10px;
+  background: var(--surface); color: var(--ink); line-height:1.45;
+}
+.err{
+  border-left:3px solid var(--crit); background: var(--crit-wash);
+  padding:9px 12px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size:13px; color: var(--ink);
+}
+.ok{
+  border-left:3px solid var(--good); background: var(--good-wash);
+  padding:9px 12px; border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size:13px; color: var(--ink);
+}
+
+/* ---------- mapeamento de colunas ---------- */
+.map-grid{ display:grid; gap:10px 16px; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); }
+.map-row{ display:flex; flex-direction:column; gap:4px; }
+.map-row .k{ font-family: var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color: var(--ink-3); font-weight:600; }
+.map-row select{ width:100%; }
+.map-row.miss select{ border-color: color-mix(in srgb, var(--crit) 45%, var(--line)); }
+
+/* ---------- notas ---------- */
+.notes{ display:grid; gap:18px; grid-template-columns: repeat(auto-fit, minmax(250px,1fr)); }
+.note-b{ font-size:13px; color: var(--ink-2); }
+.note-b strong{ display:block; color: var(--ink); font-size:13px; margin-bottom:4px; }
+.formula{
+  display:block; margin:0 0 7px; padding:8px 10px; font-family: var(--mono); font-size:12px;
+  background: var(--s1-wash); border-left:3px solid var(--s1); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: var(--ink);
+}
+footer{
+  font-size:12.5px; color: var(--ink-3); border-top:1px solid var(--line);
+  padding-top:16px; margin-top: 8px;
+}
+.hidden{ display:none !important; }
+.vh{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="mark">
+      <span class="mark-tick" aria-hidden="true"></span>
+      <div>
+        <h1>Painel de Mídia — Ituran Mob</h1>
+        <p class="sub" id="periodLabel">aguardando dados</p>
+      </div>
+    </div>
+    <div class="top-acts">
+      <span class="chip" id="srcChip"><span class="dot"></span><span id="srcTxt">sem fonte</span></span>
+      <button class="btn-ghost btn-sm" id="btnRemap" hidden>Colunas</button>
+      <button class="btn-ghost btn-sm" id="btnReset" hidden>Trocar arquivo</button>
+    </div>
+  </div>
+</header>
+
+<div class="demo-bar" role="status">
+  <span class="chip on"><span class="dot"></span>dados de exemplo</span>
+  <span class="txt">Nada aqui é da sua conta. São números <b>fictícios</b>, só para você ver o painel funcionando. Carregue o export do Meta Ads para ver o de verdade.</span>
+  <button class="btn-primary btn-sm" id="btnLoadReal">Carregar meu arquivo</button>
+</div>
+
+<div class="wrap">
+<main>
+
+  <!-- ============ IMPORTADOR ============ -->
+  <section class="import" id="importPanel">
+    <div>
+      <h2>Traga o relatório de agosto</h2>
+      <p class="note" style="margin:10px 0 0">
+        O painel lê o arquivo aqui no seu navegador — nada é enviado para lugar nenhum.
+        Funciona com o export do Gerenciador de Anúncios em português ou inglês, separado
+        por vírgula, ponto e vírgula ou tabulação.
+      </p>
+      <ol class="steps">
+        <li><span><b>Abra o Gerenciador de Anúncios</b> na conta da Ituran Mob e escolha o período <code>1 de ago</code> até hoje.</span></li>
+        <li><span><b>Nas colunas, use “Desempenho e cliques”</b> e garanta que apareçam: valor gasto, impressões, alcance, cliques no link e o resultado de cadastro/lead.</span></li>
+        <li><span><b>Em “Divisão”, marque <code>Por dia</code></b> — e, se quiser o mapa de onde os anúncios apareceram, também <code>Plataforma</code> e <code>Posicionamento</code>.</span></li>
+        <li><span><b>Exporte em CSV</b> (Relatórios → Exportar → <code>.csv</code>) e solte o arquivo ao lado.</span></li>
+      </ol>
+      <p class="note" style="margin-top:14px; color: var(--ink-3); font-size:12.5px">
+        Exportou no nível de anúncio? Melhor ainda — é assim que o painel consegue comparar criativo por criativo.
+      </p>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px">
+      <div class="drop" id="drop">
+        <span class="big">Solte o CSV aqui</span>
+        <span class="sm">ou</span>
+        <button class="btn-primary" id="btnPick">Escolher arquivo</button>
+        <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv,text/plain" class="vh">
+        <span class="sm">CSV, TSV ou TXT — até uns 10 MB</span>
+      </div>
+
+      <div>
+        <span class="ctrl-lbl">Ou cole direto da planilha</span>
+        <textarea id="paste" placeholder="Cole aqui as linhas copiadas do Excel / Google Sheets (com a linha de cabeçalho)"></textarea>
+        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
+          <button id="btnPaste">Usar o texto colado</button>
+          <button class="btn-ghost" id="btnDemo">Ver com dados de exemplo</button>
+        </div>
+      </div>
+
+      <div id="importMsg"></div>
+    </div>
+  </section>
+
+  <!-- ============ MAPEAMENTO ============ -->
+  <section class="card hidden" id="mapPanel">
+    <div class="card-head">
+      <div class="ttl">
+        <h2>Conferir as colunas</h2>
+        <p class="note">Isto é o que o painel entendeu do seu arquivo. Corrija o que estiver trocado — a escolha fica salva neste navegador.</p>
+      </div>
+      <div class="ctrls">
+        <span class="ctrl-lbl">Formato dos números</span>
+        <select id="numFmt">
+          <option value="br">Brasileiro — 1.234,56</option>
+          <option value="us">Internacional — 1,234.56</option>
+        </select>
+        <button class="btn-primary" id="btnApplyMap">Aplicar</button>
+        <button class="btn-ghost" id="btnCloseMap">Fechar</button>
+      </div>
+    </div>
+    <div class="map-grid" id="mapGrid"></div>
+    <div id="mapMsg"></div>
+  </section>
+
+  <!-- ============ PAINEL ============ -->
+  <div id="dash" class="hidden" style="display:flex; flex-direction:column; gap:20px">
+
+    <div class="filters">
+      <div class="fgroup">
+        <span class="ctrl-lbl">Período</span>
+        <input type="date" id="d1" aria-label="Data inicial">
+        <span class="sep">até</span>
+        <input type="date" id="d2" aria-label="Data final">
+      </div>
+      <div class="fgroup">
+        <span class="ctrl-lbl">Campanha</span>
+        <select id="fCamp" aria-label="Filtrar por campanha"><option value="">Todas</option></select>
+      </div>
+      <div class="fgroup" id="fAdsetWrap">
+        <span class="ctrl-lbl">Conjunto</span>
+        <select id="fAdset" aria-label="Filtrar por conjunto"><option value="">Todos</option></select>
+      </div>
+      <span class="spacer"></span>
+      <span class="count" id="rowCount"></span>
+      <button class="btn-ghost btn-sm" id="btnClearF">Limpar filtros</button>
+    </div>
+
+    <!-- KPIs = seletor de métrica -->
+    <section style="display:flex; flex-direction:column; gap:10px">
+      <div class="card-head" style="padding:0 2px">
+        <div class="ttl">
+          <h2>O mês em números <span class="chip on tag-demo"><span class="dot"></span>exemplo</span></h2>
+          <p class="note">Clique num cartão para ver a evolução dele no gráfico abaixo. A linha miúda é o dia a dia; a variação compara com o período anterior de mesmo tamanho.</p>
+        </div>
+      </div>
+      <div class="kpis" id="kpis" role="group" aria-label="Métricas do período — clique para escolher a do gráfico"></div>
+      <p class="note" id="resumo" style="margin:6px 2px 0; font-size:14px; max-width:76ch"></p>
+      <p class="note" id="kpiHint" style="margin:2px 2px 0; color:var(--ink-3); font-size:12.5px"></p>
+    </section>
+
+    <!-- Evolução -->
+    <section class="card">
+      <div class="card-head">
+        <div class="ttl">
+          <h2 id="tsTitle">Evolução no período</h2>
+          <p class="note" id="tsNote"></p>
+        </div>
+        <div class="ctrls">
+          <div class="seg" role="group" aria-label="Agrupamento do eixo">
+            <button data-grain="day" aria-pressed="true">Dia</button>
+            <button data-grain="week" aria-pressed="false">Semana</button>
+          </div>
+          <div class="seg" role="group" aria-label="Tipo de gráfico">
+            <button data-form="bar" aria-pressed="true">Barras</button>
+            <button data-form="line" aria-pressed="false">Linha</button>
+          </div>
+          <select id="tsSplit" aria-label="Separar séries por">
+            <option value="">Total da conta</option>
+            <option value="campaign">Por campanha</option>
+            <option value="platform">Por plataforma</option>
+          </select>
+        </div>
+      </div>
+      <div class="legend hidden" id="tsLegend"></div>
+      <div class="plot-wrap" id="tsWrap">
+        <div class="scroll-x"><svg class="plot" id="tsSvg" role="img" aria-label="Evolução da métrica no período"></svg></div>
+        <div class="tip" id="tsTip" role="status"></div>
+      </div>
+      <details>
+        <summary style="cursor:pointer; font-size:12.5px; color:var(--ink-3); font-family:var(--mono); letter-spacing:.05em; text-transform:uppercase">Ver os valores em tabela</summary>
+        <div class="tbl-wrap" style="margin-top:12px"><table id="tsTable"></table></div>
+      </details>
+    </section>
+
+    <!-- Onde apareceu -->
+    <section class="card" id="secWhere">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Onde os anúncios apareceram <span class="chip on tag-demo"><span class="dot"></span>exemplo</span></h2>
+          <p class="note">Quanto cada superfície levou do investimento — e o que devolveu. A barra é a métrica escolhida; a porcentagem é a fatia do total.</p>
+        </div>
+        <div class="ctrls">
+          <select id="whereDim" aria-label="Recorte"></select>
+          <select id="whereMetric" aria-label="Métrica"></select>
+          <div class="seg" role="group" aria-label="Ordenação">
+            <button data-wsort="desc" aria-pressed="true">Maior</button>
+            <button data-wsort="asc" aria-pressed="false">Menor</button>
+          </div>
+        </div>
+      </div>
+      <div id="whereBody"></div>
+    </section>
+
+    <!-- Criativos -->
+    <section class="card" id="secCreative">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Quais criativos converteram <span class="chip on tag-demo"><span class="dot"></span>exemplo</span></h2>
+          <p class="note" id="scatterNote"></p>
+        </div>
+        <div class="ctrls">
+          <span class="ctrl-lbl">Nível</span>
+          <select id="creaLevel" aria-label="Nível de análise"></select>
+          <span class="ctrl-lbl">Eixo Y</span>
+          <select id="creaY" aria-label="Métrica do eixo vertical"></select>
+        </div>
+      </div>
+      <div class="plot-wrap" id="scWrap">
+        <div class="scroll-x"><svg class="plot" id="scSvg" role="img" aria-label="Dispersão de criativos: investimento contra a métrica escolhida"></svg></div>
+        <div class="tip" id="scTip" role="status"></div>
+      </div>
+      <div class="tbl-wrap"><table id="creaTable"></table></div>
+    </section>
+
+    <!-- Tabela geral -->
+    <section class="card">
+      <div class="card-head">
+        <div class="ttl">
+          <h2>Tabela completa</h2>
+          <p class="note">Clique num cabeçalho para ordenar. Tudo respeita os filtros de período e campanha lá em cima.</p>
+        </div>
+        <div class="ctrls">
+          <span class="ctrl-lbl">Agrupar por</span>
+          <select id="tblDim" aria-label="Agrupar tabela por"></select>
+          <input type="search" id="tblSearch" placeholder="Filtrar por nome…" aria-label="Filtrar linhas por nome">
+        </div>
+      </div>
+      <div class="tbl-wrap"><table id="mainTable"></table></div>
+    </section>
+
+    <!-- Notas -->
+    <section class="card">
+      <div class="card-head"><div class="ttl"><h2>Como as contas são feitas</h2>
+        <p class="note">Tudo abaixo é somado a partir das linhas do seu export, sem reprocessamento.</p></div></div>
+      <div class="notes">
+        <div class="note-b">
+          <strong>Custo por lead (CPL)</strong>
+          <span class="formula">investimento ÷ leads</span>
+          Somo o gasto e os leads do recorte e divido no fim — não é a média dos CPLs diários. Média de médias engana quando os dias têm volumes diferentes.
+        </div>
+        <div class="note-b">
+          <strong>CTR, CPC e CPM</strong>
+          <span class="formula">cliques ÷ impressões · gasto ÷ cliques · gasto ÷ impressões × 1.000</span>
+          Mesma lógica: recalculo a partir dos totais. Se o seu export já traz a coluna pronta, ela é ignorada de propósito, para que os recortes fechem.
+        </div>
+        <div class="note-b">
+          <strong>Alcance e frequência têm ressalva</strong>
+          Alcance conta pessoas, e a mesma pessoa aparece em dias e posicionamentos diferentes. Somar linhas <em>infla</em> o número. Onde há soma de alcance, o painel marca com <code>≈</code>. Para o alcance verdadeiro do mês, olhe a linha de total do próprio Gerenciador.
+        </div>
+        <div class="note-b">
+          <strong>Lead é o que o seu export chama de resultado</strong>
+          O painel usa a coluna de cadastros/leads se existir; senão, usa “Resultados”. Se a campanha tiver objetivos misturados, “Resultados” soma coisas diferentes — vale separar por campanha antes de tirar conclusão.
+        </div>
+        <div class="note-b">
+          <strong>Atribuição é a do Meta</strong>
+          Os números vêm da janela de atribuição configurada na conta (normalmente 7 dias clique / 1 dia visualização). Lead atribuído no dia do clique, não no dia em que o comercial atendeu — por isso o painel raramente bate com o CRM na comparação diária.
+        </div>
+        <div class="note-b">
+          <strong>Variação vs. período anterior</strong>
+          Compara o intervalo filtrado com o intervalo imediatamente anterior de mesmo número de dias. Em custo (CPL, CPC, CPM), queda é verde: pagar menos pelo mesmo resultado é ganho.
+        </div>
+      </div>
+    </section>
+
+    <footer id="footNote"></footer>
+  </div>
+
+</main>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   0. utilidades
+   ============================================================ */
+const $  = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (t, a={}, kids=[]) => {
+  const n = document.createElementNS(SVGNS, t);
+  for (const k in a) if (a[k] != null) n.setAttribute(k, a[k]);
+  for (const c of [].concat(kids)) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return n;
+};
+const h = (t, a={}, kids=[]) => {
+  const n = document.createElement(t);
+  for (const k in a){
+    if (k === "class") n.className = a[k];
+    else if (k === "text") n.textContent = a[k];
+    else if (k === "html") n.innerHTML = a[k];
+    else if (a[k] != null) n.setAttribute(k, a[k]);
+  }
+  for (const c of [].concat(kids)) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return n;
+};
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+const norm = s => String(s||"")
+  .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+  .toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+
+/* ---- formatação pt-BR ---- */
+const nfInt  = new Intl.NumberFormat("pt-BR", {maximumFractionDigits:0});
+const nfBrl0 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",maximumFractionDigits:0});
+const nfBrl2 = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
+const nf2    = new Intl.NumberFormat("pt-BR", {minimumFractionDigits:2,maximumFractionDigits:2});
+const nf1    = new Intl.NumberFormat("pt-BR", {minimumFractionDigits:1,maximumFractionDigits:1});
+const DASH = "—";
+function fmt(v, kind){
+  if (v == null || !isFinite(v)) return DASH;
+  switch(kind){
+    case "brl":  return Math.abs(v) >= 1000 ? nfBrl0.format(v) : nfBrl2.format(v);
+    case "brl2": return nfBrl2.format(v);
+    case "int":  return nfInt.format(Math.round(v));
+    case "pct2": return nf2.format(v*100).replace(/,00$/,"") + "%";
+    case "pct1": return nf1.format(v*100) + "%";
+    case "num2": return nf2.format(v);
+    default:     return nfInt.format(v);
+  }
+}
+function fmtCompact(v, kind){
+  if (v == null || !isFinite(v)) return DASH;
+  const a = Math.abs(v), pre = kind === "brl" ? "R$ " : "";
+  if (kind === "int" || kind === "brl"){
+    if (a >= 1e9) return pre + nf2.format(v/1e9).replace(",00","") + " bi";
+    if (a >= 1e6) return pre + nf2.format(v/1e6).replace(",00","") + " mi";
+    if (a >= 1e5) return pre + nfInt.format(Math.round(v/1000)) + " mil";
+  }
+  return fmt(v, kind);
+}
+const MES = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+const MES_LONGO = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function fmtDia(iso){ const [y,m,d] = iso.split("-"); return `${d}/${m}`; }
+function fmtDiaLongo(iso){ const [y,m,d] = iso.split("-"); return `${+d} de ${MES_LONGO[+m-1]}`; }
+
+/* ============================================================
+   1. leitura do arquivo
+   ============================================================ */
+function sniffDelim(line){
+  const cands = [",",";","\t","|"];
+  let best = ",", bestN = 0;
+  for (const d of cands){
+    let n = 0, q = false;
+    for (let i=0;i<line.length;i++){
+      const c = line[i];
+      if (c === '"') q = !q;
+      else if (c === d && !q) n++;
+    }
+    if (n > bestN){ bestN = n; best = d; }
+  }
+  return best;
+}
+function parseDelimited(text){
+  text = String(text).replace(/^\uFEFF/, "");
+  const nl = text.indexOf("\n");
+  const delim = sniffDelim(nl > -1 ? text.slice(0, nl) : text);
+  const rows = []; let row = [], field = "", inQ = false;
+  for (let i=0;i<text.length;i++){
+    const c = text[i];
+    if (inQ){
+      if (c === '"'){ if (text[i+1] === '"'){ field += '"'; i++; } else inQ = false; }
+      else field += c;
+      continue;
+    }
+    if (c === '"'){ inQ = true; continue; }
+    if (c === delim){ row.push(field); field = ""; continue; }
+    if (c === "\r") continue;
+    if (c === "\n"){ row.push(field); rows.push(row); row = []; field = ""; continue; }
+    field += c;
+  }
+  row.push(field);
+  if (row.some(v => v !== "")) rows.push(row);
+  return { rows, delim };
+}
+
+/* ---- números: detecção de formato + parse ---- */
+function sniffNumberFormat(rows){
+  let br = 0, us = 0;
+  const body = rows.slice(1, 260);
+  for (const r of body) for (const cell of r){
+    const s = String(cell).trim();
+    if (!/\d/.test(s)) continue;
+    if (/\d{1,3}(\.\d{3})+,\d+/.test(s) || /^[^,.]*\d+,\d{1,2}[^0-9]*$/.test(s)) br++;
+    if (/\d{1,3}(,\d{3})+\.\d+/.test(s) || /^[^,.]*\d+\.\d{1,2}[^0-9]*$/.test(s)) us++;
+  }
+  return br >= us ? "br" : "us";
+}
+function toNum(v, mode){
+  if (v == null) return null;
+  let s = String(v).trim();
+  if (!s || s === "-" || s === DASH || /^n\/?a$/i.test(s)) return null;
+  const neg = /^\(.*\)$/.test(s) || s.startsWith("-");
+  s = s.replace(/[^\d.,]/g, "");
+  if (!s) return null;
+  if (mode === "us") s = s.replace(/,/g, "");
+  else {
+    const lastC = s.lastIndexOf(","), lastD = s.lastIndexOf(".");
+    if (lastC > -1 && lastD > -1){
+      if (lastC > lastD) s = s.replace(/\./g,"").replace(",",".");
+      else s = s.replace(/,/g,"");
+    } else if (lastC > -1){
+      s = (s.split(",").length > 2) ? s.replace(/,/g,"") : s.replace(",",".");
+    } else if (lastD > -1 && /^\d{1,3}(\.\d{3})+$/.test(s)){
+      s = s.replace(/\./g,"");   // 98.432 → 98432 (milhar, não decimal)
+    }
+  }
+  const n = parseFloat(s);
+  if (!isFinite(n)) return null;
+  return neg ? -Math.abs(n) : n;
+}
+
+/* ---- datas ---- */
+function toISO(v, dayFirst){
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return `${m[1]}-${String(+m[2]).padStart(2,"0")}-${String(+m[3]).padStart(2,"0")}`;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (m){
+    let a = +m[1], b = +m[2], y = +m[3];
+    if (y < 100) y += 2000;
+    let d, mo;
+    if (a > 12){ d = a; mo = b; }
+    else if (b > 12){ mo = a; d = b; }
+    else if (dayFirst){ d = a; mo = b; }
+    else { mo = a; d = b; }
+    return `${y}-${String(mo).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  }
+  const t = Date.parse(s);
+  if (!isNaN(t)){ const dt = new Date(t); return dt.toISOString().slice(0,10); }
+  return null;
+}
+function sniffDayFirst(vals){
+  let dayFirst = false;
+  for (const v of vals){
+    const m = String(v||"").match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+    if (m && +m[1] > 12) { dayFirst = true; break; }
+    if (m && +m[2] > 12) { dayFirst = false; break; }
+    dayFirst = true; // padrão pt-BR
+  }
+  return dayFirst;
+}
+
+/* ============================================================
+   2. campos e sinônimos de cabeçalho
+   ============================================================ */
+const FIELDS = {
+  date:        { label:"Data",              kind:"dim",
+    syn:["dia","day","data","date","inicio dos relatorios","reporting starts","data de inicio dos relatorios","inicio do relatorio","dia do relatorio"] },
+  campaign:    { label:"Campanha",          kind:"dim",
+    syn:["nome da campanha","campanha","campaign name","campaign","nome de campanha"] },
+  adset:       { label:"Conjunto de anúncios", kind:"dim",
+    syn:["nome do conjunto de anuncios","conjunto de anuncios","ad set name","adset name","ad set","conjunto"] },
+  ad:          { label:"Anúncio (criativo)", kind:"dim",
+    syn:["nome do anuncio","anuncio","ad name","ad","nome do criativo","criativo"] },
+  platform:    { label:"Plataforma",        kind:"dim",
+    syn:["plataforma","platform","plataforma de publicacao","publisher platform"],
+    neg:/impressao|impression/ },
+  placement:   { label:"Posicionamento",    kind:"dim",
+    syn:["posicionamento","placement","posicionamento e dispositivo","platform position","posicao na plataforma"] },
+  device:      { label:"Dispositivo",       kind:"dim",
+    syn:["dispositivo","device","plataforma de impressao","impression device","tipo de dispositivo"] },
+  age:         { label:"Idade",             kind:"dim", syn:["idade","age","faixa etaria"] },
+  gender:      { label:"Gênero",            kind:"dim", syn:["genero","gender","sexo"] },
+  region:      { label:"Região",            kind:"dim", syn:["regiao","region","estado","cidade","city","dma region"] },
+  country:     { label:"País",              kind:"dim", syn:["pais","country"] },
+
+  spend:       { label:"Investimento",      kind:"num",
+    syn:["valor usado brl","valor usado","valor gasto brl","valor gasto","amount spent brl","amount spent","spend","gasto","custo","investimento","valor investido","total spent"],
+    neg:/^(custo por|cost per|cpc|cpm|cpl|cpa|cpv)\b|\bcusto por\b|\bcost per\b/ },
+  impressions: { label:"Impressões",        kind:"num", syn:["impressoes","impressions","impressoes totais"],
+    neg:/^(custo|cost|cpm|cpc|frequencia|frequency)\b|\bcusto por\b|\bcost per\b/ },
+  reach:       { label:"Alcance",           kind:"num", syn:["alcance","reach","pessoas alcancadas"],
+    neg:/^(custo|cost|cpm|cpc)\b|\bcusto por\b|\bcost per\b/ },
+  clicks:      { label:"Cliques no link",   kind:"num",
+    syn:["cliques no link","link clicks","cliques em links","cliques todos","clicks all","cliques","clicks","cliques unicos no link","unique link clicks"],
+    neg:/\bctr\b|\btaxa\b|click through|^(custo|cost|cpc)\b|\bcusto por\b|\bcost per\b/ },
+  leads:       { label:"Leads / cadastros", kind:"num",
+    syn:["cadastros","cadastro","leads","lead","clientes potenciais","cliente potencial","cadastros no site","website leads","leads no site","on facebook leads","cadastros no facebook","resultados","results","conversoes","conversions","total de leads"],
+    neg:/^(custo|cost|cpl|cpa)\b|\bcusto por\b|\bcost per\b|\btaxa\b|\brate\b/ }
+};
+const FIELD_KEYS = Object.keys(FIELDS);
+const DIM_KEYS = FIELD_KEYS.filter(k => FIELDS[k].kind === "dim" && k !== "date");
+const NUM_KEYS = FIELD_KEYS.filter(k => FIELDS[k].kind === "num");
+
+function autoMap(headers){
+  const nh = headers.map(norm);
+  const used = new Set();
+  const map = {};
+  for (const key of FIELD_KEYS){
+    const syn = FIELDS[key].syn, neg = FIELDS[key].neg;
+    let best = -1, bestScore = -1;
+    for (let i=0;i<nh.length;i++){
+      if (used.has(i) || !nh[i]) continue;
+      if (neg && neg.test(nh[i])) continue;          // "custo por lead" não é a coluna de leads
+      const pad = " " + nh[i] + " ";
+      for (let r=0;r<syn.length;r++){
+        const s = syn[r];
+        let score = -1;
+        if (nh[i] === s) score = 1000 - r;
+        else if (nh[i].startsWith(s + " ")) score = 700 - r;
+        else if (pad.includes(" " + s + " ")) score = 400 - r;   // só palavra inteira
+        if (score > bestScore){ bestScore = score; best = i; }
+      }
+    }
+    if (best > -1 && bestScore > 0){ map[key] = best; used.add(best); }
+    else map[key] = null;
+  }
+  return map;
+}
+
+/* ============================================================
+   3. modelo
+   ============================================================ */
+const METRICS = {
+  spend:       { label:"Investimento",      unit:"brl",  kind:"sum" },
+  leads:       { label:"Leads",             unit:"int",  kind:"sum" },
+  cpl:         { label:"Custo por lead",    unit:"brl2", kind:"ratio", num:"spend", den:"leads", lowerBetter:true },
+  impressions: { label:"Impressões",        unit:"int",  kind:"sum" },
+  reach:       { label:"Alcance",           unit:"int",  kind:"sum", approx:true },
+  clicks:      { label:"Cliques no link",   unit:"int",  kind:"sum" },
+  ctr:         { label:"CTR do link",       unit:"pct2", kind:"ratio", num:"clicks", den:"impressions" },
+  cpc:         { label:"Custo por clique",  unit:"brl2", kind:"ratio", num:"spend",  den:"clicks", lowerBetter:true },
+  cpm:         { label:"CPM",               unit:"brl2", kind:"ratio", num:"spend",  den:"impressions", mult:1000, lowerBetter:true },
+  cvr:         { label:"Clique → lead",     unit:"pct1", kind:"ratio", num:"leads",  den:"clicks" },
+  freq:        { label:"Frequência",        unit:"num2", kind:"ratio", num:"impressions", den:"reach", approx:true }
+};
+const BASE = ["spend","leads","impressions","reach","clicks"];
+
+const STATE = {
+  rows: [],            // linhas normalizadas
+  headers: [],
+  raw: null,           // {rows, headers}
+  map: {},
+  numFmt: "br",
+  dayFirst: true,
+  avail: { dims: [], metrics: [] },
+  mode: "empty",       // empty | demo | real
+  fileName: "",
+  // controles
+  metric: "leads",
+  grain: "day",
+  form: "bar",
+  split: "",
+  whereDim: "platform",
+  whereMetric: "spend",
+  whereSort: "desc",
+  creaLevel: "ad",
+  creaY: "cpl",
+  tblDim: "campaign",
+  tblSort: { key:"spend", dir:"desc" },
+  tblQ: "",
+  d1: null, d2: null,
+  fCamp: "", fAdset: ""
+};
+
+/* rótulos crus da API do Meta viram nomes legíveis */
+const PRETTY = {
+  facebook:"Facebook", instagram:"Instagram", messenger:"Messenger", threads:"Threads",
+  audience_network:"Audience Network", unknown:"Não identificado", whatsapp:"WhatsApp",
+  feed:"Feed", story:"Stories", stories:"Stories", reels:"Reels", facebook_reels:"Reels do Facebook",
+  instagram_reels:"Reels do Instagram", video_feeds:"Feed de vídeo", instream_video:"Vídeo in-stream",
+  instant_article:"Instant Article", marketplace:"Marketplace", search:"Busca", explore:"Explorar",
+  right_hand_column:"Coluna da direita", profile_feed:"Feed do perfil", groups:"Grupos",
+  an_classic:"Nativo, banner e intersticial", rewarded_video:"Vídeo premiado", biz_inbox:"Caixa de entrada",
+  facebook_stories:"Stories do Facebook", instagram_stories:"Stories do Instagram",
+  mobile_app:"App no celular", mobile_web:"Navegador no celular", desktop:"Computador",
+  android_smartphone:"Android", android_tablet:"Tablet Android", iphone:"iPhone", ipad:"iPad",
+  ipod:"iPod", other:"Outros", male:"Homens", female:"Mulheres"
+};
+function pretty(v){
+  const t = String(v||"").trim();
+  if (!t) return t;
+  const k = t.toLowerCase();
+  if (PRETTY[k]) return PRETTY[k];
+  if (/^[a-z][a-z0-9_ ]*$/.test(t) && /[_a-z]/.test(t)){
+    return t.replace(/_/g," ").replace(/\b[a-z]/g, c => c.toUpperCase());
+  }
+  return t;
+}
+const TOTAL_EXACT = /^(total|totais|grand total|total results|resultados totais|total geral)$/;
+const TOTAL_START = /^(total|totais)\s+(de|do|dos|da|das|results?|resultados?|geral)\b/;
+function isTotalRow(r){
+  for (let i = 0; i < Math.min(4, r.length); i++){
+    const t = norm(r[i]);
+    if (!t) continue;
+    if (TOTAL_EXACT.test(t) || TOTAL_START.test(t)) return true;
+  }
+  return false;
+}
+function buildRows(rawRows, map, numFmt, dayFirst){
+  const out = [];
+  const body = rawRows.slice(1);
+  for (const r of body){
+    if (!r || r.every(c => String(c).trim() === "")) continue;
+    const o = {};
+    let anyNum = false;
+    for (const k of DIM_KEYS){
+      const i = map[k];
+      const v = (i != null && r[i] != null) ? String(r[i]).trim() : "";
+      o[k] = (k === "platform" || k === "placement" || k === "device" || k === "gender") ? pretty(v) : v;
+    }
+    o.date = (map.date != null && r[map.date] != null) ? toISO(r[map.date], dayFirst) : null;
+    for (const k of NUM_KEYS){
+      const i = map[k];
+      const v = (i != null) ? toNum(r[i], numFmt) : null;
+      o[k] = v == null ? 0 : v;
+      if (v != null && v !== 0) anyNum = true;
+    }
+    // a linha de total que o Meta acrescenta no fim duplicaria tudo
+    if (isTotalRow(r)) continue;
+    if (!anyNum) continue;
+    out.push(o);
+  }
+  return out;
+}
+
+function detectAvail(rows){
+  const dims = [], metrics = [];
+  for (const k of DIM_KEYS){
+    const vals = new Set();
+    for (const r of rows){ if (r[k]) vals.add(r[k]); if (vals.size > 1) break; }
+    if (vals.size >= 1 && rows.some(r => r[k])) dims.push(k);
+  }
+  for (const k of BASE) if (rows.some(r => r[k] > 0)) metrics.push(k);
+  const has = k => metrics.includes(k);
+  const derived = [];
+  if (has("spend") && has("leads")) derived.push("cpl");
+  if (has("clicks") && has("impressions")) derived.push("ctr");
+  if (has("spend") && has("clicks")) derived.push("cpc");
+  if (has("spend") && has("impressions")) derived.push("cpm");
+  if (has("leads") && has("clicks")) derived.push("cvr");
+  if (has("impressions") && has("reach")) derived.push("freq");
+  const order = ["spend","leads","cpl","impressions","reach","clicks","ctr","cpc","cpm","cvr","freq"];
+  const all = metrics.concat(derived);
+  return { dims, metrics: order.filter(k => all.includes(k)) };
+}
+</script>
+
+<script>
+"use strict";
+/* ============================================================
+   4. agregação
+   ============================================================ */
+function emptyAgg(){ const a = {}; for (const k of BASE) a[k] = 0; a._n = 0; return a; }
+function addTo(a, r){ for (const k of BASE) a[k] += (r[k] || 0); a._n++; return a; }
+function metricOf(a, key){
+  const m = METRICS[key];
+  if (!m) return null;
+  if (m.kind === "sum") return a[key];
+  const den = a[m.den];
+  if (!den) return null;
+  return (a[m.num] / den) * (m.mult || 1);
+}
+function filtered(){
+  const { d1, d2, fCamp, fAdset } = STATE;
+  return STATE.rows.filter(r => {
+    if (d1 && r.date && r.date < d1) return false;
+    if (d2 && r.date && r.date > d2) return false;
+    if (fCamp && r.campaign !== fCamp) return false;
+    if (fAdset && r.adset !== fAdset) return false;
+    return true;
+  });
+}
+function prevWindow(){
+  const { d1, d2 } = STATE;
+  if (!d1 || !d2) return null;
+  const a = new Date(d1 + "T00:00:00Z"), b = new Date(d2 + "T00:00:00Z");
+  const days = Math.round((b - a) / 86400000) + 1;
+  const pb = new Date(a.getTime() - 86400000);
+  const pa = new Date(pb.getTime() - (days - 1) * 86400000);
+  const iso = d => d.toISOString().slice(0,10);
+  return { d1: iso(pa), d2: iso(pb), days };
+}
+function aggRows(rows){ const a = emptyAgg(); for (const r of rows) addTo(a, r); return a; }
+function groupBy(rows, key){
+  const m = new Map();
+  for (const r of rows){
+    const name = (r[key] || "").trim() || "(não informado)";
+    let a = m.get(name);
+    if (!a){ a = emptyAgg(); m.set(name, a); }
+    addTo(a, r);
+  }
+  return m;
+}
+function weekKey(iso){
+  const d = new Date(iso + "T00:00:00Z");
+  const dow = (d.getUTCDay() + 6) % 7;           // segunda = 0
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0,10);
+}
+function buckets(rows, grain){
+  const m = new Map();
+  for (const r of rows){
+    if (!r.date) continue;
+    const k = grain === "week" ? weekKey(r.date) : r.date;
+    let a = m.get(k);
+    if (!a){ a = emptyAgg(); m.set(k, a); }
+    addTo(a, r);
+  }
+  return new Map([...m.entries()].sort((x,y) => x[0] < y[0] ? -1 : 1));
+}
+function topNames(rows, key, n){
+  const g = groupBy(rows, key);
+  return [...g.entries()].sort((a,b) => b[1].spend - a[1].spend).slice(0, n).map(e => e[0]);
+}
+
+/* ============================================================
+   5. escalas / eixos
+   ============================================================ */
+function niceMax(v){
+  if (!(v > 0)) return 1;
+  const e = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v / e;
+  const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+  return step * e;
+}
+function ticks(max, want=4){
+  const nm = niceMax(max);
+  const raw = nm / want;
+  const e = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / e;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e;
+  const out = [];
+  for (let v = 0; v <= nm + step * 0.001; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function axisFmt(v, unit){
+  const kilo = (x, div, suf) => {
+    const q = x / div;
+    return (Number.isInteger(q) ? nfInt.format(q) : nf1.format(q)) + suf;
+  };
+  if (unit === "brl" || unit === "brl2"){
+    if (Math.abs(v) >= 1e6) return "R$ " + kilo(v, 1e6, " mi");
+    if (Math.abs(v) >= 1000) return "R$ " + kilo(v, 1000, "k");
+    return "R$ " + (Number.isInteger(v) ? nfInt.format(v) : nf2.format(v).replace(",00",""));
+  }
+  if (unit === "int"){
+    if (Math.abs(v) >= 1e6) return kilo(v, 1e6, " mi");
+    if (Math.abs(v) >= 1000) return kilo(v, 1000, "k");
+    return nfInt.format(v);
+  }
+  if (unit === "pct2" || unit === "pct1"){
+    const p = v*100;
+    return (p < 1 ? nf2.format(p) : p < 10 ? nf1.format(p) : nfInt.format(p)) + "%";
+  }
+  return nf2.format(v).replace(",00","");
+}
+
+/* ============================================================
+   6. tooltip
+   ============================================================ */
+function tipShow(tipEl, wrapEl, ev, title, rows){
+  const r = wrapEl.getBoundingClientRect();
+  tipEl.innerHTML = "";
+  tipEl.appendChild(h("div", { class:"t-h", text: title }));
+  for (const [k, v, color] of rows){
+    const key = h("span", { class:"t-k" });
+    if (color) key.appendChild(h("i", { class:"swatch", style:`background:${color}` }));
+    key.appendChild(document.createTextNode(k));
+    tipEl.appendChild(h("div", { class:"t-r" }, [key, h("span", { class:"t-v", text: v })]));
+  }
+  let x = ev.clientX - r.left, y = ev.clientY - r.top - 12;
+  tipEl.style.opacity = "1";
+  const tw = tipEl.offsetWidth;
+  x = Math.max(tw/2 + 4, Math.min(r.width - tw/2 - 4, x));
+  tipEl.style.left = x + "px";
+  tipEl.style.top = Math.max(tipEl.offsetHeight + 6, y) + "px";
+}
+function tipHide(tipEl){ tipEl.style.opacity = "0"; }
+const SERIES_VARS = ["--s1","--s2","--s3","--s4"];
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#2a78d6";
+
+/* ============================================================
+   7. gráfico de evolução
+   ============================================================ */
+function drawTimeSeries(){
+  const svg = $("#tsSvg"), wrap = $("#tsWrap"), tip = $("#tsTip"), legend = $("#tsLegend");
+  svg.textContent = "";
+  const rows = filtered();
+  const mk = STATE.metric, M = METRICS[mk];
+  const isRatio = M.kind === "ratio";
+  const splitKey = STATE.split && STATE.avail.dims.includes(STATE.split) ? STATE.split : "";
+  let form = STATE.form;
+  if (splitKey && isRatio) form = "line";
+
+  const all = buckets(rows, STATE.grain);
+  const keys = [...all.keys()];
+  if (!keys.length){
+    svg.setAttribute("viewBox","0 0 600 120");
+    svg.appendChild(el("text",{x:20,y:60,class:"ax"},"Sem coluna de data no arquivo — o gráfico de evolução precisa da divisão “Por dia”."));
+    $("#tsTable").innerHTML = "";
+    legend.classList.add("hidden");
+    return;
+  }
+
+  // séries
+  let names = [""], data = new Map([["", all]]);
+  if (splitKey){
+    const top = topNames(rows, splitKey, 3);
+    names = top.slice();
+    const others = new Set(top);
+    const rest = rows.filter(r => !others.has((r[splitKey]||"").trim() || "(não informado)"));
+    const withOther = rest.length > 0;
+    data = new Map();
+    for (const nm of top) data.set(nm, buckets(rows.filter(r => ((r[splitKey]||"").trim() || "(não informado)") === nm), STATE.grain));
+    if (withOther){ names.push("Outras"); data.set("Outras", buckets(rest, STATE.grain)); }
+  }
+
+  const valAt = (nm, k) => { const b = data.get(nm); const a = b && b.get(k); return a ? metricOf(a, mk) : (isRatio ? null : 0); };
+
+  let maxV = 0;
+  if (form === "bar" && splitKey){
+    for (const k of keys){ let s = 0; for (const nm of names) s += (valAt(nm,k) || 0); maxV = Math.max(maxV, s); }
+  } else {
+    for (const k of keys) for (const nm of names) maxV = Math.max(maxV, valAt(nm,k) || 0);
+  }
+  const tk = ticks(maxV, 4), top = tk[tk.length-1] || 1;
+
+  const n = keys.length;
+  const W = Math.max(680, n * (STATE.grain === "week" ? 62 : 30) + 100);
+  const H = 320, mL = 62, mR = 18, mT = 14, mB = 46;
+  const pw = W - mL - mR, ph = H - mT - mB;
+  const bw = pw / n;
+  const x = i => mL + bw * (i + 0.5);
+  const y = v => mT + ph - (Math.max(0, v) / top) * ph;
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+  svg.style.height = H + "px";
+
+  // grade
+  for (const t of tk){
+    svg.appendChild(el("line",{x1:mL,x2:W-mR,y1:y(t).toFixed(1),y2:y(t).toFixed(1),class:"gridline"+(t===0?" zero":"")}));
+    svg.appendChild(el("text",{x:mL-9,y:(y(t)+3.5).toFixed(1),"text-anchor":"end",class:"ax-y"}, axisFmt(t, M.unit)));
+  }
+
+  const colors = names.map((_,i) => cssVar(SERIES_VARS[i % 4]));
+
+  if (form === "bar"){
+    const gap = Math.min(8, bw * 0.28);
+    const w = Math.max(3, bw - gap);
+    for (let i=0;i<n;i++){
+      let acc = 0;
+      names.forEach((nm, si) => {
+        const v = valAt(nm, keys[i]) || 0;
+        if (v <= 0) return;
+        const y0 = y(acc + v), y1 = y(acc);
+        const hgt = Math.max(1, y1 - y0 - (splitKey && acc > 0 ? 2 : 0));
+        svg.appendChild(el("rect",{
+          x:(x(i)-w/2).toFixed(1), y:y0.toFixed(1), width:w.toFixed(1), height:hgt.toFixed(1),
+          rx:Math.min(4, w/2), fill:colors[si]
+        }));
+        acc += v;
+      });
+    }
+  } else {
+    names.forEach((nm, si) => {
+      const pts = [];
+      for (let i=0;i<n;i++){
+        const v = valAt(nm, keys[i]);
+        if (v == null) continue;
+        pts.push([x(i), y(v)]);
+      }
+      if (!pts.length) return;
+      const d = pts.map((p,i) => `${i?"L":"M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+      if (names.length === 1){
+        svg.appendChild(el("path",{d:`${d} L${pts[pts.length-1][0].toFixed(1)},${(mT+ph).toFixed(1)} L${pts[0][0].toFixed(1)},${(mT+ph).toFixed(1)} Z`, class:"mk-area"}));
+      }
+      svg.appendChild(el("path",{d, fill:"none", stroke:colors[si], "stroke-width":2, "stroke-linejoin":"round","stroke-linecap":"round"}));
+      const last = pts[pts.length-1];
+      svg.appendChild(el("circle",{cx:last[0].toFixed(1), cy:last[1].toFixed(1), r:4.5, fill:colors[si], stroke:cssVar("--surface"), "stroke-width":2}));
+    });
+  }
+
+  // eixo x
+  const every = Math.max(1, Math.ceil(n / (STATE.grain === "week" ? 12 : 16)));
+  for (let i=0;i<n;i++){
+    if (i % every && i !== n-1) continue;
+    const lbl = STATE.grain === "week" ? "sem " + fmtDia(keys[i]) : fmtDia(keys[i]);
+    svg.appendChild(el("text",{x:x(i).toFixed(1), y:H-mB+18, "text-anchor":"middle", class:"ax"}, lbl));
+  }
+  const first = keys[0], lastK = keys[n-1];
+  svg.appendChild(el("text",{x:mL, y:H-8, class:"ax", fill:cssVar("--ink-4")},
+    `${fmtDiaLongo(first)} — ${fmtDiaLongo(lastK)}${STATE.grain==="week"?" · semanas começando na segunda":""}`));
+
+  // camada de hover
+  const hover = el("line",{x1:0,x2:0,y1:mT,y2:mT+ph,class:"hover-line",opacity:0});
+  svg.appendChild(hover);
+  for (let i=0;i<n;i++){
+    const hit = el("rect",{x:(mL+bw*i).toFixed(1), y:mT, width:bw.toFixed(1), height:ph, class:"hit"});
+    hit.addEventListener("mousemove", ev => {
+      hover.setAttribute("x1", x(i).toFixed(1)); hover.setAttribute("x2", x(i).toFixed(1));
+      hover.setAttribute("opacity", .55);
+      const title = STATE.grain === "week" ? "semana de " + fmtDiaLongo(keys[i]) : fmtDiaLongo(keys[i]);
+      const lines = names.map((nm, si) => [nm || M.label, fmt(valAt(nm, keys[i]), M.unit), names.length>1 ? colors[si] : null]);
+      if (names.length === 1 && mk !== "spend"){
+        const b = all.get(keys[i]);
+        lines.push(["Investimento", fmt(b ? b.spend : 0, "brl"), null]);
+      }
+      tipShow(tip, wrap, ev, title, lines);
+    });
+    hit.addEventListener("mouseleave", () => { hover.setAttribute("opacity",0); tipHide(tip); });
+    svg.appendChild(hit);
+  }
+
+  // legenda
+  if (names.length > 1){
+    legend.classList.remove("hidden"); legend.innerHTML = "";
+    names.forEach((nm, si) => legend.appendChild(
+      h("span",{},[h("i",{class:"swatch",style:`background:${colors[si]}`}), document.createTextNode(nm)])));
+  } else legend.classList.add("hidden");
+
+  // tabela espelho
+  const t = $("#tsTable");
+  t.innerHTML = "";
+  const thead = h("thead"), trh = h("tr");
+  trh.appendChild(h("th",{text: STATE.grain==="week" ? "Semana" : "Dia"}));
+  for (const nm of names) trh.appendChild(h("th",{text: nm || M.label}));
+  if (names.length === 1) trh.appendChild(h("th",{text:"Investimento"}));
+  thead.appendChild(trh); t.appendChild(thead);
+  const tb = h("tbody");
+  for (let i=0;i<n;i++){
+    const tr = h("tr");
+    tr.appendChild(h("th",{scope:"row", text: STATE.grain==="week" ? "sem. de " + fmtDia(keys[i]) : fmtDia(keys[i])}));
+    for (const nm of names) tr.appendChild(h("td",{text: fmt(valAt(nm, keys[i]), M.unit)}));
+    if (names.length === 1){ const b = all.get(keys[i]); tr.appendChild(h("td",{text: fmt(b?b.spend:0,"brl")})); }
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+
+  // texto de apoio
+  $("#tsTitle").textContent = M.label + (STATE.grain === "week" ? " por semana" : " dia a dia");
+  const totA = aggRows(rows);
+  const totV = metricOf(totA, mk);
+  let note = `Total do período: ${fmt(totV, M.unit)}${M.approx ? " (≈ soma de linhas)" : ""}.`;
+  if (splitKey) note += ` Separado por ${FIELDS[splitKey].label.toLowerCase()} — as três maiores em investimento, o resto agrupado em “Outras”.`;
+  if (splitKey && isRatio && STATE.form === "bar") note += " Métrica de razão não empilha: mostrei em linha.";
+  if (STATE.grain === "week") note += " A primeira e a última semana podem estar incompletas — o recorte raramente começa numa segunda.";
+  $("#tsNote").textContent = note;
+}
+</script>
+
+<script>
+"use strict";
+/* ============================================================
+   8. cartões de métrica (também são o seletor do gráfico)
+   ============================================================ */
+function sparkline(vals, unit){
+  const w = 76, hh = 24, p = 2;
+  const svg = el("svg",{viewBox:`0 0 ${w} ${hh}`, class:"spark", "aria-hidden":"true", preserveAspectRatio:"none"});
+  const pts = vals.filter(v => v != null && isFinite(v));
+  if (pts.length < 2) return svg;
+  const mx = Math.max(...pts, 0), mn = Math.min(...pts, 0);
+  const span = (mx - mn) || 1;
+  const X = i => p + (i / (vals.length - 1)) * (w - 2*p);
+  const Y = v => hh - p - ((v - mn) / span) * (hh - 2*p);
+  let d = "", first = null, last = null;
+  vals.forEach((v,i) => {
+    if (v == null || !isFinite(v)) return;
+    const px = X(i), py = Y(v);
+    d += (d ? "L" : "M") + px.toFixed(1) + "," + py.toFixed(1);
+    if (first == null) first = px;
+    last = [px, py];
+  });
+  if (!d) return svg;
+  svg.appendChild(el("path",{d:`${d} L${last[0].toFixed(1)},${hh-p} L${first.toFixed(1)},${hh-p} Z`, fill:"var(--s1)", opacity:.12}));
+  svg.appendChild(el("path",{d, fill:"none", stroke:"var(--s1)", "stroke-width":1.5, "stroke-linejoin":"round","stroke-linecap":"round"}));
+  svg.appendChild(el("circle",{cx:last[0].toFixed(1), cy:last[1].toFixed(1), r:2, fill:"var(--s1)"}));
+  return svg;
+}
+function renderKpis(){
+  const box = $("#kpis"); box.innerHTML = "";
+  const rows = filtered();
+  const cur = aggRows(rows);
+  const pw = prevWindow();
+  let prev = null;
+  if (pw){
+    const pr = STATE.rows.filter(r => r.date && r.date >= pw.d1 && r.date <= pw.d2
+      && (!STATE.fCamp || r.campaign === STATE.fCamp)
+      && (!STATE.fAdset || r.adset === STATE.fAdset));
+    if (pr.length) prev = aggRows(pr);
+  }
+  const byDay = buckets(rows, "day");
+  const dayKeys = [...byDay.keys()];
+
+  for (const mk of STATE.avail.metrics){
+    const M = METRICS[mk];
+    const v = metricOf(cur, mk);
+    const btn = h("button", { class:"kpi", type:"button", "aria-pressed": String(mk === STATE.metric) });
+    const lbl = h("div",{class:"lbl"});
+    lbl.appendChild(document.createTextNode(M.label));
+    if (M.approx) lbl.appendChild(h("span",{text:"≈", title:"Soma de linhas — veja a ressalva nas notas", style:"color:var(--ink-4)"}));
+    btn.appendChild(lbl);
+    btn.appendChild(h("div",{class:"val", text: fmtCompact(v, M.unit)}));
+
+    const foot = h("div",{class:"foot"});
+    foot.appendChild(sparkline(dayKeys.map(k => metricOf(byDay.get(k), mk)), M.unit));
+    if (prev){
+      const pv = metricOf(prev, mk);
+      if (pv != null && v != null && pv !== 0){
+        const chg = (v - pv) / Math.abs(pv);
+        const better = M.lowerBetter ? chg < 0 : chg > 0;
+        const cls = Math.abs(chg) < 0.005 ? "flat" : better ? "up" : "down";
+        const sign = chg > 0 ? "+" : "−";
+        foot.appendChild(h("span",{class:"delta "+cls, text: sign + nf1.format(Math.abs(chg)*100) + "%",
+          title:`Período anterior (${fmtDia(pw.d1)}–${fmtDia(pw.d2)}): ${fmt(pv, M.unit)}`}));
+      } else foot.appendChild(h("span",{class:"delta flat", text: DASH}));
+    }
+    btn.appendChild(foot);
+    btn.addEventListener("click", () => { STATE.metric = mk; renderKpis(); drawTimeSeries(); });
+    box.appendChild(btn);
+  }
+
+  const hint = $("#kpiHint");
+  if (!dayKeys.length){
+    hint.textContent = "Sem coluna de data no arquivo — sem linha de evolução e sem comparação de período. Reexporte com a divisão “Por dia”.";
+  } else if (!prev){
+    hint.textContent = `Sem variação: o arquivo começa em ${fmtDiaLongo(dayKeys[0])} e não traz o período anterior para comparar. Exporte incluindo o mês anterior e as setas aparecem.`;
+  } else {
+    hint.textContent = `Variação contra ${fmtDia(pw.d1)}–${fmtDia(pw.d2)}, o mesmo número de dias imediatamente antes do recorte.`;
+  }
+}
+
+/* ============================================================
+   9. onde os anúncios apareceram
+   ============================================================ */
+function renderWhere(){
+  const body = $("#whereBody"); body.innerHTML = "";
+  const dim = STATE.whereDim;
+  if (!dim || !STATE.avail.dims.includes(dim)){
+    body.appendChild(h("div",{class:"empty", html:
+      "<b>Seu export não tem recorte de posicionamento.</b>Volte ao Gerenciador, abra <b>Divisão → Por veiculação</b> e marque <b>Plataforma</b> e <b>Posicionamento</b>. Exporte de novo e solte aqui: esta seção monta sozinha."}));
+    return;
+  }
+  const rows = filtered();
+  const mk = STATE.whereMetric, M = METRICS[mk];
+  const g = groupBy(rows, dim);
+  let items = [...g.entries()].map(([name, a]) => ({ name, a, v: metricOf(a, mk) }))
+    .filter(d => d.v != null);
+  if (!items.length){ body.appendChild(h("div",{class:"empty", html:"<b>Nada a mostrar.</b>Não há valores desta métrica no recorte filtrado."})); return; }
+  items.sort((x,y) => STATE.whereSort === "desc" ? y.v - x.v : x.v - y.v);
+
+  const isSum = M.kind === "sum";
+  const total = isSum ? items.reduce((s,d) => s + d.v, 0) : null;
+  const max = Math.max(...items.map(d => d.v));
+
+  const list = h("div",{class:"hbars"});
+  for (const d of items.slice(0, 14)){
+    const row = h("div",{class:"hbar"});
+    const leads = d.a.leads, cpl = metricOf(d.a, "cpl");
+    const nm = h("div",{class:"nm"});
+    nm.appendChild(document.createTextNode(d.name));
+    nm.appendChild(h("small",{text: `${fmt(d.a.spend,"brl")} · ${fmt(leads,"int")} leads${cpl!=null?" · CPL "+fmt(cpl,"brl2"):""}`}));
+    row.appendChild(nm);
+    const track = h("div",{class:"track"});
+    track.appendChild(h("div",{class:"fill", style:`width:${Math.max(1.5,(d.v/max)*100).toFixed(1)}%`}));
+    row.appendChild(track);
+    const vals = h("div",{class:"vals"});
+    vals.appendChild(h("span",{text: fmt(d.v, M.unit)}));
+    vals.appendChild(h("span",{class:"pc", text: total ? nf1.format(d.v/total*100) + "%" : ""}));
+    row.appendChild(vals);
+    list.appendChild(row);
+  }
+  body.appendChild(list);
+  if (items.length > 14) body.appendChild(h("p",{class:"note", style:"color:var(--ink-3);font-size:12.5px;margin:8px 0 0",
+    text:`Mostrando as 14 primeiras de ${items.length}. A tabela completa fica no fim da página.`}));
+
+  // leitura automática
+  const best = items.filter(d => d.a.leads > 0);
+  if (best.length > 1 && STATE.avail.metrics.includes("cpl")){
+    const byCpl = best.map(d => ({...d, cpl: metricOf(d.a,"cpl")})).sort((a,b) => a.cpl - b.cpl);
+    const b0 = byCpl[0], b9 = byCpl[byCpl.length-1];
+    if (b0 && b9 && b0.name !== b9.name){
+      body.appendChild(h("p",{class:"note", style:"margin:12px 0 0",
+        html:`Lead mais barato em <b>${b0.name}</b> (${fmt(b0.cpl,"brl2")}); mais caro em <b>${b9.name}</b> (${fmt(b9.cpl,"brl2")}) — ${nf1.format(b9.cpl/b0.cpl)}× a diferença.`}));
+    }
+  }
+}
+
+/* ============================================================
+   10. criativos — dispersão + ranking
+   ============================================================ */
+function renderCreative(){
+  const svg = $("#scSvg"), wrap = $("#scWrap"), tip = $("#scTip");
+  svg.textContent = "";
+  const lvl = STATE.creaLevel;
+  const rows = filtered();
+  if (!lvl || !STATE.avail.dims.includes(lvl)){
+    svg.setAttribute("viewBox","0 0 600 100");
+    svg.appendChild(el("text",{x:16,y:52,class:"ax"},"Exporte no nível de anúncio para comparar criativo por criativo."));
+    $("#creaTable").innerHTML = ""; $("#scatterNote").textContent = "";
+    return;
+  }
+  const g = groupBy(rows, lvl);
+  const yk = STATE.creaY, YM = METRICS[yk];
+  let pts = [...g.entries()].map(([name, a]) => ({ name, a, x: a.spend, y: metricOf(a, yk), r: a.leads }))
+    .filter(d => d.x > 0 && d.y != null && isFinite(d.y));
+  if (!pts.length){
+    svg.setAttribute("viewBox","0 0 600 100");
+    svg.appendChild(el("text",{x:16,y:52,class:"ax"},"Sem dados suficientes para esta combinação."));
+    $("#creaTable").innerHTML = ""; return;
+  }
+
+  const totAll = aggRows(rows), ref = metricOf(totAll, yk);
+
+  const W = 980, H = 360, mL = 68, mR = 132, mT = 40, mB = 50;
+  const pw = W - mL - mR, ph = H - mT - mB;
+  const xt = ticks(Math.max(...pts.map(d=>d.x)), 4), xMax = xt[xt.length-1] || 1;
+
+  // um outlier isolado esmaga a escala: corto o eixo e marco quem ficou fora
+  const ys = pts.map(d => d.y).sort((a,b) => a-b);
+  const med = ys[Math.floor(ys.length/2)];
+  const p80 = ys[Math.max(0, Math.floor((ys.length-1) * 0.8))];
+  const hardMax = ys[ys.length-1];
+  let capV = hardMax;
+  if (ys.length >= 4 && hardMax > Math.max(p80, med) * 3.2){
+    capV = Math.max(p80 * 1.3, (ref || med) * 2.2, med * 2);
+  }
+  const yt = ticks(capV, 4), yMax = yt[yt.length-1] || 1;
+  const X = v => mL + (v / xMax) * pw;
+  const Y = v => mT + ph - (Math.min(v, yMax) / yMax) * ph;
+  const rMax = Math.max(...pts.map(d => d.r), 1);
+  const R = v => 5 + Math.sqrt(Math.max(0,v) / rMax) * 13;
+  const fora = pts.filter(d => d.y > yMax);
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.height = H + "px";
+  for (const t of yt){
+    svg.appendChild(el("line",{x1:mL,x2:W-mR,y1:Y(t).toFixed(1),y2:Y(t).toFixed(1),class:"gridline"+(t===0?" zero":"")}));
+    svg.appendChild(el("text",{x:mL-9,y:(Y(t)+3.5).toFixed(1),"text-anchor":"end",class:"ax-y"}, axisFmt(t, YM.unit)));
+  }
+  for (const t of xt){
+    svg.appendChild(el("text",{x:X(t).toFixed(1),y:H-mB+18,"text-anchor":"middle",class:"ax"}, axisFmt(t, "brl")));
+  }
+  svg.appendChild(el("text",{x:mL,y:H-10,class:"ax",fill:cssVar("--ink-4")},"Investimento no criativo →"));
+  svg.appendChild(el("text",{x:8,y:16,class:"ax",fill:cssVar("--ink-4")}, "↑ " + YM.label));
+
+  if (ref != null && ref <= yMax){
+    svg.appendChild(el("line",{x1:mL,x2:W-mR,y1:Y(ref).toFixed(1),y2:Y(ref).toFixed(1),class:"mk-ref"}));
+    svg.appendChild(el("text",{x:W-mR+8,y:(Y(ref)+4).toFixed(1),class:"ax",fill:cssVar("--ink-2")},
+      `média da conta · ${fmt(ref, YM.unit)}`));
+  }
+
+  pts.sort((a,b) => b.r - a.r);
+  const placed = [];
+  for (const d of pts){
+    const cx = X(d.x), cy = Y(d.y), rr = R(d.r), off = d.y > yMax;
+    const c = el("circle",{cx:cx.toFixed(1), cy:cy.toFixed(1), r:rr.toFixed(1),
+      fill:"var(--s1)", "fill-opacity": off ? .38 : .62, stroke:"var(--surface)", "stroke-width":2,
+      "stroke-dasharray": off ? "3 3" : null, style:"cursor:pointer"});
+    const lines = [
+      ["Investimento", fmt(d.a.spend,"brl")],
+      ["Leads", fmt(d.a.leads,"int")],
+      [YM.label, fmt(d.y, YM.unit) + (off ? "  (fora da escala)" : "")]
+    ];
+    if (yk !== "ctr") lines.push(["CTR", fmt(metricOf(d.a,"ctr"), "pct2")]);
+    c.addEventListener("mousemove", ev => tipShow(tip, wrap, ev, d.name, lines));
+    c.addEventListener("mouseleave", () => tipHide(tip));
+    svg.appendChild(c);
+    if (off) svg.appendChild(el("path",{d:`M${(cx-5).toFixed(1)},${(cy-rr-4).toFixed(1)} L${cx.toFixed(1)},${(cy-rr-10).toFixed(1)} L${(cx+5).toFixed(1)},${(cy-rr-4).toFixed(1)} Z`, fill:"var(--s1)"}));
+
+    // rótulos diretos, sem colidir
+    if (placed.length < 4){
+      const ly = cy - rr - (off ? 16 : 8);
+      const clash = placed.some(pp => Math.abs(pp[0]-cx) < 165 && Math.abs(pp[1]-ly) < 22);
+      if (!clash && ly > mT + 6){
+        const nm = d.name.length > 23 ? d.name.slice(0,22) + "…" : d.name;
+        svg.appendChild(el("text",{x:cx.toFixed(1), y:ly.toFixed(1),
+          "text-anchor":"middle", class:"ax", fill:cssVar("--ink-2")}, nm));
+        placed.push([cx, ly]);
+      }
+    }
+  }
+  let nota = `Cada bolha é um ${FIELDS[lvl].label.toLowerCase()}: posição horizontal é quanto levou de verba, vertical é <b>${YM.label.toLowerCase()}</b>, e o tamanho é o número de leads. ${YM.lowerBetter ? "Abaixo da linha tracejada é melhor que a média da conta." : "Acima da linha tracejada é melhor que a média da conta."}`;
+  if (fora.length) nota += ` ${fora.length === 1 ? "Um criativo ficou" : fora.length + " criativos ficaram"} fora da escala (${fora.map(d => fmt(d.y, YM.unit)).join(", ")}) e ${fora.length === 1 ? "aparece" : "aparecem"} no topo com seta — passe o mouse para ver o valor real.`;
+  $("#scatterNote").innerHTML = nota;
+
+  // ranking
+  const t = $("#creaTable"); t.innerHTML = "";
+  const cols = ["spend","leads","cpl","ctr","cpm"].filter(k => STATE.avail.metrics.includes(k));
+  const thead = h("thead"), trh = h("tr");
+  trh.appendChild(h("th",{text: FIELDS[lvl].label}));
+  for (const c of cols) trh.appendChild(h("th",{text: METRICS[c].label}));
+  thead.appendChild(trh); t.appendChild(thead);
+  const tb = h("tbody");
+  const ranked = [...g.entries()].map(([name,a]) => ({name,a}))
+    .filter(d => d.a.spend > 0)
+    .sort((x,y) => {
+      const cx = metricOf(x.a,"cpl"), cy = metricOf(y.a,"cpl");
+      if (cx == null && cy == null) return y.a.spend - x.a.spend;
+      if (cx == null) return 1; if (cy == null) return -1;
+      return cx - cy;
+    });
+  const refCpl = metricOf(totAll, "cpl");
+  for (const d of ranked.slice(0, 12)){
+    const tr = h("tr");
+    const th = h("th",{scope:"row"});
+    th.appendChild(document.createTextNode(d.name));
+    if (lvl !== "campaign" && d.a && rowsNameFor(rows, lvl, d.name)) th.appendChild(h("small",{text: rowsNameFor(rows, lvl, d.name)}));
+    tr.appendChild(th);
+    for (const c of cols){
+      const v = metricOf(d.a, c);
+      const td = h("td",{text: fmt(v, METRICS[c].unit)});
+      if (c === "cpl" && v != null && refCpl) td.className = v <= refCpl ? "pos" : "neg";
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+  if (ranked.length > 12){
+    const cap = h("caption",{text:`Ordenado do lead mais barato ao mais caro — 12 de ${ranked.length}. Verde é CPL abaixo da média da conta.`});
+    cap.style.cssText = "caption-side:bottom;text-align:left;font-size:12.5px;color:var(--ink-3);padding-top:10px";
+    t.appendChild(cap);
+  }
+}
+function rowsNameFor(rows, lvl, name){
+  if (lvl === "ad") { const r = rows.find(r => r.ad === name && r.campaign); return r ? r.campaign : ""; }
+  if (lvl === "adset") { const r = rows.find(r => r.adset === name && r.campaign); return r ? r.campaign : ""; }
+  return "";
+}
+
+/* ============================================================
+   11. tabela completa
+   ============================================================ */
+function renderTable(){
+  const t = $("#mainTable"); t.innerHTML = "";
+  const dim = STATE.tblDim;
+  const rows = filtered();
+  if (!dim || !STATE.avail.dims.includes(dim)){ t.appendChild(h("caption",{text:"Nenhuma dimensão disponível."})); return; }
+  const g = groupBy(rows, dim);
+  const cols = STATE.avail.metrics;
+  let items = [...g.entries()].map(([name,a]) => ({name, a}));
+  if (STATE.tblQ){
+    const q = norm(STATE.tblQ);
+    items = items.filter(d => norm(d.name).includes(q));
+  }
+  const sk = STATE.tblSort.key, dir = STATE.tblSort.dir === "asc" ? 1 : -1;
+  items.sort((x,y) => {
+    if (sk === "_name") return dir * (x.name < y.name ? -1 : x.name > y.name ? 1 : 0);
+    const a = metricOf(x.a, sk), b = metricOf(y.a, sk);
+    if (a == null && b == null) return 0;
+    if (a == null) return 1; if (b == null) return -1;
+    return dir * (a - b);
+  });
+
+  const thead = h("thead"), trh = h("tr");
+  const mkTh = (key, text) => {
+    const th = h("th",{class:"sortable", scope:"col", tabindex:"0", role:"columnheader"});
+    th.appendChild(document.createTextNode(text));
+    th.appendChild(h("span",{class:"arrow", text: STATE.tblSort.dir === "asc" ? "▲" : "▼"}));
+    if (STATE.tblSort.key === key) th.setAttribute("aria-sort", STATE.tblSort.dir === "asc" ? "ascending" : "descending");
+    const go = () => {
+      if (STATE.tblSort.key === key) STATE.tblSort.dir = STATE.tblSort.dir === "asc" ? "desc" : "asc";
+      else STATE.tblSort = { key, dir: key === "_name" ? "asc" : "desc" };
+      renderTable();
+    };
+    th.addEventListener("click", go);
+    th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } });
+    return th;
+  };
+  trh.appendChild(mkTh("_name", FIELDS[dim].label));
+  for (const c of cols) trh.appendChild(mkTh(c, METRICS[c].label + (METRICS[c].approx ? " ≈" : "")));
+  thead.appendChild(trh); t.appendChild(thead);
+
+  const tb = h("tbody");
+  for (const d of items.slice(0, 60)){
+    const tr = h("tr");
+    const th = h("th",{scope:"row"});
+    th.appendChild(document.createTextNode(d.name));
+    const sub = rowsNameFor(rows, dim, d.name);
+    if (sub) th.appendChild(h("small",{text: sub}));
+    tr.appendChild(th);
+    for (const c of cols) tr.appendChild(h("td",{text: fmt(metricOf(d.a, c), METRICS[c].unit)}));
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+
+  const tot = aggRows(rows);
+  const tf = h("tfoot"), trf = h("tr");
+  trf.appendChild(h("th",{scope:"row", text:"Total do período"}));
+  for (const c of cols) trf.appendChild(h("td",{text: fmt(metricOf(tot, c), METRICS[c].unit)}));
+  tf.appendChild(trf); t.appendChild(tf);
+
+  if (items.length > 60){
+    const cap = h("caption",{text:`Mostrando 60 de ${items.length} linhas — use o campo de busca para achar uma específica.`});
+    cap.style.cssText = "caption-side:bottom;text-align:left;font-size:12.5px;color:var(--ink-3);padding-top:10px";
+    t.appendChild(cap);
+  }
+  $("#rowCount").textContent = `${nfInt.format(rows.length)} linhas do arquivo no recorte`;
+}
+</script>
+
+<script>
+"use strict";
+/* ============================================================
+   12. dados de exemplo (fictícios — só para demonstrar o painel)
+   ============================================================ */
+function demoDataset(){
+  let seed = 20260827;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const jit = (v, p) => v * (1 + (rnd() - 0.5) * 2 * p);
+
+  const CAMPS = [
+    { n:"Rastreador Carro — Leads [Brasil]",  w:0.46, cvr:0.075, ctr:0.0135, cpm:19 },
+    { n:"Rastreador Moto — Leads [SP/RJ]",    w:0.32, cvr:0.098, ctr:0.0182, cpm:14 },
+    { n:"Frota Empresarial — Leads",          w:0.22, cvr:0.041, ctr:0.0091, cpm:31 }
+  ];
+  const ADS = {
+    0:[["VD-01 Furto na rua · 15s",0.45,1.22],["IMG-04 Antes e depois",0.31,0.86],["VD-07 Depoimento cliente · 30s",0.24,1.05]],
+    1:[["MOTO-VD-02 Recuperação em 40min",0.42,1.34],["MOTO-IMG-01 A partir de R$ 79",0.35,0.92],["MOTO-CAR-03 Carrossel benefícios",0.23,0.78]],
+    2:[["FROTA-VD-05 Painel de gestão",0.38,1.11],["FROTA-IMG-02 Reduza 22% do custo",0.34,0.95],["FROTA-CAR-01 Carrossel 3 planos",0.28,0.71]]
+  };
+  const PLACE = [
+    { p:"Instagram", pl:"Reels",   w:0.27, ctr:1.18, cvr:0.86, cpm:0.92, dev:"Celular" },
+    { p:"Instagram", pl:"Stories", w:0.22, ctr:0.94, cvr:0.79, cpm:0.83, dev:"Celular" },
+    { p:"Instagram", pl:"Feed",    w:0.19, ctr:1.06, cvr:1.14, cpm:1.09, dev:"Celular" },
+    { p:"Facebook",  pl:"Feed",    w:0.24, ctr:0.88, cvr:1.31, cpm:1.02, dev:"Celular" },
+    { p:"Audience Network", pl:"Nativo, banner e intersticial", w:0.08, ctr:1.42, cvr:0.34, cpm:0.41, dev:"Celular" }
+  ];
+  const head = ["Dia","Nome da campanha","Nome do conjunto de anúncios","Nome do anúncio","Plataforma","Posicionamento","Dispositivo","Valor usado (BRL)","Impressões","Alcance","Cliques no link","Cadastros"];
+  const out = [head];
+  const brl = v => v.toFixed(2).replace(".", ",");
+
+  for (let d = 1; d <= 27; d++){
+    const day = `2026-08-${String(d).padStart(2,"0")}`;
+    const dow = new Date(day + "T00:00:00Z").getUTCDay();
+    const dayW = (dow === 0 || dow === 6) ? 0.78 : 1.0;
+    const ramp = 1 + (d / 27) * 0.35;                    // verba sobe ao longo do mês
+    const base = 1180 * dayW * ramp;
+    CAMPS.forEach((C, ci) => {
+      ADS[ci].forEach(([adName, adW, adQual]) => {
+        PLACE.forEach(P => {
+          const desktopShare = (P.p === "Facebook") ? 0.17 : 0;
+          for (const dev of (desktopShare > 0 ? ["Celular","Computador"] : ["Celular"])){
+            const devW = dev === "Computador" ? desktopShare : 1 - desktopShare;
+            const spend = jit(base * C.w * adW * P.w * devW, 0.22);
+            if (spend < 0.4) continue;
+            const cpm  = jit(C.cpm * P.cpm * (dev === "Computador" ? 0.78 : 1), 0.14);
+            const imps = Math.round(spend / cpm * 1000);
+            const reach= Math.round(imps / jit(1.55, 0.12));
+            const ctr  = jit(C.ctr * P.ctr * adQual, 0.18);
+            const clicks = Math.round(imps * ctr);
+            const cvr  = jit(C.cvr * P.cvr * adQual * (dev === "Computador" ? 1.18 : 1), 0.24);
+            const leads = Math.max(0, Math.round(clicks * cvr));
+            out.push([day, C.n, C.n.split("—")[0].trim() + " · " + P.p, adName, P.p, P.pl, dev,
+              brl(spend), String(imps), String(reach), String(clicks), String(leads)]);
+          }
+        });
+      });
+    });
+  }
+  return out;
+}
+
+/* ============================================================
+   13. importação e mapeamento
+   ============================================================ */
+const LS_DATA = "ituranmob.ads.data.v1";
+const LS_MAP  = "ituranmob.ads.map.v1";
+
+function msg(box, kind, html){
+  const b = $(box); b.innerHTML = "";
+  if (html) b.appendChild(h("div",{class:kind, html}));
+}
+function headerSig(headers){ return headers.map(norm).join("|").slice(0, 400); }
+
+function ingest(rawRows, opts){
+  opts = opts || {};
+  if (!rawRows || rawRows.length < 2){
+    msg("#importMsg","err","<b>Não consegui ler o arquivo.</b> Ele parece vazio ou sem linha de cabeçalho.");
+    return false;
+  }
+  // acha a linha de cabeçalho (o Meta às vezes põe títulos antes)
+  let hi = 0;
+  for (let i = 0; i < Math.min(6, rawRows.length); i++){
+    const score = rawRows[i].filter(c => String(c).trim()).length;
+    if (score >= Math.max(3, rawRows[i].length * 0.6)){ hi = i; break; }
+  }
+  const rows = rawRows.slice(hi);
+  const headers = rows[0].map(c => String(c).trim());
+  STATE.raw = { rows, headers };
+  STATE.headers = headers;
+  STATE.numFmt = opts.numFmt || sniffNumberFormat(rows);
+  $("#numFmt").value = STATE.numFmt;
+
+  const sig = headerSig(headers);
+  let map = null;
+  if (!opts.forceAuto){
+    try {
+      const saved = JSON.parse(store.get(LS_MAP) || "null");
+      if (saved && saved.sig === sig) map = saved.map;
+    } catch(e){}
+  }
+  if (!map) map = autoMap(headers);
+  STATE.map = map;
+
+  if (map.date != null){
+    const sample = rows.slice(1, 40).map(r => r[map.date]);
+    STATE.dayFirst = sniffDayFirst(sample);
+  }
+  return applyMap(opts.silent);
+}
+
+function applyMap(silent){
+  const map = STATE.map;
+  if (map.spend == null && map.leads == null){
+    buildMapPanel();
+    $("#mapPanel").classList.remove("hidden");
+    msg("#mapMsg","err","<b>Faltam as colunas principais.</b> Preciso pelo menos de <b>investimento</b> ou <b>leads</b>. Aponte-as nos campos acima e clique em Aplicar.");
+    return false;
+  }
+  const rows = buildRows(STATE.raw.rows, map, STATE.numFmt, STATE.dayFirst);
+  if (!rows.length){
+    buildMapPanel();
+    $("#mapPanel").classList.remove("hidden");
+    msg("#mapMsg","err","<b>Li o arquivo, mas nenhuma linha tinha número.</b> Provavelmente o formato numérico está trocado — teste a outra opção em “Formato dos números”.");
+    return false;
+  }
+  STATE.rows = rows;
+  STATE.avail = detectAvail(rows);
+  if (!STATE.avail.metrics.length){
+    msg("#mapMsg","err","<b>Nenhuma métrica com valor.</b> Confira o mapeamento das colunas de número.");
+    return false;
+  }
+  bootDash();
+  if (!silent) msg("#mapMsg","ok",`<b>Pronto.</b> ${nfInt.format(rows.length)} linhas lidas, ${STATE.avail.metrics.length} métricas disponíveis.`);
+  return true;
+}
+
+function buildMapPanel(){
+  const grid = $("#mapGrid"); grid.innerHTML = "";
+  for (const key of FIELD_KEYS){
+    const row = h("div",{class:"map-row" + ((key==="spend"||key==="leads") && STATE.map[key]==null ? " miss" : "")});
+    row.appendChild(h("span",{class:"k", text: FIELDS[key].label}));
+    const sel = h("select");
+    sel.appendChild(h("option",{value:"", text:"— não usar —"}));
+    STATE.headers.forEach((hd, i) => {
+      const o = h("option",{value:String(i), text: hd || `(coluna ${i+1})`});
+      if (STATE.map[key] === i) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", () => { STATE.map[key] = sel.value === "" ? null : +sel.value; });
+    row.appendChild(sel);
+    grid.appendChild(row);
+  }
+}
+
+function loadText(text, name, isDemo){
+  const { rows } = parseDelimited(text);
+  STATE.fileName = name || "";
+  STATE.mode = isDemo ? "demo" : "real";
+  const ok = ingest(rows, {});
+  if (ok && !isDemo){
+    if (text.length < 1500000) store.set(LS_DATA, JSON.stringify({ text, name }));
+    else store.del(LS_DATA);
+    store.set(LS_MAP, JSON.stringify({ sig: headerSig(STATE.headers), map: STATE.map }));
+  }
+  return ok;
+}
+function loadRows(rawRows, name, isDemo){
+  STATE.fileName = name || "";
+  STATE.mode = isDemo ? "demo" : "real";
+  return ingest(rawRows, {});
+}
+
+/* ============================================================
+   14. montagem do painel
+   ============================================================ */
+function opt(v, t, sel){ const o = h("option",{value:v, text:t}); if (sel) o.selected = true; return o; }
+
+function bootDash(){
+  document.body.dataset.mode = STATE.mode;
+  $("#importPanel").classList.add("hidden");
+  $("#dash").classList.remove("hidden");
+  $("#btnReset").hidden = false;
+  $("#btnRemap").hidden = false;
+
+  // fonte
+  $("#srcTxt").textContent = STATE.mode === "demo" ? "dados de exemplo" : (STATE.fileName || "arquivo carregado");
+  $("#srcChip").classList.toggle("on", STATE.mode === "demo");
+
+  // período
+  const dates = STATE.rows.map(r => r.date).filter(Boolean).sort();
+  if (dates.length){
+    const lo = dates[0], hi = dates[dates.length-1];
+    $("#d1").min = lo; $("#d1").max = hi; $("#d2").min = lo; $("#d2").max = hi;
+    if (!STATE.d1 || STATE.d1 < lo || STATE.d1 > hi) STATE.d1 = lo;
+    if (!STATE.d2 || STATE.d2 < lo || STATE.d2 > hi) STATE.d2 = hi;
+    $("#d1").value = STATE.d1; $("#d2").value = STATE.d2;
+    $("#d1").disabled = false; $("#d2").disabled = false;
+  } else {
+    STATE.d1 = STATE.d2 = null;
+    $("#d1").value = ""; $("#d2").value = "";
+    $("#d1").disabled = true; $("#d2").disabled = true;
+  }
+
+  // selects de campanha / conjunto
+  const camps = [...new Set(STATE.rows.map(r => r.campaign).filter(Boolean))].sort();
+  const fc = $("#fCamp"); fc.innerHTML = ""; fc.appendChild(opt("","Todas"));
+  camps.forEach(c => fc.appendChild(opt(c, c, c === STATE.fCamp)));
+  fc.parentElement.style.display = camps.length ? "" : "none";
+  refreshAdsets();
+
+  // recortes disponíveis
+  const whereDims = STATE.avail.dims.filter(d => ["platform","placement","device","age","gender","region","country"].includes(d));
+  const wd = $("#whereDim"); wd.innerHTML = "";
+  whereDims.forEach(d => wd.appendChild(opt(d, FIELDS[d].label)));
+  if (!whereDims.includes(STATE.whereDim)) STATE.whereDim = whereDims[0] || "";
+  wd.value = STATE.whereDim;
+  $("#secWhere").querySelector(".ctrls").style.display = whereDims.length ? "" : "none";
+
+  const wm = $("#whereMetric"); wm.innerHTML = "";
+  STATE.avail.metrics.forEach(m => wm.appendChild(opt(m, METRICS[m].label)));
+  if (!STATE.avail.metrics.includes(STATE.whereMetric)) STATE.whereMetric = STATE.avail.metrics[0];
+  wm.value = STATE.whereMetric;
+
+  // níveis de criativo
+  const lvls = ["ad","adset","campaign"].filter(d => STATE.avail.dims.includes(d));
+  const cl = $("#creaLevel"); cl.innerHTML = "";
+  lvls.forEach(d => cl.appendChild(opt(d, FIELDS[d].label)));
+  if (!lvls.includes(STATE.creaLevel)) STATE.creaLevel = lvls[0] || "";
+  cl.value = STATE.creaLevel;
+  $("#secCreative").classList.toggle("hidden", !lvls.length);
+
+  const cy = $("#creaY"); cy.innerHTML = "";
+  const yOpts = STATE.avail.metrics.filter(m => METRICS[m].kind === "ratio" || m === "leads");
+  yOpts.forEach(m => cy.appendChild(opt(m, METRICS[m].label)));
+  if (!yOpts.includes(STATE.creaY)) STATE.creaY = yOpts.includes("cpl") ? "cpl" : yOpts[0];
+  cy.value = STATE.creaY;
+
+  // tabela
+  const td = $("#tblDim"); td.innerHTML = "";
+  STATE.avail.dims.forEach(d => td.appendChild(opt(d, FIELDS[d].label)));
+  if (!STATE.avail.dims.includes(STATE.tblDim)) STATE.tblDim = STATE.avail.dims[0];
+  td.value = STATE.tblDim;
+  if (!STATE.avail.metrics.includes(STATE.tblSort.key)) STATE.tblSort = { key: STATE.avail.metrics[0], dir:"desc" };
+
+  // métrica principal
+  if (!STATE.avail.metrics.includes(STATE.metric)) STATE.metric = STATE.avail.metrics[0];
+  const splitSel = $("#tsSplit");
+  splitSel.innerHTML = "";
+  splitSel.appendChild(opt("","Total da conta"));
+  ["campaign","platform","placement","adset","device"].filter(d => STATE.avail.dims.includes(d))
+    .forEach(d => splitSel.appendChild(opt(d, "Por " + FIELDS[d].label.toLowerCase())));
+  if (STATE.split && !STATE.avail.dims.includes(STATE.split)) STATE.split = "";
+  splitSel.value = STATE.split;
+
+  renderAll();
+}
+function refreshAdsets(){
+  const pool = STATE.fCamp ? STATE.rows.filter(r => r.campaign === STATE.fCamp) : STATE.rows;
+  const sets = [...new Set(pool.map(r => r.adset).filter(Boolean))].sort();
+  const fa = $("#fAdset"); fa.innerHTML = ""; fa.appendChild(opt("","Todos"));
+  sets.forEach(s => fa.appendChild(opt(s, s, s === STATE.fAdset)));
+  if (STATE.fAdset && !sets.includes(STATE.fAdset)) STATE.fAdset = "";
+  fa.value = STATE.fAdset;
+  $("#fAdsetWrap").style.display = sets.length ? "" : "none";
+}
+function renderAll(){
+  const dates = filtered().map(r => r.date).filter(Boolean).sort();
+  if (dates.length){
+    const a = dates[0], b = dates[dates.length-1];
+    const n = Math.round((new Date(b) - new Date(a)) / 86400000) + 1;
+    $("#periodLabel").textContent = `${fmtDiaLongo(a)} a ${fmtDiaLongo(b)} de ${a.slice(0,4)} · ${n} dia${n>1?"s":""}`;
+  } else {
+    $("#periodLabel").textContent = STATE.mode === "demo" ? "dados de exemplo" : "período não identificado";
+  }
+  renderKpis();
+  renderResumo();
+  drawTimeSeries();
+  renderWhere();
+  renderCreative();
+  renderTable();
+  const src = STATE.mode === "demo"
+    ? "Números fictícios, gerados só para demonstrar o painel — não vieram da conta da Ituran Mob."
+    : `Fonte: ${STATE.fileName || "arquivo local"}, exportado do Gerenciador de Anúncios do Meta. O arquivo é lido no seu navegador e não sai daqui.`;
+  $("#footNote").textContent = src + " Todos os cálculos são refeitos a partir das linhas do export, respeitando os filtros ativos.";
+}
+
+function renderResumo(){
+  const box = $("#resumo");
+  const rows = filtered();
+  const a = aggRows(rows);
+  if (!rows.length){ box.textContent = ""; return; }
+  const parts = [];
+  const nDias = new Set(rows.map(r => r.date).filter(Boolean)).size;
+  const cpl = metricOf(a, "cpl");
+  if (a.spend > 0 && a.leads > 0){
+    parts.push(`Em ${nDias ? nDias + (nDias > 1 ? " dias" : " dia") : "todo o recorte"}, <b>${fmt(a.spend,"brl")}</b> viraram <b>${fmt(a.leads,"int")} leads</b> a <b>${fmt(cpl,"brl2")}</b> por lead.`);
+  } else if (a.spend > 0){
+    parts.push(`Foram <b>${fmt(a.spend,"brl")}</b> investidos no recorte, sem coluna de leads para calcular custo por lead.`);
+  }
+  // primeira contra segunda metade
+  const dias = [...new Set(rows.map(r => r.date).filter(Boolean))].sort();
+  if (dias.length >= 6 && a.leads > 0){
+    const meio = dias[Math.floor(dias.length/2)];
+    const A = aggRows(rows.filter(r => r.date && r.date < meio));
+    const B = aggRows(rows.filter(r => r.date && r.date >= meio));
+    const ca = metricOf(A,"cpl"), cb = metricOf(B,"cpl");
+    if (ca && cb){
+      const d = (cb - ca) / ca;
+      const dir = d < 0 ? "mais barato" : "mais caro";
+      if (Math.abs(d) >= 0.03){
+        parts.push(`Na segunda metade do período o lead saiu <b>${nf1.format(Math.abs(d)*100)}% ${dir}</b> que na primeira (${fmt(ca,"brl2")} → ${fmt(cb,"brl2")}).`);
+      } else {
+        parts.push(`O custo por lead ficou estável entre a primeira e a segunda metade do período (${fmt(ca,"brl2")} → ${fmt(cb,"brl2")}).`);
+      }
+    }
+  }
+  // concentração de verba
+  if (!STATE.fCamp && STATE.avail.dims.includes("campaign") && a.spend > 0){
+    const g = [...groupBy(rows,"campaign").entries()].sort((x,y) => y[1].spend - x[1].spend);
+    if (g.length > 1){
+      const [nm, ag] = g[0];
+      parts.push(`<b>${nm}</b> ficou com ${nf1.format(ag.spend/a.spend*100)}% da verba, entre ${g.length} campanhas.`);
+    }
+  }
+  box.innerHTML = parts.join(" ");
+}
+
+/* ============================================================
+   15. eventos
+   ============================================================ */
+function on(sel, ev, fn){ const n = $(sel); if (n) n.addEventListener(ev, fn); }
+
+on("#btnPick","click", () => $("#file").click());
+on("#file","change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { msg("#importMsg","",""); loadText(String(rd.result), f.name, false); };
+  rd.onerror = () => msg("#importMsg","err","<b>Não deu para abrir o arquivo.</b> Tente exportar de novo em CSV.");
+  rd.readAsText(f, "utf-8");
+});
+["dragenter","dragover"].forEach(t => on("#drop", t, e => { e.preventDefault(); $("#drop").classList.add("over"); }));
+["dragleave","drop"].forEach(t => on("#drop", t, e => { e.preventDefault(); $("#drop").classList.remove("over"); }));
+on("#drop","drop", e => {
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { msg("#importMsg","",""); loadText(String(rd.result), f.name, false); };
+  rd.readAsText(f, "utf-8");
+});
+on("#btnPaste","click", () => {
+  const v = $("#paste").value.trim();
+  if (!v) { msg("#importMsg","err","<b>A caixa está vazia.</b> Cole as linhas com o cabeçalho incluído."); return; }
+  msg("#importMsg","","");
+  loadText(v, "colado da planilha", false);
+});
+on("#btnDemo","click", () => { loadRows(demoDataset(), "exemplo", true); });
+on("#btnLoadReal","click", () => {
+  $("#dash").classList.add("hidden");
+  $("#importPanel").classList.remove("hidden");
+  document.body.dataset.mode = "empty";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+on("#btnReset","click", () => {
+  store.del(LS_DATA);
+  STATE.rows = []; STATE.mode = "empty"; STATE.d1 = STATE.d2 = null; STATE.fCamp = STATE.fAdset = "";
+  document.body.dataset.mode = "empty";
+  $("#dash").classList.add("hidden");
+  $("#mapPanel").classList.add("hidden");
+  $("#importPanel").classList.remove("hidden");
+  $("#btnReset").hidden = true; $("#btnRemap").hidden = true;
+  $("#srcTxt").textContent = "sem fonte"; $("#srcChip").classList.remove("on");
+  $("#periodLabel").textContent = "aguardando dados";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+on("#btnRemap","click", () => {
+  buildMapPanel();
+  $("#mapPanel").classList.remove("hidden");
+  $("#mapPanel").scrollIntoView({ behavior:"smooth", block:"start" });
+});
+on("#btnCloseMap","click", () => $("#mapPanel").classList.add("hidden"));
+on("#btnApplyMap","click", () => {
+  STATE.numFmt = $("#numFmt").value;
+  if (STATE.map.date != null && STATE.raw){
+    STATE.dayFirst = sniffDayFirst(STATE.raw.rows.slice(1,40).map(r => r[STATE.map.date]));
+  }
+  if (applyMap(false)){
+    store.set(LS_MAP, JSON.stringify({ sig: headerSig(STATE.headers), map: STATE.map }));
+    setTimeout(() => $("#mapPanel").classList.add("hidden"), 900);
+  }
+});
+on("#numFmt","change", () => { STATE.numFmt = $("#numFmt").value; });
+
+on("#d1","change", e => { STATE.d1 = e.target.value || null; renderAll(); });
+on("#d2","change", e => { STATE.d2 = e.target.value || null; renderAll(); });
+on("#fCamp","change", e => { STATE.fCamp = e.target.value; STATE.fAdset = ""; refreshAdsets(); renderAll(); });
+on("#fAdset","change", e => { STATE.fAdset = e.target.value; renderAll(); });
+on("#btnClearF","click", () => {
+  STATE.fCamp = ""; STATE.fAdset = ""; STATE.d1 = STATE.d2 = null; STATE.tblQ = ""; $("#tblSearch").value = "";
+  bootDash();
+});
+
+$$("[data-grain]").forEach(b => b.addEventListener("click", () => {
+  STATE.grain = b.dataset.grain;
+  $$("[data-grain]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  drawTimeSeries();
+}));
+$$("[data-form]").forEach(b => b.addEventListener("click", () => {
+  STATE.form = b.dataset.form;
+  $$("[data-form]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  drawTimeSeries();
+}));
+$$("[data-wsort]").forEach(b => b.addEventListener("click", () => {
+  STATE.whereSort = b.dataset.wsort;
+  $$("[data-wsort]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  renderWhere();
+}));
+on("#tsSplit","change", e => { STATE.split = e.target.value; drawTimeSeries(); });
+on("#whereDim","change", e => { STATE.whereDim = e.target.value; renderWhere(); });
+on("#whereMetric","change", e => { STATE.whereMetric = e.target.value; renderWhere(); });
+on("#creaLevel","change", e => { STATE.creaLevel = e.target.value; renderCreative(); });
+on("#creaY","change", e => { STATE.creaY = e.target.value; renderCreative(); });
+on("#tblDim","change", e => { STATE.tblDim = e.target.value; renderTable(); });
+on("#tblSearch","input", e => { STATE.tblQ = e.target.value; renderTable(); });
+
+let rz;
+window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => {
+  if (STATE.rows.length){ drawTimeSeries(); renderCreative(); }
+}, 180); });
+
+/* ============================================================
+   16. início
+   ============================================================ */
+(function init(){
+  let restored = false;
+  try {
+    const saved = JSON.parse(store.get(LS_DATA) || "null");
+    if (saved && saved.text) restored = loadText(saved.text, saved.name, false);
+  } catch(e){ restored = false; }
+  if (!restored){
+    document.body.dataset.mode = "empty";
+    $("#importPanel").classList.remove("hidden");
+  }
+})();
+</script>
