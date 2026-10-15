@@ -195,10 +195,12 @@ export function UploadStep({ onUploaded }: { onUploaded: (preview: ImportPreview
           </Field>
           <div className="flex items-start gap-2">
             <Checkbox id="imp-invert" checked={invert} onCheckedChange={(v) => setInvert(v === true)} className="mt-0.5" />
-            <Label htmlFor="imp-invert" className="text-sm font-normal leading-snug">
-              Inverter sinais dos valores
-              <span className="block text-xs text-muted-foreground">Use se as saídas aparecerem como entradas (pode ser ajustado depois).</span>
-            </Label>
+            <div className="grid gap-1">
+              <Label htmlFor="imp-invert" className="text-sm font-normal leading-snug">
+                Inverter sinais dos valores
+              </Label>
+              <p className="text-xs text-muted-foreground">Use se as saídas aparecerem como entradas (pode ser ajustado depois).</p>
+            </div>
           </div>
           <div className="flex gap-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" aria-hidden />

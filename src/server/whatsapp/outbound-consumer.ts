@@ -20,6 +20,8 @@ import type { WhatsAppProvider } from "./types";
 export const OUTBOUND_MIN_INTERVAL_MS = 1000;
 export const OUTBOUND_MAX_PER_HOUR = 30;
 
+const KIND_LABELS: Record<OutboundJobData["kind"], string> = { reply: "resposta", notification: "notificação", report: "relatório" };
+
 export interface ProviderRegistry {
   /** Provedor em execução para a família (pode estar desconectado). */
   getProvider(householdId: string): WhatsAppProvider | null;
@@ -173,7 +175,7 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
             quotedExternalId: target.quoted,
             sentAt: new Date(),
             status: "QUEUED",
-            statusDetail: `Na fila (${data.kind})`,
+            statusDetail: `Na fila (${KIND_LABELS[data.kind] ?? data.kind})`,
           },
         });
       } catch (err) {
@@ -204,7 +206,7 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
       const { externalId } = await sender.sendText(target.chatId, fullText, { quotedExternalId: target.quoted });
       await markSentByBot(conn.id, externalId);
       await markDelivered(hash, externalId);
-      const done = { status: "PROCESSED" as const, processedAt: new Date(), sentAt: new Date(), statusDetail: `Enviada (${data.kind})` };
+      const done = { status: "PROCESSED" as const, processedAt: new Date(), sentAt: new Date(), statusDetail: `Enviada (${KIND_LABELS[data.kind] ?? data.kind})` };
       try {
         await prisma.whatsAppMessage.update({ where: { id: row.id }, data: { ...done, externalId } });
       } catch (err) {

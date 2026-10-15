@@ -82,7 +82,7 @@ export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boo
               </>
             )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid items-start gap-4 sm:grid-cols-2">
             <Field label="Data do ajuste" htmlFor="adj-date" required>
               <Input id="adj-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>

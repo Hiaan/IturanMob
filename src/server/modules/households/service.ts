@@ -43,7 +43,8 @@ export const registerSchema = z.object({
 });
 
 export async function isFirstRun(): Promise<boolean> {
-  return (await prisma.user.count()) === 0;
+  // Contas de demonstração (seed opcional, domínio reservado .invalid) não contam: não bloqueiam o primeiro cadastro real.
+  return (await prisma.user.count({ where: { NOT: { email: { endsWith: "@demo.invalid" } } } })) === 0;
 }
 
 export async function registrationOpen(): Promise<boolean> {

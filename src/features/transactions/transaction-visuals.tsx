@@ -126,7 +126,7 @@ export function whereLabel(tx: Pick<TransactionDTO, "type" | "account" | "destin
   if (tx.type === "TRANSFER") return `${tx.account?.name ?? "?"} → ${tx.destinationAccount?.name ?? "?"}`;
   if (tx.creditCard && tx.type !== "CARD_PAYMENT") return tx.creditCard.name;
   if (tx.type === "CARD_PAYMENT") return `${tx.account?.name ?? "Conta"} → ${tx.creditCard?.name ?? "Cartão"}`;
-  return tx.account?.name ?? tx.destinationAccount?.name ?? "—";
+  return tx.account?.name ?? tx.destinationAccount?.name ?? "";
 }
 
 export function installmentLabel(tx: Pick<TransactionDTO, "installmentCount">): string | null {

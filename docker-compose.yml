@@ -1,0 +1,128 @@
+# =============================================================================
+# Finance AI — stack completa
+#
+#   docker compose up -d --build          → postgres, redis, migrate, web, worker
+#   docker compose --profile whisper up -d → + servidor de transcrição local (opcional)
+#   docker compose --profile ollama up -d  → + LLM local compatível com OpenAI (opcional)
+#
+# Configure o arquivo .env antes (cp .env.example .env && pnpm run setup).
+# Segredos NUNCA ficam neste arquivo: todos vêm do .env.
+# =============================================================================
+name: finance-ai
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-finance}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-finance_ai}?schema=public
+  REDIS_URL: redis://redis:6379
+  NODE_ENV: production
+  STORAGE_DIR: /data/storage
+  BACKUP_DIR: /data/backups
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-finance_ai}
+      TZ: America/Recife
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Não expõe a porta do banco para fora da rede interna por padrão.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Aplica as migrations e encerra (web e worker só sobem depois dele).
+  migrate:
+    build:
+      context: .
+      target: worker
+    image: finance-ai-worker:latest
+    env_file: .env
+    environment: *app-env
+    command: ["node_modules/.bin/prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      target: web
+    image: finance-ai-web:latest
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - storage:/data/storage
+      - backups:/data/backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # Processo único: WhatsApp, filas, tarefas periódicas e backups. NÃO escale para mais de 1 réplica
+  # (uma sessão de WhatsApp não pode ser aberta por dois processos ao mesmo tempo).
+  worker:
+    image: finance-ai-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - storage:/data/storage
+      - backups:/data/backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    stop_grace_period: 35s
+
+  # ---- Opcionais -------------------------------------------------------------
+  # Transcrição local compatível com a API Whisper da OpenAI (sem enviar áudio a terceiros).
+  # Em Configurações → Integrações → IA, defina a transcrição como "Compatível com OpenAI" e
+  # TRANSCRIPTION_BASE_URL=http://whisper:8000/v1 no .env.
+  whisper:
+    profiles: ["whisper"]
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    environment:
+      WHISPER__MODEL: Systran/faster-whisper-small
+    volumes:
+      - whisper-cache:/home/ubuntu/.cache/huggingface
+
+  # LLM local (Ollama) acessível como provedor "Compatível com OpenAI":
+  # OPENAI_COMPATIBLE_BASE_URL=http://ollama:11434/v1
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:
+  backups:
+  whisper-cache:
+  ollama:

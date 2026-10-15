@@ -79,7 +79,11 @@ export function StatusHero({ status, canManage, timezone }: { status: WaStatus; 
             <p className={cn("mt-0.5 text-xl font-semibold tracking-tight", TONE_TEXT[meta.tone])} role="status" aria-live="polite">
               {meta.label}
             </p>
-            <p className="mt-0.5 text-sm text-muted-foreground">{status.provider === "SIMULATOR" && status.status === "CONNECTED" ? "Simulação ativa — nenhuma conexão real com o WhatsApp." : meta.hint}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{status.provider === "SIMULATOR"
+                ? status.status === "CONNECTED"
+                  ? "Simulação ativa — nenhuma conexão real com o WhatsApp."
+                  : "Simulador: a aba Simulador funciona mesmo desconectado (sem worker, a própria API processa)."
+                : meta.hint}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <ProviderBadge status={status} />
               {status.authorizedGroup ? (
@@ -109,7 +113,7 @@ export function StatusHero({ status, canManage, timezone }: { status: WaStatus; 
                 </Button>
               </>
             )}
-            {status.provider !== "CLOUD_API" && status.status !== "LOGGED_OUT" && (
+            {status.provider !== "CLOUD_API" && status.status !== "LOGGED_OUT" && (status.desiredConnected || status.lastConnectedAt) && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="ghost" className="text-destructive hover:text-destructive" loading={busy("logout")}>
@@ -160,7 +164,7 @@ export function StatusHero({ status, canManage, timezone }: { status: WaStatus; 
             <span className="text-muted-foreground">Nunca conectado</span>
           )}
         </Fact>
-        <Fact icon={Server} label="Worker (processamento em segundo plano)">
+        <Fact icon={Server} label="Worker (segundo plano)">
           {status.worker.online ? (
             <span className="inline-flex items-center gap-1.5 text-positive">
               <span className="size-2 rounded-full bg-positive" aria-hidden /> Online

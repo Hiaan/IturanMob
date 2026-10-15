@@ -216,7 +216,7 @@ export function TransactionList({
                                 {categoryLabel(tx)}
                                 {tx.merchant && ` · ${tx.merchant.name}`}
                                 {tx.paymentMethod && ` · ${labelOf(PAYMENT_METHOD_LABELS, tx.paymentMethod)}`}
-                                <span className="xl:hidden"> · {whereLabel(tx)}</span>
+                                {whereLabel(tx) && <span className="xl:hidden"> · {whereLabel(tx)}</span>}
                                 {!grouped && ` · ${formatDateBR(tx.date)}`}
                                 {trash && tx.deletedAt && ` · excluída em ${formatDateTimeBR(tx.deletedAt)}`}
                               </span>
@@ -228,7 +228,7 @@ export function TransactionList({
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="hidden truncate text-sm text-muted-foreground xl:table-cell">{whereLabel(tx)}</TableCell>
+                      <TableCell className="hidden truncate text-sm text-muted-foreground xl:table-cell">{whereLabel(tx) || "—"}</TableCell>
                       <TableCell className="hidden text-sm xl:table-cell">
                         <p className="truncate">{person.responsible}</p>
                         {person.payer && <p className="truncate text-xs text-muted-foreground">pago por {person.payer.split(" ")[0]}</p>}
@@ -278,7 +278,8 @@ export function TransactionList({
                         <AmountText tx={tx} accountId={accountId} className="text-sm" />
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {categoryLabel(tx)} · {whereLabel(tx)}
+                        {categoryLabel(tx)}
+                        {whereLabel(tx) && ` · ${whereLabel(tx)}`}
                         {!grouped && ` · ${formatDateBR(tx.date)}`}
                       </span>
                       <span className="mt-1.5 flex flex-wrap items-center gap-1.5">

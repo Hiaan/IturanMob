@@ -37,25 +37,28 @@ export function BulkBar({
   if (!items.length) return null;
   const pending = items.filter((t) => t.status === "PENDING").length;
   return (
-    <div role="toolbar" aria-label="Ações em lote" className="fixed inset-x-3 bottom-20 z-40 mx-auto flex max-w-3xl flex-wrap items-center gap-2 rounded-2xl border bg-popover p-2 pl-4 shadow-2xl lg:bottom-6">
-      <p className="mr-auto text-sm font-medium" aria-live="polite">
+    <div role="toolbar" aria-label="Ações em lote" className="fixed inset-x-3 bottom-20 z-40 mx-auto flex max-w-3xl items-center gap-1.5 rounded-2xl border bg-popover p-2 shadow-2xl sm:gap-2 lg:bottom-6">
+      <Button size="icon-sm" variant="ghost" onClick={onClear} aria-label="Limpar seleção">
+        <X />
+      </Button>
+      <p className="mr-auto whitespace-nowrap text-sm font-medium" aria-live="polite">
         {items.length} {items.length === 1 ? "selecionado" : "selecionados"}
       </p>
       {!trash ? (
         <>
           {canWrite && (
             <Button size="sm" variant="outline" onClick={onReclassify} disabled={busy}>
-              <Tags /> Reclassificar
+              <Tags /> <span className="max-sm:sr-only">Reclassificar</span>
             </Button>
           )}
           {canWrite && pending > 0 && (
             <Button size="sm" variant="outline" onClick={onConfirm} disabled={busy}>
-              <CheckCircle2 /> Confirmar{pending !== items.length ? ` (${pending})` : ""}
+              <CheckCircle2 /> <span className="max-sm:sr-only">Confirmar{pending !== items.length ? ` (${pending})` : ""}</span>
             </Button>
           )}
           {canDelete && (
             <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={onDelete} disabled={busy}>
-              <Trash2 /> Excluir
+              <Trash2 /> <span className="max-sm:sr-only">Excluir</span>
             </Button>
           )}
         </>
@@ -63,17 +66,14 @@ export function BulkBar({
         canDelete && (
           <>
             <Button size="sm" variant="outline" onClick={onRestore} disabled={busy}>
-              <ArchiveRestore /> Restaurar
+              <ArchiveRestore /> <span className="max-sm:sr-only">Restaurar</span>
             </Button>
             <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={onPurge} disabled={busy}>
-              <Trash2 /> Excluir definitivamente
+              <Trash2 /> <span className="max-sm:sr-only">Excluir definitivamente</span>
             </Button>
           </>
         )
       )}
-      <Button size="icon-sm" variant="ghost" onClick={onClear} aria-label="Limpar seleção">
-        <X />
-      </Button>
     </div>
   );
 }

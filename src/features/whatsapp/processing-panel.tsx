@@ -12,7 +12,8 @@ import { formatDateTimeBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useReprocessMessage, useRetryFailed, useWhatsAppMessages } from "./hooks";
 import { AttachmentLink, TransactionChips, messageText } from "./message-bits";
-import { MESSAGE_STATUS_META, MESSAGE_STATUS_ORDER, MESSAGE_TYPE_META, MessageStatusBadge, TONE_SOFT_BG } from "./status-meta";
+import { RichText } from "@/components/shared/rich-text";
+import { MESSAGE_STATUS_META, MESSAGE_STATUS_ORDER, MESSAGE_TYPE_META, MessageStatusBadge, OutboundStatusBadge, TONE_SOFT_BG, intentLabel } from "./status-meta";
 import type { WaMessage, WaMessageStatus, WaStatus } from "./types";
 
 function StatsGrid({ status, active, onSelect }: { status: WaStatus; active: WaMessageStatus | "ALL"; onSelect: (s: WaMessageStatus | "ALL") => void }) {
@@ -43,7 +44,7 @@ function StatsGrid({ status, active, onSelect }: { status: WaStatus; active: WaM
               <span className={cn("flex size-5 items-center justify-center rounded-md", TONE_SOFT_BG[meta.tone])}>
                 <Icon className="size-3" aria-hidden />
               </span>
-              <span className="truncate">{meta.label}</span>
+              <span className="line-clamp-2 leading-tight">{meta.label}</span>
             </p>
             <p className="mt-1 text-2xl font-semibold tabular">{stats.byStatus[s] ?? 0}</p>
           </button>
@@ -57,6 +58,9 @@ function MessageRow({ m, canManage, timezone }: { m: WaMessage; canManage: boole
   const reprocess = useReprocessMessage();
   const TypeIcon = m.isBot ? Bot : MESSAGE_TYPE_META[m.type].icon;
   const retrying = m.job && m.job.attempts > 0 && (m.status === "QUEUED" || m.status === "FAILED");
+  const intent = m.isBot ? null : intentLabel(m.intent);
+  // Para respostas do bot, o detalhe só interessa quando o envio não foi concluído.
+  const detail = m.isBot && m.status === "PROCESSED" ? null : m.statusDetail;
   return (
     <li className="flex gap-3 p-4">
       <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", m.isBot ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground")}>
@@ -68,14 +72,18 @@ function MessageRow({ m, canManage, timezone }: { m: WaMessage; canManage: boole
           <span className="text-xs text-muted-foreground">
             {MESSAGE_TYPE_META[m.type].label} · {formatDateTimeBR(m.sentAt, timezone)}
           </span>
-          <MessageStatusBadge status={m.status} />
+          {m.isBot ? <OutboundStatusBadge status={m.status} /> : <MessageStatusBadge status={m.status} />}
         </div>
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{messageText(m)}</p>
-        {(m.intent || m.statusDetail) && (
+        {m.isBot && m.text ? (
+          <RichText text={m.text} className="space-y-0.5 break-words text-sm text-foreground/90" />
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{messageText(m)}</p>
+        )}
+        {(intent || detail) && (
           <p className="break-words text-xs text-muted-foreground">
-            {m.intent && <span className="font-medium text-foreground/70">{m.intent}</span>}
-            {m.intent && m.statusDetail && " · "}
-            {m.statusDetail}
+            {intent && <span className="font-medium text-foreground/70">{intent}</span>}
+            {intent && detail && " · "}
+            {detail}
           </p>
         )}
         {retrying && m.job && (

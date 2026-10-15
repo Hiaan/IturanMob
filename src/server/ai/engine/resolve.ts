@@ -99,10 +99,16 @@ export function resolveMember(hint: string | null | undefined, hc: HouseholdCont
   return exact ? { id: exact.id, displayName: exact.displayName } : null;
 }
 
+/**
+ * Valores a partir deste limite (R$ 10.000,00) nunca são registrados automaticamente, por mais alta
+ * que seja a confiança informada pelo modelo: sempre pedem confirmação de quem enviou.
+ */
+export const LARGE_AMOUNT_CENTS = 1_000_000;
+
 /** Decisão a partir da confiança e dos limites configurados pela família. */
-export function decide(confidence: number, missing: string[], hc: Pick<HouseholdContext, "settings">): Decision {
+export function decide(confidence: number, missing: string[], hc: Pick<HouseholdContext, "settings">, amountCents?: number | null): Decision {
   if (missing.length) return "CLARIFY";
-  if (confidence >= hc.settings.confidenceHigh) return "AUTO";
+  if (confidence >= hc.settings.confidenceHigh) return amountCents && amountCents >= LARGE_AMOUNT_CENTS ? "CONFIRM" : "AUTO";
   if (confidence >= hc.settings.confidenceMedium) return "CONFIRM";
   return "CLARIFY";
 }
@@ -265,6 +271,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
     },
     ruleId,
   };
-  resolved.decision = decide(resolved.confidence, missing, hc);
+  resolved.decision = decide(resolved.confidence, missing, hc, resolved.amountCents);
+  if (resolved.decision === "CONFIRM" && (resolved.amountCents ?? 0) >= LARGE_AMOUNT_CENTS) warnings.push("Valor alto: confirme antes de registrar.");
   return resolved;
 }

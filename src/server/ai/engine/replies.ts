@@ -1,4 +1,4 @@
-import { formatBRL } from "@/lib/money";
+import { formatBRL, splitEvenly } from "@/lib/money";
 import { addDays, formatDateBR } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import type { ResolvedDraft } from "./resolve";
@@ -10,11 +10,21 @@ export function relativeDate(iso: string, today: string): string {
   return formatDateBR(iso);
 }
 
+/** "em 3x de R$ 10,00" ou, quando sobra centavo, "em 3x (1ª de R$ 94,64 e 2 de R$ 94,63)". */
+export function installmentsText(totalCents: number, count: number): string {
+  if (totalCents <= 0 || count < 2) return `em ${count}x`;
+  const parts = splitEvenly(totalCents, count);
+  const first = parts[0]!;
+  const rest = parts[1]!;
+  if (first === rest) return `em ${count}x de ${formatBRL(rest)}`;
+  return `em ${count}x (1ª de ${formatBRL(first)} e ${count - 1} de ${formatBRL(rest)})`;
+}
+
 export function draftSummary(d: ResolvedDraft, today: string): string {
   const parts: string[] = [];
   if (d.labels.category) parts.push(d.labels.subcategory ? `${d.labels.category} › ${d.labels.subcategory}` : d.labels.category);
   if (d.kind === "TRANSFER") parts.push(`${d.labels.account ?? "?"} → ${d.labels.destinationAccount ?? "?"}`);
-  else if (d.labels.card) parts.push(`${d.labels.card}${d.installmentCount > 1 ? ` em ${d.installmentCount}x de ${formatBRL(Math.floor((d.amountCents ?? 0) / d.installmentCount))}` : ""}`);
+  else if (d.labels.card) parts.push(`${d.labels.card}${d.installmentCount > 1 ? ` ${installmentsText(d.amountCents ?? 0, d.installmentCount)}` : ""}`);
   else if (d.labels.account) parts.push(d.labels.account);
   else if (d.paymentMethod) parts.push(labelOf(PAYMENT_METHOD_LABELS, d.paymentMethod));
   if (d.labels.goal) parts.push(`meta ${d.labels.goal}`);

@@ -1,0 +1,66 @@
+# Testes
+
+| Tipo | Ferramenta | Pasta | O que cobre |
+|---|---|---|---|
+| Unitários | Vitest | `tests/unit` | Regras puras: dinheiro, faturamento de cartão, NLU em português (valores, datas, intenções), importadores (CSV/OFX/XLSX), agenda de recorrências, telefones e fronteiras do WhatsApp |
+| Integração | Vitest + PostgreSQL real | `tests/integration` | Serviços de domínio, pipeline de IA, WhatsApp (ingestão, fila, recuperação), relatórios, importação, backups, LGPD e rotas da API |
+| End-to-end | Playwright | `tests/e2e` | Fluxos no navegador: cadastro/login, lançamento em linguagem natural, dashboard, assistente, isolamento entre famílias e layout no celular |
+
+## Como rodar
+
+```bash
+pnpm test:unit
+
+# Integração: usa um banco PRÓPRIO, que é apagado a cada teste.
+# Padrão: postgresql://finance:finance@localhost:5432/finance_ai_test
+createdb -h localhost -U finance finance_ai_test      # uma vez
+pnpm test:integration
+# outro banco: TEST_DATABASE_URL=postgresql://.../meu_banco_de_teste pnpm test:integration
+
+# End-to-end: sobe o painel na porta 3200 com o banco finance_ai_e2e (recriado a cada execução).
+createdb -h localhost -U finance finance_ai_e2e       # uma vez
+pnpm test:e2e
+# com Chromium instalado em outro caminho: PW_CHROMIUM_PATH=/caminho/chromium pnpm test:e2e
+```
+
+Os testes de integração e e2e precisam de PostgreSQL 16 e Redis 7 em execução (ex.:
+`docker compose up -d postgres redis` com as portas publicadas; ver [INSTALACAO.md](INSTALACAO.md)).
+
+Nos testes, os provedores externos (LLM, transcrição e visão) são substituídos por dublês que
+devolvem saídas controladas, inclusive maliciosas. Todo o resto é o código real: consentimento,
+validação, resolução de referências, serviços e banco.
+
+## Cenários obrigatórios
+
+| # | Cenário | Onde é testado |
+|---|---|---|
+| 1 | Criar despesa por texto | `ai-pipeline.test.ts` › "despesa por texto…" · e2e `finance-flow.spec.ts` |
+| 2 | Criar receita por texto | `ai-pipeline.test.ts` › "receita por texto: 'recebi 3500 de salário'…" |
+| 3 | Criar despesa por áudio | `ai-pipeline.test.ts` › "áudio: sem consentimento nada é enviado… após autorizar, o reprocessamento transcreve e lança" e "servidor de transcrição na rede local…" |
+| 4 | Múltiplas despesas em um áudio | `ai-pipeline.test.ts` › "áudio com vários gastos → 3 lançamentos com sourceIndex distintos" |
+| 5 | Processar comprovante | `ai-pipeline.test.ts` › "comprovante: … o número completo do cartão nunca é armazenado", "comprovante repetido (mesmo SHA-256)", "comprovante sem consentimento para imagens" · `whatsapp-ingest.test.ts` › "mídia: grava Attachment criptografado…" |
+| 6 | Identificar categoria | `ai-pipeline.test.ts` › "identifica a categoria por palavras-chave…" · `local-engine.test.ts` |
+| 7 | Confirmação de informação ambígua | `ai-pipeline.test.ts` › "mensagem sem valor…", "conta/cartão ambíguos…", "correção ambígua…" · e2e "mensagem sem valor não pode ser confirmada" |
+| 8 | Impedir duplicidade | `ai-pipeline.test.ts` › "o mesmo evento do WhatsApp entregue duas vezes", "mensagem quase idêntica minutos depois → suspeita de duplicidade" · `whatsapp-ingest.test.ts` › "evento repetido não duplica…" · `bills.test.ts` › "encontra a conta prevista para evitar duplicidade…" |
+| 9 | Corrigir transação | `ai-pipeline.test.ts` › "correção ('na verdade foi 50' / 'corrige o último para 35')…" · `ledger.test.ts` › "edição atualiza corretamente" |
+| 10 | Excluir e restaurar | `ledger.test.ts` › "exclusão lógica e restauração preservam o saldo" · `ai-pipeline.test.ts` › "exclusão por mensagem é lógica e restaurável…; exclusão em massa é recusada" |
+| 11 | Compra parcelada | `ledger.test.ts` › "compra parcelada gera faturas futuras…", "alterar o número de parcelas recalcula as faturas" · `billing.test.ts` |
+| 12 | Gerar faturas futuras | `ledger.test.ts` (idem) · `billing.test.ts` |
+| 13 | Pagar fatura sem duplicar despesas | `ledger.test.ts` › "…o pagamento da fatura não duplica despesa" · `reports.test.ts` › "…sem dupla contagem do pagamento de fatura" |
+| 14 | Transferir entre contas | `ledger.test.ts` › "transferência entre contas não é receita nem despesa" · `goals.test.ts` › "contribuição com transferência…" |
+| 15 | Criar e acompanhar metas | `goals.test.ts` (6 testes) |
+| 16 | Processar despesas recorrentes | `recurring.test.ts` (7 testes) · `recurring-schedule.test.ts` · `bills.test.ts` |
+| 17 | Recalcular saldos | `ledger.test.ts` › "recalcula saldos e verifica integridade" · e2e `finance-flow.spec.ts` (saldo após lançamentos) |
+| 18 | Consultar despesas por IA | `ai-pipeline-guards.test.ts` › "'quanto gastamos com mercado este mês?' responde com o total confirmado do banco…" · e2e "assistente responde com os dados da família" |
+| 19 | Restringir acesso entre famílias | `ledger.test.ts` › "isola os dados entre famílias" · `ai-pipeline-guards.test.ts` › "mensagens da família A nunca leem nem alteram dados da família B", "referências forjadas…" · `imports.test.ts`, `goals.test.ts`, `exports.test.ts` · e2e "dados de outra família não aparecem" |
+| 20 | Recuperar processamento após falha | `whatsapp-processor.test.ts` › "falha → novas tentativas com backoff…", "recoverStuckJobs…" · `whatsapp-redis-down.test.ts` · `ai-pipeline.test.ts` › "falha transitória depois de gravar o lançamento → … sem duplicar" |
+| 21 | Conciliar registros importados | `imports.test.ts` › "OFX bancário: correspondência com lançamento do WhatsApp, divergência, novos, commit e undo…" e mais 4 |
+| 22 | Proteger contra mensagens maliciosas | `ai-pipeline-guards.test.ts` › "motor local: injeção de instruções, SQL e 'definir saldo'…", "LLM: valor que não está na mensagem…", "LLM: … de outra família não são aceitos", "LLM: exclusão em massa…", "LLM: valor alto … não é registrado automaticamente", "LLM: saída fora do esquema…" |
+
+## Boas práticas para novos testes
+
+- Teste regras financeiras pelo **estado do banco** (transações, ledger, parcelas, saldos), não só pelo
+  retorno das funções.
+- Use `createFamily()` / `createWaFamily()` dos helpers. Cada teste começa com o banco limpo
+  (`resetDatabase()`).
+- Não enfraqueça asserções para o teste passar. Se o comportamento estiver errado, corrija o serviço.

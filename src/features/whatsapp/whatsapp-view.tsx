@@ -70,7 +70,7 @@ export function WhatsAppView() {
       ) : (
         <>
           <StatusHero status={data} canManage={canManage} timezone={timezone} />
-          <ProviderNotice status={data} />
+          {!(isSimulator && tab === "simulador") && <ProviderNotice status={data} />}
           {data.status === "QR_PENDING" && <QrPanel canManage={canManage} />}
 
           <Tabs value={tab} onValueChange={setTab}>
@@ -89,12 +89,12 @@ export function WhatsAppView() {
             </TabsList>
 
             <TabsContent value="conexao">
-              <div className="grid items-start gap-4 lg:grid-cols-2">
-                <div className="space-y-4">
+              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                <div className="min-w-0 space-y-4">
                   <GroupsPanel status={data} canManage={canManage} timezone={timezone} />
                   <ProviderCard status={data} canManage={canManage} />
                 </div>
-                <div className="space-y-4">
+                <div className="min-w-0 space-y-4">
                   <ParticipantsPanel status={data} timezone={timezone} />
                   <EventsPanel status={data} timezone={timezone} />
                 </div>

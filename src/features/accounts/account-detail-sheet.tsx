@@ -16,7 +16,8 @@ import { ErrorState } from "@/components/shared/error-state";
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
-import { formatDateBR, formatDayMonthBR } from "@/lib/dates";
+import { formatDateBR, formatDayMonthBR, todayISO } from "@/lib/dates";
+import { useMe } from "@/features/me/use-me";
 import { ACCOUNT_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { AccountDTO, TransactionList } from "@/features/finance/types";
@@ -31,6 +32,8 @@ const RANGES = [
 ] as const;
 
 function BalanceChart({ account }: { account: AccountDTO }) {
+  const me = useMe();
+  const today = todayISO(me.data?.household.timezone);
   const [preset, setPreset] = useState<(typeof RANGES)[number][0]>("last3Months");
   const params = { preset, accountIds: [account.id] };
   const q = useQuery({
@@ -39,13 +42,32 @@ function BalanceChart({ account }: { account: AccountDTO }) {
     placeholderData: keepPreviousData,
     enabled: account.includeInTotals && !account.archivedAt,
   });
-  const points = q.data?.points ?? [];
+  // O período termina no fim do mês: não exibe dias futuros (o saldo ainda não existe).
+  const points = (q.data?.points ?? []).filter((p) => p.date <= today);
   const step = Math.max(1, Math.ceil(points.length / 120));
   const data = points.filter((_, i) => i % step === 0 || i === points.length - 1).map((p) => ({ ...p, label: formatDayMonthBR(p.date) }));
   const unsupported = !account.includeInTotals || Boolean(account.archivedAt);
   const gradientId = `acc-fill-${account.id}`;
 
+  const selector = (
+    <div className="flex w-fit rounded-lg bg-muted p-0.5" role="group" aria-label="Período do gráfico">
+      {RANGES.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={preset === value}
+          onClick={() => setPreset(value)}
+          className={cn("h-7 rounded-md px-2.5 text-xs font-medium transition", preset === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
+    <div className="space-y-2">
+      {!unsupported && selector}
     <ChartCard
       title="Evolução do saldo"
       description="Saldo ao fim de cada dia"
@@ -58,21 +80,6 @@ function BalanceChart({ account }: { account: AccountDTO }) {
         unsupported
           ? "O histórico de saldo considera apenas contas ativas incluídas nos totais."
           : !data.length && "Sem dados de saldo no período."
-      }
-      action={
-        <div className="flex rounded-lg bg-muted p-0.5" role="group" aria-label="Período do gráfico">
-          {RANGES.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={preset === value}
-              onClick={() => setPreset(value)}
-              className={cn("h-7 rounded-md px-2 text-xs font-medium transition", preset === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
       }
       table={
         <div className="max-h-[220px] overflow-y-auto">
@@ -111,6 +118,7 @@ function BalanceChart({ account }: { account: AccountDTO }) {
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>
+    </div>
   );
 }
 

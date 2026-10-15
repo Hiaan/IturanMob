@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  CheckCheck,
   CheckCircle2,
   CircleHelp,
   Clock,
@@ -110,6 +111,51 @@ export function MessageStatusBadge({ status, className }: { status: WaMessageSta
     <Badge variant={meta.tone === "muted" ? "muted" : meta.tone} className={className}>
       <Icon className={cn(meta.spin && "animate-spin")} aria-hidden />
       {meta.label}
+    </Badge>
+  );
+}
+
+/** Intenções detectadas pelo motor (códigos internos → português). */
+export const INTENT_LABELS: Record<string, string> = {
+  CREATE_TRANSACTIONS: "Registrar lançamentos",
+  CREATE_TRANSACTION: "Registrar lançamento",
+  QUERY: "Consulta",
+  CORRECTION: "Correção",
+  DELETE: "Exclusão",
+  UNDO: "Desfazer",
+  CONFIRM: "Confirmação",
+  CLARIFICATION: "Esclarecimento",
+  CLARIFICATION_ANSWER: "Resposta a esclarecimento",
+  CONFIRMATION: "Confirmação",
+  REJECTION: "Recusa",
+  RESTORE: "Restauração",
+  SMALL_TALK: "Conversa",
+  HELP: "Ajuda",
+  UNKNOWN: "Não identificada",
+};
+
+export function intentLabel(intent: string | null | undefined): string | null {
+  if (!intent) return null;
+  return INTENT_LABELS[intent] ?? intent.toLowerCase().replace(/_/g, " ");
+}
+
+/** Status de uma mensagem enviada pelo bot. */
+export function OutboundStatusBadge({ status, className }: { status: WaMessageStatus; className?: string }) {
+  if (status === "PROCESSED")
+    return (
+      <Badge variant="positive" className={className}>
+        <CheckCheck aria-hidden /> Enviada
+      </Badge>
+    );
+  if (status === "FAILED")
+    return (
+      <Badge variant="negative" className={className}>
+        <XCircle aria-hidden /> Falha no envio
+      </Badge>
+    );
+  return (
+    <Badge variant="info" className={className}>
+      <Clock aria-hidden /> Aguardando envio
     </Badge>
   );
 }

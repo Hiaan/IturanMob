@@ -66,7 +66,8 @@ async function processSchedule(s: ReportSchedule & { household: { timezone: stri
         type: type === "WEEKLY" ? "WEEKLY_REPORT" : "MONTHLY_REPORT",
         title: type === "WEEKLY" ? "Relatório semanal disponível" : "Relatório mensal disponível",
         body: summary,
-        data: { reportId: report.id, periodStart: period.start, periodEnd: period.end },
+        // Quando o agendamento já envia o resumo ao grupo, o aviso fica só no app (evita mensagem duplicada).
+        data: { reportId: report.id, periodStart: period.start, periodEnd: period.end, ...(s.sendWhatsApp ? { inAppOnly: true } : {}) },
         dedupeKey: dedupe,
       });
     }

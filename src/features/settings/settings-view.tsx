@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Bell, History, House, Lock, ShieldCheck, SlidersHorizontal, Users } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCan } from "@/features/me/use-me";
+import { useCan, useMe } from "@/features/me/use-me";
 import { NotificationPreferencesForm } from "@/features/notifications/preferences-form";
 import { HouseholdSection } from "./household-section";
 import { MembersSection } from "./members-section";
@@ -28,7 +28,8 @@ export function SettingsView() {
   const router = useRouter();
   const canAudit = useCan("audit:read");
   const tab = params.get("tab") ?? "familia";
-  const extra = SETTINGS_EXTRA_TABS;
+  const { data: me } = useMe();
+  const extra = SETTINGS_EXTRA_TABS.filter((t) => !t.permission || Boolean(me?.permissions.includes(t.permission)));
   return (
     <div className="space-y-6">
       <PageHeader title="Configurações" description="Família, pessoas, permissões, privacidade, notificações e segurança." />

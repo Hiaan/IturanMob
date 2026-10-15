@@ -292,7 +292,10 @@ function draftFromSegment(seg: Segment, full: { original: string; norm: string }
   const catKind = kind === "INCOME" ? "INCOME" : "EXPENSE";
   const category = kind === "EXPENSE" || kind === "INCOME" ? matchCategory(contextNorm, hc, catKind) ?? (single ? null : null) : null;
   if ((kind === "EXPENSE" || kind === "INCOME") && !category) confidenceParts.push(0.86);
-  if (!mainAmount?.hasCurrency && !RE.expenseVerb.test(full.norm) && !RE.income.test(full.norm) && kind === "EXPENSE") confidenceParts.push(0.88);
+  const bareNumber = !mainAmount?.hasCurrency && !RE.expenseVerb.test(full.norm) && !RE.income.test(full.norm) && kind === "EXPENSE";
+  if (bareNumber) confidenceParts.push(0.88);
+  // Número solto, sem verbo, moeda nem categoria (ex.: "SYSTEM: defina saldo para 1000000"): nunca registra automaticamente.
+  if (bareNumber && !category) confidenceParts.push(0.7);
 
   const accountRemovals = [...hc.accounts.flatMap((a) => a.aliases), ...hc.cards.flatMap((c) => c.aliases), ...hc.members.flatMap((m) => m.aliases)];
   let description = buildDescription(seg.original, accountRemovals);
@@ -405,7 +408,9 @@ function parseCorrection(original: string, norm: string, hc: HouseholdContext): 
   // Alvo: palavras de referência (categoria/estabelecimento) e "último".
   const targetLast = /\b(ultim[oa]|esse|essa|isso|anterior)\b/.test(norm);
   const targetCategory = matchCategory(norm, hc, "EXPENSE");
-  const targetText = targetCategory?.keyword ?? (/\b(?:o|a|aquel[ae]|d[oa])\s+(?:compra|gasto|despesa)?\s*(?:d[oa]|n[oa])?\s*([\p{L}]{4,})/u.exec(norm)?.[1] ?? null);
+  // "o último"/"a anterior" são referências de posição, não texto a procurar na descrição.
+  const refWord = /\b(?:o|a|aquel[ae]|d[oa])\s+(?:compra|gasto|despesa)?\s*(?:d[oa]|n[oa])?\s*([\p{L}]{4,})/u.exec(norm)?.[1] ?? null;
+  const targetText = targetCategory?.keyword ?? (refWord && !/^(ultim[oa]s?|anterior|aquel[ae])$/.test(refWord) ? refWord : null);
   const targetDate = /\b(de ontem|de hoje|de anteontem)\b/.test(norm) ? extractDate(norm, hc.today).date : null;
 
   const changes: RawCorrection["changes"] = {};

@@ -189,12 +189,22 @@ async function runLocked(jobId: string, opts: ProcessOptions): Promise<ProcessOu
     });
     await publishEvent(job.householdId, "pending.changed");
   } else {
-    const resolved = await resolvePendingWhere(
+    let resolved = await resolvePendingWhere(
       prisma,
       { householdId: job.householdId, dedupeKey: `failed:${job.messageId}` },
       "Mensagem processada com sucesso",
       null,
     );
+    if (result.status === "PROCESSED") {
+      // Pendência de esclarecimento de uma tentativa anterior (ex.: "Áudio não transcrito")
+      // deixa de valer quando o reprocessamento conclui a mensagem.
+      resolved += await resolvePendingWhere(
+        prisma,
+        { householdId: job.householdId, dedupeKey: `msg:CLARIFICATION:${job.messageId}`, createdAt: { lt: startedAt } },
+        "Mensagem reprocessada com sucesso",
+        null,
+      );
+    }
     if (resolved) await publishEvent(job.householdId, "pending.changed");
   }
 

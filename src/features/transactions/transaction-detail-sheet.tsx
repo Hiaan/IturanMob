@@ -262,7 +262,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                             {tx.allocations.map((a) => (
                               <li key={a.memberId} className="flex justify-between gap-2">
                                 <span>{a.displayName}</span>
-                                <span className="tabular">{formatBRL(a.amountCents)}</span>
+                                <span className="whitespace-nowrap tabular">{formatBRL(a.amountCents)}</span>
                               </li>
                             ))}
                           </ul>
@@ -304,7 +304,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                             </Link>
                           </p>
                         </div>
-                        <span className="font-medium tabular">{formatBRL(i.amountCents)}</span>
+                        <span className="shrink-0 whitespace-nowrap font-medium tabular">{formatBRL(i.amountCents)}</span>
                       </li>
                     ))}
                   </ul>

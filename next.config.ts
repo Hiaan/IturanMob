@@ -31,6 +31,18 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ["pdfkit", "exceljs", "baileys", "pino", "pino-pretty", "bullmq", "ioredis", "@prisma/client"],
+  // Arquivos lidos em tempo de execução que o rastreamento do build standalone não detecta:
+  // - fontes padrão do pdfkit (standard-fonts/*.cjs e métricas .afm);
+  // - entradas "module-sync" (require.mjs) de generator-function/async-function, usadas pelo
+  //   exceljs no Node 22+.
+  outputFileTracingIncludes: {
+    "/api/**/*": [
+      "./node_modules/.pnpm/pdfkit@*/node_modules/pdfkit/js/data/**/*",
+      "./node_modules/.pnpm/pdfkit@*/node_modules/pdfkit/js/standard-fonts/**/*",
+      "./node_modules/.pnpm/generator-function@*/node_modules/generator-function/**/*",
+      "./node_modules/.pnpm/async-function@*/node_modules/async-function/**/*",
+    ],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

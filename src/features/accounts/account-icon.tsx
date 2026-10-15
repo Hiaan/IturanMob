@@ -13,7 +13,7 @@ export const ACCOUNT_TYPE_ICON: Record<string, { name: string; icon: LucideIcon 
 
 const BY_NAME: Record<string, LucideIcon> = Object.fromEntries(Object.values(ACCOUNT_TYPE_ICON).map((v) => [v.name, v.icon]));
 
-export const ACCOUNT_COLORS = ["#0f766e", "#059669", "#0ea5e9", "#2563eb", "#4f46e5", "#7c3aed", "#9333ea", "#db2777", "#e11d48", "#ea580c", "#d97706", "#65a30d", "#475569", "#0b2545"];
+export const ACCOUNT_COLORS = ["#0f766e", "#059669", "#0ea5e9", "#2563eb", "#4f46e5", "#7c3aed", "#db2777", "#e11d48", "#ea580c", "#d97706", "#65a30d", "#475569", "#0b2545"];
 
 export function AccountIcon({ type, icon, color, size = "md", className }: { type: string; icon?: string | null; color: string; size?: "sm" | "md" | "lg"; className?: string }) {
   const Icon = ACCOUNT_TYPE_ICON[type]?.icon ?? (icon ? BY_NAME[icon] : undefined) ?? Landmark;

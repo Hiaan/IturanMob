@@ -110,7 +110,7 @@ export function ParticipantsPanel({ status, timezone }: { status: WaStatus; time
           })}
         </ul>
       </CardContent>
-      <CardFooter className="justify-between gap-3 text-xs text-muted-foreground">
+      <CardFooter className="flex-col items-start justify-between gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
         <span>O consentimento só pode ser dado pelo próprio participante.</span>
         <Button asChild variant="link" size="sm" className="h-auto px-0">
           <Link href="/configuracoes?tab=membros">

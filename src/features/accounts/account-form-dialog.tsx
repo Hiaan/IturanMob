@@ -108,7 +108,7 @@ export function AccountFormDialog({ open, onOpenChange, account }: { open: boole
               <p className="text-xs text-muted-foreground">{ACCOUNT_TYPE_LABELS[type]}</p>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid items-start gap-4 sm:grid-cols-2">
             <Field label="Nome" htmlFor="acc-name" error={e.name?.message} required>
               <Input id="acc-name" placeholder="Ex.: Nubank, Carteira" {...register("name")} aria-invalid={Boolean(e.name)} autoFocus={!account} />
             </Field>
@@ -196,7 +196,7 @@ export function AccountFormDialog({ open, onOpenChange, account }: { open: boole
             )}
           />
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid items-start gap-4 sm:grid-cols-2">
             <Field
               label="Saldo inicial"
               htmlFor="acc-initial"

@@ -28,16 +28,16 @@ import { useAccountMutations } from "./use-account-mutations";
 
 const SHOW_ARCHIVED_KEY = "fa:accounts:show-archived";
 
-function SummaryTile({ label, value, hint, icon: Icon, emphasis }: { label: string; value: number; hint: string; icon: typeof Wallet; emphasis?: boolean }) {
+function SummaryTile({ label, value, hint, icon: Icon, emphasis, className }: { label: string; value: number; hint: string; icon: typeof Wallet; emphasis?: boolean; className?: string }) {
   return (
-    <Card className={cn("p-5", emphasis && "border-transparent bg-gradient-to-br from-[#0b2545] to-[#0e3a5c] text-white dark:from-[#0d2a4a] dark:to-[#0b3b37]")}>
+    <Card className={cn("p-4 sm:p-5", className, emphasis && "border-transparent bg-gradient-to-br from-[#0b2545] to-[#0e3a5c] text-white dark:from-[#0d2a4a] dark:to-[#0b3b37]")}>
       <div className="flex items-start justify-between gap-2">
         <p className={cn("text-[13px] font-medium", emphasis ? "text-white/75" : "text-muted-foreground")}>{label}</p>
         <span className={cn("flex size-8 items-center justify-center rounded-lg", emphasis ? "bg-white/10 text-emerald-300" : "bg-accent text-accent-foreground")}>
           <Icon className="size-4" aria-hidden />
         </span>
       </div>
-      <p className={cn("mt-3 text-[26px] font-semibold leading-none tracking-tight tabular", value < 0 && !emphasis && "text-negative")}>{formatBRL(value)}</p>
+      <p className={cn("mt-3 font-semibold leading-none tracking-tight tabular", emphasis ? "text-[26px]" : "text-xl sm:text-[26px]", value < 0 && !emphasis && "text-negative")}>{formatBRL(value)}</p>
       <p className={cn("mt-2 text-xs", emphasis ? "text-white/70" : "text-muted-foreground")}>{hint}</p>
     </Card>
   );
@@ -236,8 +236,8 @@ export function AccountsView() {
         />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <SummaryTile emphasis label="Saldo total" value={totalCents} icon={Wallet} hint={`${inTotals.length} ${inTotals.length === 1 ? "conta incluída" : "contas incluídas"} nos totais`} />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <SummaryTile emphasis className="col-span-2 sm:col-span-1" label="Saldo total" value={totalCents} icon={Wallet} hint={`${inTotals.length} ${inTotals.length === 1 ? "conta incluída" : "contas incluídas"} nos totais`} />
             <SummaryTile label="Disponível (sem investimentos)" value={totalCents - investCents} icon={Landmark} hint="Contas correntes, digitais, poupança e carteiras" />
             {outside.length > 0 ? (
               <SummaryTile label="Fora dos totais" value={outsideCents} icon={EyeOff} hint={`${outside.length} ${outside.length === 1 ? "conta acompanhada" : "contas acompanhadas"} separadamente`} />

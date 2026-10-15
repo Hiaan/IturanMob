@@ -624,6 +624,7 @@ export function BalanceEvolution({ filters }: { filters: DashboardFilters }) {
 
 interface RecurringItem {
   id: string;
+  type?: "EXPENSE" | "INCOME";
   description: string;
   amountCents: number;
   frequency: string;
@@ -636,12 +637,12 @@ interface RecurringItem {
 
 export function RecurringExpenses() {
   const q = useQuery({
-    queryKey: qk.recurring({ active: true }),
+    queryKey: qk.recurring({ active: true, type: "EXPENSE" }),
     queryFn: () => api.get<RecurringItem[] | { items: RecurringItem[] }>("/api/v1/recurring?type=EXPENSE&active=true"),
     retry: false,
   });
   const raw = q.data;
-  const items = (Array.isArray(raw) ? raw : raw?.items ?? []).filter((r) => r.active);
+  const items = (Array.isArray(raw) ? raw : raw?.items ?? []).filter((r) => r.active && (r.type ?? "EXPENSE") === "EXPENSE");
   const monthly = items.reduce((s, r) => s + (r.monthlyEquivalentCents ?? r.amountCents), 0);
   return (
     <ChartCard

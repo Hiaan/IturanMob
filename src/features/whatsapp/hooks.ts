@@ -57,8 +57,9 @@ function useInvalidateWhatsApp() {
 }
 
 function commandToast(res: WaCommandResult, success: string) {
-  if (res.workerOnline) toast.success(success);
-  else toast.warning(success, { description: res.message ?? "O worker não está em execução: inicie com pnpm worker." });
+  // O servidor só devolve "message" quando o pedido depende do worker (ou exige ação adicional).
+  if (res.workerOnline || !res.message) toast.success(success);
+  else toast.warning(success, { description: res.message });
 }
 
 export type ConnectionAction = "connect" | "reconnect" | "disconnect" | "logout";

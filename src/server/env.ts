@@ -22,6 +22,9 @@ const envSchema = z.object({
   BACKUP_DIR: z.string().default("./backups"),
   BACKUP_INTERVAL_HOURS: z.coerce.number().int().min(0).default(24),
   BACKUP_KEEP: z.coerce.number().int().min(1).default(14),
+  /** Caminhos dos binários do PostgreSQL usados pelos backups (versão >= servidor). */
+  PG_DUMP_PATH: z.string().default("pg_dump"),
+  PG_RESTORE_PATH: z.string().default("pg_restore"),
 
   // IA
   AI_DEFAULT_PROVIDER: z.enum(["LOCAL", "ANTHROPIC", "OPENAI", "OPENAI_COMPATIBLE"]).default("LOCAL"),

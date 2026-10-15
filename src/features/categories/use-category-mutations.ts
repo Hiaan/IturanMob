@@ -1,0 +1,140 @@
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { api, errorMessage } from "@/lib/client/api";
+import { qk } from "@/lib/client/query-keys";
+import { invalidateFinance } from "@/features/transactions/invalidate";
+import type { RuleDTO, RuleInput } from "./types";
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+export function useCategoryMutations() {
+  const qc = useQueryClient();
+  const refreshCategories = () => {
+    qc.invalidateQueries({ queryKey: ["categories"] });
+    qc.invalidateQueries({ queryKey: ["analytics"] });
+    qc.invalidateQueries({ queryKey: ["budgets"] });
+    qc.invalidateQueries({ queryKey: qk.rules });
+  };
+  const refreshAll = () => {
+    invalidateFinance(qc, ["categories"]);
+    qc.invalidateQueries({ queryKey: qk.rules });
+  };
+
+  const saveCategory = useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: { name: string; kind?: "EXPENSE" | "INCOME"; icon: string; color: string } }) =>
+      id ? api.patch<{ name: string }>(`/api/v1/categories/${id}`, { name: input.name, icon: input.icon, color: input.color }) : api.post<{ name: string }>("/api/v1/categories", input),
+    onSuccess: (c, vars) => {
+      toast.success(vars.id ? "Categoria atualizada" : "Categoria criada", { description: c.name });
+      refreshCategories();
+    },
+  });
+
+  const archiveCategory = useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) => api.patch<{ name: string }>(`/api/v1/categories/${id}`, { archived }),
+    onSuccess: (c, vars) => {
+      toast.success(vars.archived ? "Categoria arquivada" : "Categoria reativada", {
+        description: vars.archived ? `${c.name} não aparece mais para novos lançamentos; o histórico é mantido.` : c.name,
+      });
+      refreshCategories();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const deleteCategory = useMutation({
+    mutationFn: ({ id, moveToCategoryId }: { id: string; moveToCategoryId?: string }) =>
+      api.delete<{ ok: true }>(`/api/v1/categories/${id}`, moveToCategoryId ? { moveToCategoryId } : undefined),
+    onSuccess: (_r, vars) => {
+      toast.success("Categoria excluída", { description: vars.moveToCategoryId ? "As transações foram movidas para a categoria escolhida." : undefined });
+      refreshAll();
+    },
+  });
+
+  const reclassify = useMutation({
+    mutationFn: (body: { fromCategoryId: string; fromSubcategoryId?: string | null; toCategoryId: string; toSubcategoryId?: string | null }) =>
+      api.post<{ moved: number }>("/api/v1/categories/reclassify", body),
+    onSuccess: (r) => {
+      toast.success(r.moved ? `${plural(r.moved, "transação reclassificada", "transações reclassificadas")}` : "Nenhuma transação para mover");
+      refreshAll();
+    },
+  });
+
+  const saveSubcategory = useMutation({
+    mutationFn: ({ id, categoryId, input }: { id?: string; categoryId?: string; input: { name?: string; keywords?: string[] } }) =>
+      id ? api.patch<{ name: string; keywords: string[] }>(`/api/v1/subcategories/${id}`, input) : api.post<{ name: string; keywords: string[] }>(`/api/v1/categories/${categoryId}/subcategories`, input),
+    onSuccess: () => refreshCategories(),
+  });
+
+  const archiveSubcategory = useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) => api.patch<{ name: string }>(`/api/v1/subcategories/${id}`, { archived }),
+    onSuccess: (s, vars) => {
+      toast.success(vars.archived ? "Subcategoria arquivada" : "Subcategoria reativada", { description: s.name });
+      refreshCategories();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const deleteSubcategory = useMutation({
+    mutationFn: (id: string) => api.delete<{ ok: true }>(`/api/v1/subcategories/${id}`),
+    onSuccess: () => {
+      toast.success("Subcategoria excluída");
+      refreshCategories();
+    },
+  });
+
+  return { saveCategory, archiveCategory, deleteCategory, reclassify, saveSubcategory, archiveSubcategory, deleteSubcategory };
+}
+
+export function useRules() {
+  return useQuery({ queryKey: qk.rules, queryFn: () => api.get<RuleDTO[]>("/api/v1/rules") });
+}
+
+export function useRuleMutations() {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: qk.rules });
+
+  const save = useMutation({
+    mutationFn: ({ id, input }: { id?: string; input: Partial<RuleInput> }) => (id ? api.patch<RuleDTO>(`/api/v1/rules/${id}`, input) : api.post<RuleDTO>("/api/v1/rules", input)),
+    onSuccess: (r, vars) => {
+      if (!(vars.input.active !== undefined && Object.keys(vars.input).length === 1)) toast.success(vars.id ? "Regra atualizada" : "Regra criada", { description: r.name });
+      refresh();
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete<{ ok: true }>(`/api/v1/rules/${id}`),
+    onSuccess: () => {
+      toast.success("Regra excluída");
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  /** Aplica regras (em ordem de prioridade) a lançamentos ainda sem categoria. */
+  const apply = useMutation({
+    mutationFn: async (rules: RuleDTO[]) => {
+      let applied = 0;
+      const errors: string[] = [];
+      for (const r of rules) {
+        try {
+          const res = await api.post<{ applied: number }>(`/api/v1/rules/${r.id}/apply`, { onlyUncategorized: true });
+          applied += res.applied;
+        } catch (e) {
+          errors.push(`${r.name}: ${errorMessage(e)}`);
+        }
+      }
+      return { applied, errors, count: rules.length };
+    },
+    onSuccess: ({ applied, errors, count }) => {
+      if (applied) toast.success(`${plural(applied, "lançamento reclassificado", "lançamentos reclassificados")}`, { description: count > 1 ? `${count} regras aplicadas em ordem de prioridade.` : undefined });
+      else if (!errors.length) toast.info("Nenhum lançamento sem categoria corresponde às regras");
+      if (errors.length) toast.error(errors[0] ?? "Falha ao aplicar regra", { description: errors.length > 1 ? `${errors.length} regras falharam` : undefined });
+      invalidateFinance(qc, ["categories"]);
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  return { save, remove, apply };
+}

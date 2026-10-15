@@ -90,7 +90,9 @@ export function PurgeTransactionsDialog({
           }}
         >
           <Label htmlFor="purge-confirm" className="text-[13px]">
-            Digite <strong>EXCLUIR</strong> para confirmar
+            <span>
+              Digite <strong>EXCLUIR</strong> para confirmar
+            </span>
           </Label>
           <Input id="purge-confirm" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" autoFocus aria-describedby="purge-hint" />
           <p id="purge-hint" className="sr-only">

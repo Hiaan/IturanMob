@@ -3,7 +3,7 @@
 import { ArchiveRestore, CheckCircle2, CirclePlus, FileUp, PencilLine, Tags, Trash2, XCircle, type LucideIcon } from "lucide-react";
 import { formatBRL } from "@/lib/money";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dates";
-import { OWNERSHIP_LABELS, PAYMENT_METHOD_LABELS, TRANSACTION_STATUS_LABELS, TRANSACTION_TYPE_LABELS, labelOf } from "@/lib/labels";
+import { OWNERSHIP_LABELS, PAYMENT_METHOD_LABELS, TRANSACTION_SOURCE_LABELS, TRANSACTION_STATUS_LABELS, TRANSACTION_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import type { AuditEntry } from "./use-transaction-actions";
 
@@ -119,7 +119,7 @@ export function TransactionHistory({ history, timezone }: { history: AuditEntry[
             </p>
             <p className="text-xs text-muted-foreground">
               <time dateTime={h.createdAt}>{formatDateTimeBR(h.createdAt, timezone)}</time>
-              {h.source && ` · ${h.source}`}
+              {h.source && ` · ${labelOf(TRANSACTION_SOURCE_LABELS, h.source)}`}
             </p>
             {changes.length > 0 && (
               <ul className="mt-1.5 space-y-0.5 rounded-lg bg-muted/50 px-3 py-2 text-xs">

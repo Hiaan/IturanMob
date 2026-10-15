@@ -1,0 +1,18 @@
+# Nunca enviar segredos, dados locais ou artefatos para o contexto de build
+.env
+.env.*
+!.env.example
+.git
+.next
+node_modules
+storage
+storage-test
+backups
+coverage
+test-results
+playwright-report
+blob-report
+*.log
+*.tsbuildinfo
+.vercel
+.DS_Store

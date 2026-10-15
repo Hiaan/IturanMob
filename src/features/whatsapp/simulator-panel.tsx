@@ -55,6 +55,13 @@ function dayKey(iso: string, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 }
 
+function describeOutcome(o: NonNullable<WaSimulateResult["outcome"]>): string {
+  if ("messageStatus" in o) return `${MESSAGE_STATUS_META[o.messageStatus].label} · ${o.replies} resposta(s) do bot`;
+  if (o.outcome === "RETRY_SCHEDULED") return `Falhou na tentativa ${o.attempts}; nova tentativa agendada.`;
+  if (o.outcome === "DEAD") return `Falhou após ${o.attempts} tentativas — virou pendência.`;
+  return `Não processada agora (${o.reason}).`;
+}
+
 function OutcomeCard({ result }: { result: WaSimulateResult | null }) {
   return (
     <Card>
@@ -83,7 +90,7 @@ function OutcomeCard({ result }: { result: WaSimulateResult | null }) {
                   {result.mode === "inline"
                     ? "Processada direto pela API (worker parado)."
                     : result.mode === "worker"
-                      ? "Enviada para a fila do worker."
+                      ? "Enviada para a fila do worker — o status e a resposta aparecem na conversa em instantes."
                       : result.status
                         ? `Status: ${MESSAGE_STATUS_META[result.status].label}.`
                         : null}
@@ -95,15 +102,7 @@ function OutcomeCard({ result }: { result: WaSimulateResult | null }) {
                 <Info className="mt-0.5 size-4 shrink-0 text-info" aria-hidden />
                 <div>
                   <dt className="font-medium">Processamento</dt>
-                  <dd className="text-muted-foreground">
-                    {result.outcome.outcome === "SUCCEEDED" || result.outcome.outcome === "FAILED"
-                      ? `${MESSAGE_STATUS_META[result.outcome.messageStatus].label} · ${result.outcome.replies} resposta(s) do bot`
-                      : result.outcome.outcome === "RETRY_SCHEDULED"
-                        ? `Falhou na tentativa ${result.outcome.attempts}; nova tentativa agendada.`
-                        : result.outcome.outcome === "DEAD"
-                          ? `Falhou após ${result.outcome.attempts} tentativas — virou pendência.`
-                          : `Ignorado (${result.outcome.reason}).`}
-                  </dd>
+                  <dd className="text-muted-foreground">{describeOutcome(result.outcome)}</dd>
                 </div>
               </div>
             )}
@@ -142,7 +141,7 @@ function Bubble({ m, mine, timezone, color }: { m: WaMessage; mine: boolean; tim
           <div className="mb-1">
             {att && m.type === "IMAGE" ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={`/api/v1/attachments/${att.id}`} alt="Imagem enviada" className="max-h-48 rounded-lg border object-cover" />
+              <img src={`/api/v1/attachments/${att.id}`} alt="Imagem enviada" className="max-h-48 min-h-16 min-w-16 rounded-lg border bg-muted object-cover" />
             ) : att && m.type === "AUDIO" ? (
               <audio controls src={`/api/v1/attachments/${att.id}`} className="h-9 w-56 max-w-full" />
             ) : (
@@ -199,9 +198,12 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
   const items = useMemo(() => [...(messages.data?.pages[0]?.items ?? [])].reverse(), [messages.data]);
   const inFlight = items.some((m) => m.status === "QUEUED" || m.status === "PROCESSING");
 
+  const scrolledOnce = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (!el || !items.length) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: scrolledOnce.current ? "smooth" : "auto" });
+    scrolledOnce.current = true;
   }, [items.length, pendingText, inFlight]);
 
   const blocked = !canManage
@@ -361,14 +363,14 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
               </div>
             ) : (
               <>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" aria-label="Sugestões de mensagens">
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s}
                       type="button"
                       onClick={() => send(s)}
                       disabled={simulate.isPending}
-                      className="rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition hover:border-ring/50 hover:text-foreground disabled:opacity-50"
+                      className="shrink-0 whitespace-nowrap rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition hover:border-ring/50 hover:text-foreground disabled:opacity-50"
                     >
                       {s}
                     </button>
@@ -440,7 +442,7 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
           </div>
         </Card>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <OutcomeCard result={result} />
           <Card>
             <CardHeader>

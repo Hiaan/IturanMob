@@ -250,8 +250,8 @@ export function ProviderCard({ status, canManage }: { status: WaStatus; canManag
                     )}
                     {current && <Badge variant="brand">Em uso</Badge>}
                   </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">{p.description}</span>
-                  {p.reason && <span className={cn("mt-1 block text-xs", p.enabled ? "text-warning" : "text-destructive")}>{p.reason}</span>}
+                  <span className="mt-1 block break-words text-xs text-muted-foreground">{p.description}</span>
+                  {p.reason && <span className={cn("mt-1 block break-words text-xs", p.enabled ? "text-warning" : "text-destructive")}>{p.reason}</span>}
                 </span>
               </button>
             );

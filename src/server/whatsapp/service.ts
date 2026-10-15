@@ -155,7 +155,7 @@ async function afterCommand(ctx: ServiceContext, type: Parameters<typeof publish
     ok: true,
     commandDelivered: delivered,
     workerOnline: worker.online,
-    message: worker.online ? null : "O worker não está em execução: o pedido será aplicado quando ele iniciar (npm run worker).",
+    message: worker.online ? null : "O worker não está em execução: o pedido será aplicado quando ele iniciar (pnpm worker).",
   };
 }
 

@@ -302,7 +302,8 @@ function textMatches(r: RecentTx, target: string, hc: HouseholdContext): boolean
 function findTarget(target: { targetId?: string | null; targetLast: boolean; targetText: string | null; targetAmountCents: number | null; targetDate?: string | null }, recent: RecentTx[], hc: HouseholdContext) {
   if (target.targetId) {
     const t = recent.find((r) => r.id === target.targetId);
-    if (t) return { target: t, candidates: [t] };
+    // Referência explícita fora dos lançamentos recentes da família: nunca redirecionar para outro lançamento.
+    return t ? { target: t, candidates: [t] } : { target: null, candidates: [] };
   }
   let list = recent.filter((r) => r.type !== "ADJUSTMENT");
   if (target.targetAmountCents) {
@@ -617,7 +618,7 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
       await prisma.clarification.update({ where: { id: open.id }, data: { payload: { ...payload, attempts: attempts + 1 } as Prisma.InputJsonValue } });
       return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [open.question], transactionIds: [] };
     }
-    d.decision = decide(Math.max(d.confidence, 0.86), d.missing, hc);
+    d.decision = decide(Math.max(d.confidence, 0.86), d.missing, hc, d.amountCents);
     await closeClarification(open.id);
     if (open.messageId) {
       await prisma.pendingItem.updateMany({ where: { householdId: ctx.householdId, dedupeKey: `clarify:${open.messageId}`, status: "OPEN" }, data: { status: "RESOLVED", resolvedAt: new Date(), resolution: "Informação recebida" } });

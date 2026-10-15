@@ -48,8 +48,9 @@ function Summary({ data, isCurrentMonth, isPastMonth }: { data: BudgetList; isCu
         value={isCurrentMonth || isPastMonth ? formatBRL(isCurrentMonth ? projected : spent) : "—"}
       >
         {isCurrentMonth ? (
-          <span className="flex items-center gap-1.5">
-            <Badge variant="muted">estimativa</Badge> ritmo atual de gastos
+          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <Badge variant="muted">estimativa</Badge>
+            <span>no ritmo atual</span>
           </span>
         ) : isPastMonth ? (
           "Mês encerrado"

@@ -5,6 +5,7 @@ import { logger } from "../../logger";
 import { parseLocally } from "../nlu/local-parser";
 import { sanitizeUntrusted } from "../nlu/text";
 import { extractDate } from "../nlu/dates";
+import { amountMentioned } from "../nlu/numbers";
 import { loadHouseholdContext, type HouseholdContext } from "./context";
 import { resolveDraft, type ResolvedDraft } from "./resolve";
 import { llmInterpretationJsonSchema, llmInterpretationSchema, type LlmInterpretation, type RawDraft, type RawInterpretation } from "./schemas";
@@ -89,6 +90,9 @@ export function mapLlmOutput(out: LlmInterpretation, text: string, hc: Household
     if (d.amountIsInstallmentValue && d.amountCents && d.installments && d.installments > 1) d.amountCents = d.amountCents * d.installments;
   }
   const byIndex = (i: number | null | undefined) => (i ? recent.find((r) => r.index === i)?.id ?? null : null);
+  // Anti-alucinação também na correção: o novo valor precisa constar na mensagem.
+  const newAmount = out.correction ? toCents(out.correction.new_amount) : null;
+  const correctionAmount = newAmount !== null && amountMentioned(text, newAmount) ? newAmount : null;
   return {
     intent: out.intent,
     drafts,
@@ -100,7 +104,7 @@ export function mapLlmOutput(out: LlmInterpretation, text: string, hc: Household
           targetDate: null,
           targetId: byIndex(out.correction.target_index),
           changes: {
-            ...(out.correction.new_amount !== null ? { amountCents: toCents(out.correction.new_amount) } : {}),
+            ...(correctionAmount !== null ? { amountCents: correctionAmount } : {}),
             ...(out.correction.new_category ? { categoryHint: out.correction.new_category } : {}),
             ...(out.correction.new_payment_method ? { paymentMethod: out.correction.new_payment_method } : {}),
             ...(out.correction.new_account ? { accountHint: out.correction.new_account } : {}),
