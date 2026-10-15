@@ -1,0 +1,1559 @@
+// =============================================================================
+// Finance AI — Modelo de dados
+//
+// Convenções:
+// - Valores monetários: inteiros em CENTAVOS (Int). Nunca ponto flutuante.
+//   Limite por valor individual: R$ 10.000.000,00 (validado na aplicação).
+// - Datas de calendário (data da compra, competência, vencimento) usam @db.Date
+//   e são representadas em JS como Date à meia-noite UTC do dia local.
+// - Todo dado financeiro pertence a uma Household (família) e TODA consulta
+//   é filtrada por householdId (isolamento entre famílias).
+// - Transaction = evento econômico (lançamento).
+//   LedgerEntry = movimento de caixa em uma conta (derivado da transação).
+//   Installment = parcela em fatura de cartão (derivado da transação).
+//   Saldos são sempre calculados a partir do ledger (fonte única da verdade).
+// =============================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  WALLET
+  INVESTMENT
+  DIGITAL
+  OTHER
+}
+
+enum Visibility {
+  SHARED
+  PRIVATE
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+  TRANSFER
+  CARD_PAYMENT
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  CONFIRMED
+  PENDING
+}
+
+enum PaymentMethod {
+  PIX
+  DEBIT_CARD
+  CREDIT_CARD
+  CASH
+  BANK_SLIP
+  BANK_TRANSFER
+  AUTO_DEBIT
+  VOUCHER
+  OTHER
+}
+
+enum TransactionSource {
+  MANUAL
+  WHATSAPP_TEXT
+  WHATSAPP_AUDIO
+  WHATSAPP_IMAGE
+  DASHBOARD_CHAT
+  IMPORT
+  RECURRING
+  SYSTEM
+}
+
+enum Ownership {
+  SHARED
+  INDIVIDUAL
+}
+
+enum CategoryKind {
+  EXPENSE
+  INCOME
+}
+
+enum LedgerEntryKind {
+  EXPENSE
+  INCOME
+  TRANSFER_OUT
+  TRANSFER_IN
+  CARD_PAYMENT
+  ADJUSTMENT
+}
+
+enum RecurrenceFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  YEARLY
+  CUSTOM_DAYS
+  CUSTOM_MONTHS
+}
+
+enum ScheduledPaymentStatus {
+  PENDING
+  POSTED
+  PAID
+  SKIPPED
+  CANCELLED
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum WhatsAppProviderType {
+  BAILEYS
+  CLOUD_API
+  SIMULATOR
+}
+
+enum WhatsAppConnectionStatus {
+  DISCONNECTED
+  CONNECTING
+  QR_PENDING
+  CONNECTED
+  ERROR
+  LOGGED_OUT
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  AUDIO
+  IMAGE
+  DOCUMENT
+  VIDEO
+  STICKER
+  REACTION
+  OTHER
+}
+
+enum MessageStatus {
+  RECEIVED
+  QUEUED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  NEEDS_CLARIFICATION
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD
+}
+
+enum AttachmentKind {
+  AUDIO
+  IMAGE
+  DOCUMENT
+  IMPORT_FILE
+  REPORT
+  OTHER
+}
+
+enum NotificationType {
+  TRANSACTION_CREATED
+  INCOME_CREATED
+  CONFIRMATION_REQUIRED
+  BUDGET_THRESHOLD
+  BILL_DUE
+  STATEMENT_AVAILABLE
+  WEEKLY_REPORT
+  MONTHLY_REPORT
+  WHATSAPP_CONNECTION_FAILED
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  WHATSAPP
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationFrequency {
+  IMMEDIATE
+  DAILY_DIGEST
+  OFF
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  RECLASSIFY
+  CONFIRM
+  REJECT
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  IMPORT
+  UNDO_IMPORT
+  SETTINGS_CHANGE
+  EXPORT
+  PURGE
+  CONNECT
+  DISCONNECT
+}
+
+enum ActorType {
+  USER
+  AI
+  SYSTEM
+  WHATSAPP
+  IMPORT
+}
+
+enum AITask {
+  PARSE_MESSAGE
+  RECEIPT_EXTRACTION
+  TRANSCRIPTION
+  ASSISTANT
+  INSIGHTS
+}
+
+enum AIProviderType {
+  ANTHROPIC
+  OPENAI
+  OPENAI_COMPATIBLE
+  LOCAL
+}
+
+enum AILogStatus {
+  SUCCESS
+  ERROR
+  FALLBACK
+}
+
+enum ImportFormat {
+  CSV
+  OFX
+  XLSX
+}
+
+enum ImportStatus {
+  PREVIEW
+  IMPORTED
+  UNDONE
+  FAILED
+}
+
+enum ImportRowStatus {
+  NEW
+  DUPLICATE
+  MATCHED
+  DIVERGENT
+  SKIPPED
+  IMPORTED
+  ERROR
+}
+
+enum PendingType {
+  CONFIRMATION
+  UNCATEGORIZED
+  MISSING_PAYMENT_METHOD
+  POSSIBLE_DUPLICATE
+  UNREADABLE_RECEIPT
+  PROCESSING_FAILED
+  IMPORT_DIVERGENCE
+  INSTALLMENT_INCONSISTENT
+  CLARIFICATION
+}
+
+enum PendingStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum RuleMatchField {
+  MERCHANT
+  DESCRIPTION
+  ANY
+}
+
+enum RuleMatchType {
+  CONTAINS
+  EQUALS
+  STARTS_WITH
+  REGEX
+}
+
+enum RuleSource {
+  USER
+  ASSISTANT
+  WHATSAPP
+}
+
+enum ReportType {
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+enum AccountingRegime {
+  ACCRUAL
+  CASH
+}
+
+enum ConversationChannel {
+  WHATSAPP
+  DASHBOARD
+}
+
+enum ClarificationKind {
+  MISSING_FIELDS
+  CHOOSE_TRANSACTION
+  CONFIRM_TRANSACTION
+  CONFIRM_DUPLICATE
+  CONFIRM_DELETE
+}
+
+enum ClarificationStatus {
+  OPEN
+  ANSWERED
+  EXPIRED
+  CANCELLED
+}
+
+enum AssistantRole {
+  USER
+  ASSISTANT
+}
+
+enum BackupKind {
+  DATABASE_DUMP
+  HOUSEHOLD_EXPORT
+}
+
+enum BackupStatus {
+  SUCCESS
+  FAILED
+  VERIFIED
+  CORRUPTED
+}
+
+// -----------------------------------------------------------------------------
+// Identidade, família e acesso
+// -----------------------------------------------------------------------------
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  name             String
+  passwordHash     String
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships HouseholdMember[]
+  sessions    Session[]
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  userId      String
+  householdId String
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Household {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("America/Recife")
+  currency  String   @default("BRL")
+  locale    String   @default("pt-BR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  settings              HouseholdSettings?
+  members               HouseholdMember[]
+  sessions              Session[]
+  invitations           Invitation[]
+  accounts              Account[]
+  creditCards           CreditCard[]
+  statements            CreditCardStatement[]
+  categories            Category[]
+  subcategories         Subcategory[]
+  merchants             Merchant[]
+  transactions          Transaction[]
+  ledgerEntries         LedgerEntry[]
+  installments          Installment[]
+  recurringTransactions RecurringTransaction[]
+  scheduledPayments     ScheduledPayment[]
+  budgets               Budget[]
+  goals                 FinancialGoal[]
+  goalContributions     GoalContribution[]
+  whatsappConnection    WhatsAppConnection?
+  whatsappGroups        WhatsAppGroup[]
+  whatsappMessages      WhatsAppMessage[]
+  processingJobs        MessageProcessingJob[]
+  attachments           Attachment[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  rules                 FinancialRule[]
+  aiLogs                AIProcessingLog[]
+  aiCredentials         AIProviderCredential[]
+  aiTaskConfigs         AITaskConfig[]
+  importBatches         ImportBatch[]
+  importRows            ImportRow[]
+  pendingItems          PendingItem[]
+  clarifications        Clarification[]
+  assistantChats        AssistantConversation[]
+  reportSchedules       ReportSchedule[]
+  reports               Report[]
+  backups               BackupRecord[]
+}
+
+/// Preferências e políticas da família (validadas por Zod na aplicação).
+model HouseholdSettings {
+  householdId             String           @id
+  defaultRegime           AccountingRegime @default(ACCRUAL)
+  /// Confiança mínima para registro automático (0..1).
+  confidenceHigh          Float            @default(0.85)
+  /// Confiança mínima para registro pendente de confirmação (0..1). Abaixo: pede esclarecimento.
+  confidenceMedium        Float            @default(0.6)
+  budgetAlertThresholds   Int[]            @default([50, 75, 90, 100])
+  /// Retenção de mídias originais (áudios e imagens), em dias. 0 = apagar após processamento.
+  mediaRetentionDays      Int              @default(90)
+  /// Retenção de transcrições de áudio, em dias.
+  transcriptRetentionDays Int              @default(365)
+  /// Consentimento explícito para envio de dados a provedores externos de IA.
+  aiExternalAllowed       Boolean          @default(false)
+  aiAudioAllowed          Boolean          @default(false)
+  aiImageAllowed          Boolean          @default(false)
+  /// Janela (horas) para suspeita de lançamento duplicado.
+  duplicateWindowHours    Int              @default(48)
+  whatsappReplies         Boolean          @default(true)
+  /// Responder consultas financeiras no grupo do WhatsApp.
+  whatsappAnswerQueries   Boolean          @default(true)
+  updatedAt               DateTime         @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model HouseholdMember {
+  id                   String     @id @default(cuid())
+  householdId          String
+  userId               String?
+  displayName          String
+  /// Ex.: "Marido", "Esposa", "Filho".
+  relation             String?
+  role                 MemberRole @default(MEMBER)
+  color                String     @default("#0f766e")
+  /// Pode visualizar contas e cartões PRIVADOS de outros membros.
+  canViewOthersPrivate Boolean    @default(false)
+  /// Número de WhatsApp em formato E.164 (ex.: +5581999999999).
+  whatsappPhone        String?
+  /// Identificadores do WhatsApp aprendidos na conexão (JID e LID).
+  whatsappJid          String?
+  whatsappLid          String?
+  /// Consentimento do participante para processamento das suas mensagens.
+  whatsappConsentAt    DateTime?
+  whatsappAuthorized   Boolean    @default(false)
+  isActive             Boolean    @default(true)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  ownedAccounts        Account[]                @relation("AccountOwner")
+  heldCards            CreditCard[]             @relation("CardHolder")
+  paidTransactions     Transaction[]            @relation("TransactionPayer")
+  responsibleFor       Transaction[]            @relation("TransactionResponsible")
+  createdTransactions  Transaction[]            @relation("TransactionCreator")
+  allocations          TransactionAllocation[]
+  messages             WhatsAppMessage[]
+  notifications        Notification[]
+  notificationPrefs    NotificationPreference[]
+  goalContributions    GoalContribution[]
+  assistantChats       AssistantConversation[]
+  clarifications       Clarification[]
+  recurringResponsible RecurringTransaction[]   @relation("RecurringResponsible")
+
+  @@unique([householdId, userId])
+  @@index([householdId])
+  @@index([whatsappPhone])
+}
+
+model Invitation {
+  id          String     @id @default(cuid())
+  householdId String
+  email       String
+  role        MemberRole @default(MEMBER)
+  /// Membro (dependente) pré-existente que será vinculado ao novo usuário.
+  memberId    String?
+  tokenHash   String     @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime   @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+}
+
+// -----------------------------------------------------------------------------
+// Contas, cartões e faturas
+// -----------------------------------------------------------------------------
+
+model Account {
+  id                  String      @id @default(cuid())
+  householdId         String
+  name                String
+  institution         String?
+  type                AccountType @default(CHECKING)
+  visibility          Visibility  @default(SHARED)
+  /// Titular. Nulo = conta conjunta da família.
+  ownerMemberId       String?
+  initialBalanceCents Int         @default(0)
+  initialBalanceDate  DateTime    @db.Date
+  color               String      @default("#0f766e")
+  icon                String      @default("landmark")
+  includeInTotals     Boolean     @default(true)
+  archivedAt          DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  owner     HouseholdMember? @relation("AccountOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+
+  ledgerEntries         LedgerEntry[]
+  transactions          Transaction[]          @relation("TransactionAccount")
+  incomingTransfers     Transaction[]          @relation("TransactionDestination")
+  cardsPaid             CreditCard[]           @relation("CardPaymentAccount")
+  goals                 FinancialGoal[]
+  recurringTransactions RecurringTransaction[]
+  scheduledPayments     ScheduledPayment[]
+  importBatches         ImportBatch[]
+  rules                 FinancialRule[]
+
+  @@unique([householdId, name])
+  @@index([householdId])
+}
+
+model CreditCard {
+  id               String     @id @default(cuid())
+  householdId      String
+  name             String
+  issuer           String?
+  brand            String?
+  /// Apenas os 4 últimos dígitos (opcional). Nunca armazenar o número completo.
+  last4            String?
+  holderMemberId   String?
+  visibility       Visibility @default(SHARED)
+  limitCents       Int        @default(0)
+  /// Dia de fechamento (1..31; ajustado ao último dia do mês quando necessário).
+  closingDay       Int
+  /// Dia de vencimento (1..31).
+  dueDay           Int
+  paymentAccountId String?
+  color            String     @default("#1e3a5f")
+  icon             String     @default("credit-card")
+  archivedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  household      Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  holder         HouseholdMember? @relation("CardHolder", fields: [holderMemberId], references: [id], onDelete: SetNull)
+  paymentAccount Account?         @relation("CardPaymentAccount", fields: [paymentAccountId], references: [id], onDelete: SetNull)
+
+  statements            CreditCardStatement[]
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  scheduledPayments     ScheduledPayment[]
+  importBatches         ImportBatch[]
+
+  @@unique([householdId, name])
+  @@index([householdId])
+}
+
+/// Fatura de cartão. O total é a soma das parcelas (Installment) vinculadas;
+/// o valor pago é a soma das transações CARD_PAYMENT vinculadas. Status é derivado.
+model CreditCardStatement {
+  id             String   @id @default(cuid())
+  householdId    String
+  creditCardId   String
+  /// Mês de referência no formato YYYY-MM (mês do vencimento).
+  referenceMonth String
+  closingDate    DateTime @db.Date
+  dueDate        DateTime @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  household    Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  creditCard   CreditCard    @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  installments Installment[]
+  payments     Transaction[] @relation("StatementPayments")
+
+  @@unique([creditCardId, referenceMonth])
+  @@index([householdId, dueDate])
+}
+
+// -----------------------------------------------------------------------------
+// Classificação
+// -----------------------------------------------------------------------------
+
+model Category {
+  id          String       @id @default(cuid())
+  householdId String
+  name        String
+  kind        CategoryKind @default(EXPENSE)
+  icon        String       @default("tag")
+  color       String       @default("#64748b")
+  isSystem    Boolean      @default(false)
+  sortOrder   Int          @default(0)
+  archivedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  household             Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  subcategories         Subcategory[]
+  transactions          Transaction[]
+  budgets               Budget[]
+  recurringTransactions RecurringTransaction[]
+  scheduledPayments     ScheduledPayment[]
+  rules                 FinancialRule[]
+
+  @@unique([householdId, kind, name])
+  @@index([householdId])
+}
+
+model Subcategory {
+  id          String    @id @default(cuid())
+  householdId String
+  categoryId  String
+  name        String
+  icon        String?
+  /// Palavras-chave (minúsculas, sem acento) usadas pelo motor local de classificação.
+  keywords    String[]  @default([])
+  sortOrder   Int       @default(0)
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household             Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category              Category               @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  rules                 FinancialRule[]
+
+  @@unique([categoryId, name])
+  @@index([householdId])
+}
+
+model Merchant {
+  id             String   @id @default(cuid())
+  householdId    String
+  name           String
+  normalizedName String
+  createdAt      DateTime @default(now())
+
+  household    Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  recurring    RecurringTransaction[]
+
+  @@unique([householdId, normalizedName])
+}
+
+/// Regras explícitas de categorização definidas pelo usuário.
+model FinancialRule {
+  id                     String           @id @default(cuid())
+  householdId            String
+  name                   String
+  matchField             RuleMatchField   @default(ANY)
+  matchType              RuleMatchType    @default(CONTAINS)
+  pattern                String
+  minAmountCents         Int?
+  maxAmountCents         Int?
+  transactionType        TransactionType?
+  setCategoryId          String?
+  setSubcategoryId       String?
+  setPaymentMethod       PaymentMethod?
+  setAccountId           String?
+  setOwnership           Ownership?
+  setResponsibleMemberId String?
+  priority               Int              @default(100)
+  active                 Boolean          @default(true)
+  source                 RuleSource       @default(USER)
+  timesApplied           Int              @default(0)
+  createdById            String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  household   Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category    Category?    @relation(fields: [setCategoryId], references: [id], onDelete: SetNull)
+  subcategory Subcategory? @relation(fields: [setSubcategoryId], references: [id], onDelete: SetNull)
+  account     Account?     @relation(fields: [setAccountId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, active])
+}
+
+// -----------------------------------------------------------------------------
+// Núcleo financeiro
+// -----------------------------------------------------------------------------
+
+/// Evento econômico. Valor sempre positivo; o sentido vem do tipo.
+/// - EXPENSE no crédito: gera Installments (faturas), sem movimento de caixa.
+/// - EXPENSE/INCOME em conta: gera LedgerEntry na conta.
+/// - TRANSFER: gera saída na conta de origem e entrada na de destino (não é receita nem despesa).
+/// - CARD_PAYMENT: saída na conta pagadora, vinculada à fatura (não é despesa — evita dupla contagem).
+model Transaction {
+  id                     String            @id @default(cuid())
+  householdId            String
+  type                   TransactionType
+  status                 TransactionStatus @default(CONFIRMED)
+  amountCents            Int
+  currency               String            @default("BRL")
+  description            String
+  notes                  String?
+  merchantId             String?
+  categoryId             String?
+  subcategoryId          String?
+  /// Data da ocorrência (compra/recebimento/pagamento).
+  date                   DateTime          @db.Date
+  /// Data de competência (padrão = data da ocorrência).
+  competenceDate         DateTime          @db.Date
+  paymentMethod          PaymentMethod?
+  /// Conta de origem (despesa/transferência/pagamento de fatura) ou de destino (receita).
+  accountId              String?
+  /// Conta de destino (transferência).
+  destinationAccountId   String?
+  creditCardId           String?
+  /// Fatura paga (somente CARD_PAYMENT).
+  statementId            String?
+  installmentCount       Int               @default(1)
+  /// Quem efetivamente pagou/recebeu.
+  payerMemberId          String?
+  /// Quem é economicamente responsável (INDIVIDUAL) ou família (SHARED).
+  ownership              Ownership         @default(SHARED)
+  responsibleMemberId    String?
+  source                 TransactionSource @default(MANUAL)
+  sourceMessageId        String?
+  /// Índice do lançamento dentro da mensagem de origem (mensagens com vários gastos).
+  sourceIndex            Int               @default(0)
+  importBatchId          String?
+  recurringTransactionId String?
+  goalId                 String?
+  confidenceScore        Float?
+  aiMetadata             Json?
+  /// Impressão digital para detecção de duplicidade (valor+data+estabelecimento).
+  fingerprint            String?
+  createdByMemberId      String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  deletedAt              DateTime?
+  deletedByMemberId      String?
+  version                Int               @default(1)
+
+  household          Household             @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  merchant           Merchant?             @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  category           Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subcategory        Subcategory?          @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  account            Account?              @relation("TransactionAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  destinationAccount Account?              @relation("TransactionDestination", fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  creditCard         CreditCard?           @relation(fields: [creditCardId], references: [id], onDelete: Restrict)
+  statement          CreditCardStatement?  @relation("StatementPayments", fields: [statementId], references: [id], onDelete: Restrict)
+  payer              HouseholdMember?      @relation("TransactionPayer", fields: [payerMemberId], references: [id], onDelete: SetNull)
+  responsible        HouseholdMember?      @relation("TransactionResponsible", fields: [responsibleMemberId], references: [id], onDelete: SetNull)
+  createdBy          HouseholdMember?      @relation("TransactionCreator", fields: [createdByMemberId], references: [id], onDelete: SetNull)
+  sourceMessage      WhatsAppMessage?      @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  importBatch        ImportBatch?          @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  recurring          RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
+  goal               FinancialGoal?        @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  allocations       TransactionAllocation[]
+  ledgerEntries     LedgerEntry[]
+  installments      Installment[]
+  attachments       Attachment[]
+  scheduledPayment  ScheduledPayment?
+  goalContributions GoalContribution[]
+  pendingItems      PendingItem[]
+  importRowCreated  ImportRow?              @relation("ImportRowCreated")
+  importRowsMatched ImportRow[]             @relation("ImportRowMatched")
+
+  @@unique([sourceMessageId, sourceIndex])
+  @@index([householdId, date])
+  @@index([householdId, competenceDate])
+  @@index([householdId, type, status])
+  @@index([householdId, categoryId])
+  @@index([householdId, deletedAt])
+  @@index([householdId, fingerprint])
+  @@index([accountId])
+  @@index([destinationAccountId])
+  @@index([creditCardId])
+  @@index([statementId])
+  @@index([importBatchId])
+}
+
+/// Rateio: parcela do valor economicamente atribuída a cada membro.
+model TransactionAllocation {
+  id            String @id @default(cuid())
+  transactionId String
+  memberId      String
+  amountCents   Int
+
+  transaction Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  member      HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([transactionId, memberId])
+  @@index([memberId])
+}
+
+/// Movimento de caixa em uma conta. Derivado das transações (repostado a cada alteração).
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  householdId   String
+  transactionId String
+  accountId     String
+  kind          LedgerEntryKind
+  /// Valor com sinal: positivo = entrada, negativo = saída.
+  amountCents   Int
+  date          DateTime        @db.Date
+  createdAt     DateTime        @default(now())
+
+  household   Household   @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, date])
+  @@index([householdId, date])
+  @@index([transactionId])
+}
+
+/// Parcela de compra no cartão de crédito, alocada a uma fatura.
+model Installment {
+  id                String   @id @default(cuid())
+  householdId       String
+  transactionId     String
+  statementId       String
+  number            Int
+  totalInstallments Int
+  amountCents       Int
+  dueDate           DateTime @db.Date
+  createdAt         DateTime @default(now())
+
+  household   Household           @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  transaction Transaction         @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  statement   CreditCardStatement @relation(fields: [statementId], references: [id], onDelete: Restrict)
+
+  @@unique([transactionId, number])
+  @@index([statementId])
+  @@index([householdId, dueDate])
+}
+
+// -----------------------------------------------------------------------------
+// Recorrências, contas a pagar, orçamentos e metas
+// -----------------------------------------------------------------------------
+
+model RecurringTransaction {
+  id                  String              @id @default(cuid())
+  householdId         String
+  type                TransactionType     @default(EXPENSE)
+  description         String
+  amountCents         Int
+  /// Valor variável (ex.: energia): o valor é uma estimativa.
+  isVariableAmount    Boolean             @default(false)
+  categoryId          String?
+  subcategoryId       String?
+  merchantId          String?
+  paymentMethod       PaymentMethod?
+  accountId           String?
+  creditCardId        String?
+  ownership           Ownership           @default(SHARED)
+  responsibleMemberId String?
+  frequency           RecurrenceFrequency @default(MONTHLY)
+  /// Intervalo para frequências personalizadas (dias ou meses).
+  interval            Int                 @default(1)
+  dayOfMonth          Int?
+  startDate           DateTime            @db.Date
+  endDate             DateTime?           @db.Date
+  /// Lança automaticamente a transação no vencimento (ex.: débito automático, assinatura no cartão).
+  autoPost            Boolean             @default(false)
+  reminderDaysBefore  Int                 @default(3)
+  active              Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category    Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subcategory Subcategory?     @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  merchant    Merchant?        @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  account     Account?         @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard  CreditCard?      @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  responsible HouseholdMember? @relation("RecurringResponsible", fields: [responsibleMemberId], references: [id], onDelete: SetNull)
+
+  occurrences  ScheduledPayment[]
+  transactions Transaction[]
+
+  @@index([householdId, active])
+}
+
+/// Ocorrência prevista (conta a pagar / receita prevista).
+/// PENDING = prevista; POSTED = lançada (transação criada, ex. no cartão); PAID = paga.
+/// Vencida = PENDING com vencimento no passado (derivado).
+model ScheduledPayment {
+  id                     String                 @id @default(cuid())
+  householdId            String
+  recurringTransactionId String?
+  type                   TransactionType        @default(EXPENSE)
+  description            String
+  amountCents            Int
+  isEstimate             Boolean                @default(false)
+  dueDate                DateTime               @db.Date
+  status                 ScheduledPaymentStatus @default(PENDING)
+  categoryId             String?
+  accountId              String?
+  creditCardId           String?
+  transactionId          String?                @unique
+  paidAt                 DateTime?
+  notes                  String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  household   Household             @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recurring   RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
+  category    Category?             @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account     Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard  CreditCard?           @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  transaction Transaction?          @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@unique([recurringTransactionId, dueDate])
+  @@index([householdId, status, dueDate])
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  householdId String
+  categoryId  String
+  /// Mês no formato YYYY-MM.
+  month       String
+  limitCents  Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category  Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  alerts    BudgetAlert[]
+
+  @@unique([householdId, categoryId, month])
+  @@index([householdId, month])
+}
+
+/// Registro dos alertas já emitidos (evita repetição).
+model BudgetAlert {
+  id          String   @id @default(cuid())
+  budgetId    String
+  threshold   Int
+  triggeredAt DateTime @default(now())
+
+  budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, threshold])
+}
+
+model FinancialGoal {
+  id          String     @id @default(cuid())
+  householdId String
+  name        String
+  targetCents Int
+  deadline    DateTime?  @db.Date
+  accountId   String?
+  color       String     @default("#059669")
+  icon        String     @default("target")
+  status      GoalStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  household     Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  account       Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contributions GoalContribution[]
+  transactions  Transaction[]
+
+  @@unique([householdId, name])
+}
+
+/// Contribuição (positiva) ou resgate (negativo) de uma meta.
+/// Quando transactionId é nulo, é uma alocação interna (sem movimento de caixa).
+model GoalContribution {
+  id              String    @id @default(cuid())
+  householdId     String
+  goalId          String
+  amountCents     Int
+  date            DateTime  @db.Date
+  memberId        String?
+  transactionId   String?
+  sourceMessageId String?
+  note            String?
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  goal        FinancialGoal    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  member      HouseholdMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  transaction Transaction?     @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([goalId])
+}
+
+// -----------------------------------------------------------------------------
+// WhatsApp
+// -----------------------------------------------------------------------------
+
+model WhatsAppConnection {
+  id                 String                   @id @default(cuid())
+  householdId        String                   @unique
+  provider           WhatsAppProviderType     @default(SIMULATOR)
+  status             WhatsAppConnectionStatus @default(DISCONNECTED)
+  /// Estado desejado pelo usuário (o worker converge para ele).
+  desiredConnected   Boolean                  @default(false)
+  phoneNumber        String?
+  displayName        String?
+  /// Configuração não secreta do provedor (ex.: phoneNumberId da Cloud API).
+  config             Json?
+  processingEnabled  Boolean                  @default(true)
+  lastConnectedAt    DateTime?
+  lastDisconnectedAt DateTime?
+  lastMessageAt      DateTime?
+  lastError          String?
+  lastErrorAt        DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  household Household                 @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  authState WhatsAppAuthState[]
+  events    WhatsAppConnectionEvent[]
+  groups    WhatsAppGroup[]
+  messages  WhatsAppMessage[]
+}
+
+/// Credenciais de sessão do WhatsApp (criptografadas com AES-256-GCM).
+model WhatsAppAuthState {
+  id           String   @id @default(cuid())
+  connectionId String
+  key          String
+  value        String
+  updatedAt    DateTime @updatedAt
+
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, key])
+}
+
+model WhatsAppConnectionEvent {
+  id           String   @id @default(cuid())
+  connectionId String
+  type         String
+  message      String?
+  createdAt    DateTime @default(now())
+
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, createdAt])
+}
+
+model WhatsAppGroup {
+  id                String    @id @default(cuid())
+  householdId       String
+  connectionId      String
+  externalId        String
+  name              String
+  participantsCount Int       @default(0)
+  isAuthorized      Boolean   @default(false)
+  authorizedAt      DateTime?
+  authorizedById    String?
+  lastSyncedAt      DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+
+  household  Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages   WhatsAppMessage[]
+
+  @@unique([connectionId, externalId])
+  @@index([householdId])
+}
+
+/// Mensagem do grupo autorizado. A unicidade (connectionId, externalId) garante idempotência.
+model WhatsAppMessage {
+  id               String           @id @default(cuid())
+  householdId      String
+  connectionId     String
+  groupId          String?
+  externalId       String
+  chatId           String
+  direction        MessageDirection @default(INBOUND)
+  senderExternalId String?
+  senderMemberId   String?
+  type             MessageType
+  text             String?
+  attachmentId     String?
+  quotedExternalId String?
+  sentAt           DateTime
+  status           MessageStatus    @default(RECEIVED)
+  intent           String?
+  statusDetail     String?
+  processedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  household    Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  connection   WhatsAppConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  group        WhatsAppGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  sender       HouseholdMember?       @relation(fields: [senderMemberId], references: [id], onDelete: SetNull)
+  attachment   Attachment?            @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+  jobs         MessageProcessingJob[]
+  pendingItems PendingItem[]
+
+  @@unique([connectionId, externalId])
+  @@index([householdId, sentAt])
+  @@index([householdId, status])
+}
+
+/// Registro durável de processamento (a fila BullMQ é apenas o despachante).
+model MessageProcessingJob {
+  id          String    @id @default(cuid())
+  householdId String
+  messageId   String
+  kind        String    @default("PROCESS_MESSAGE")
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  lastError   String?
+  runAfter    DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  message   WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, kind])
+  @@index([status, runAfter])
+}
+
+// -----------------------------------------------------------------------------
+// Anexos (áudios, comprovantes, arquivos)
+// -----------------------------------------------------------------------------
+
+model Attachment {
+  id                  String         @id @default(cuid())
+  householdId         String
+  kind                AttachmentKind
+  mimeType            String
+  sizeBytes           Int
+  /// SHA-256 do conteúdo original — evita processar o mesmo comprovante duas vezes.
+  sha256              String
+  /// Caminho relativo no armazenamento (conteúdo criptografado em repouso).
+  storageKey          String?
+  originalName        String?
+  /// Transcrição (criptografada) — apenas para áudios.
+  transcription       String?
+  /// Dados extraídos (comprovantes), sem dados sensíveis de cartão.
+  extractedData       Json?
+  processingStatus    String         @default("PENDING")
+  transactionId       String?
+  uploadedByMemberId  String?
+  /// Data a partir da qual o conteúdo original pode ser apagado.
+  retentionUntil      DateTime?
+  contentDeletedAt    DateTime?
+  transcriptDeletedAt DateTime?
+  createdAt           DateTime       @default(now())
+
+  household    Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  transaction  Transaction?      @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  messages     WhatsAppMessage[]
+  pendingItems PendingItem[]
+
+  @@unique([householdId, sha256])
+  @@index([transactionId])
+  @@index([retentionUntil])
+}
+
+// -----------------------------------------------------------------------------
+// Notificações, pendências e conversas
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id                String              @id @default(cuid())
+  householdId       String
+  recipientMemberId String?
+  type              NotificationType
+  channel           NotificationChannel @default(IN_APP)
+  status            NotificationStatus  @default(PENDING)
+  title             String
+  body              String
+  data              Json?
+  dedupeKey         String?
+  readAt            DateTime?
+  sentAt            DateTime?
+  error             String?
+  createdAt         DateTime            @default(now())
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recipient HouseholdMember? @relation(fields: [recipientMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, dedupeKey])
+  @@index([householdId, recipientMemberId, readAt])
+  @@index([status, channel])
+}
+
+model NotificationPreference {
+  id         String                @id @default(cuid())
+  memberId   String
+  type       NotificationType
+  inApp      Boolean               @default(true)
+  whatsapp   Boolean               @default(false)
+  email      Boolean               @default(false)
+  frequency  NotificationFrequency @default(IMMEDIATE)
+  /// Horário silencioso (HH:mm), no fuso da família.
+  quietStart String?
+  quietEnd   String?
+  updatedAt  DateTime              @updatedAt
+
+  member HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, type])
+}
+
+/// Itens que exigem atenção humana. Nada falha silenciosamente.
+model PendingItem {
+  id                   String        @id @default(cuid())
+  householdId          String
+  type                 PendingType
+  status               PendingStatus @default(OPEN)
+  title                String
+  description          String?
+  transactionId        String?
+  relatedTransactionId String?
+  messageId            String?
+  attachmentId         String?
+  importRowId          String?
+  data                 Json?
+  dedupeKey            String?
+  resolution           String?
+  resolvedByMemberId   String?
+  resolvedAt           DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  transaction Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  message     WhatsAppMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  attachment  Attachment?      @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  importRow   ImportRow?       @relation(fields: [importRowId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, dedupeKey])
+  @@index([householdId, status, type])
+}
+
+/// Estado de conversa: perguntas de esclarecimento aguardando resposta.
+model Clarification {
+  id          String              @id @default(cuid())
+  householdId String
+  memberId    String?
+  channel     ConversationChannel @default(WHATSAPP)
+  chatId      String
+  /// Mensagem de origem (WhatsAppMessage.id), quando houver.
+  messageId   String?
+  kind        ClarificationKind
+  question    String
+  payload     Json
+  status      ClarificationStatus @default(OPEN)
+  expiresAt   DateTime
+  answeredAt  DateTime?
+  createdAt   DateTime            @default(now())
+
+  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member    HouseholdMember? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, chatId, status])
+}
+
+model AssistantConversation {
+  id          String   @id @default(cuid())
+  householdId String
+  memberId    String
+  title       String   @default("Nova conversa")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member    HouseholdMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  messages  AssistantMessage[]
+
+  @@index([householdId, memberId, updatedAt])
+}
+
+model AssistantMessage {
+  id             String        @id @default(cuid())
+  conversationId String
+  role           AssistantRole
+  content        String
+  /// Ferramentas usadas, fontes do cálculo e classificação (confirmado/estimado/projeção).
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  conversation AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// -----------------------------------------------------------------------------
+// Auditoria e IA
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  householdId   String?
+  actorType     ActorType
+  actorMemberId String?
+  action        AuditAction
+  entityType    String
+  entityId      String?
+  before        Json?
+  after         Json?
+  source        String?
+  ip            String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+
+  household Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, entityType, entityId])
+  @@index([householdId, createdAt])
+}
+
+model AIProcessingLog {
+  id           String         @id @default(cuid())
+  householdId  String
+  task         AITask
+  provider     AIProviderType
+  model        String
+  status       AILogStatus
+  latencyMs    Int
+  inputTokens  Int?
+  outputTokens Int?
+  messageId    String?
+  error        String?
+  /// Resumo estruturado do resultado (sem conteúdo bruto das mensagens).
+  output       Json?
+  createdAt    DateTime       @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, createdAt])
+}
+
+/// Chaves de API cadastradas pela interface (criptografadas). Variáveis de ambiente têm precedência.
+model AIProviderCredential {
+  id              String         @id @default(cuid())
+  householdId     String
+  provider        AIProviderType
+  encryptedApiKey String
+  baseUrl         String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, provider])
+}
+
+model AITaskConfig {
+  id          String         @id @default(cuid())
+  householdId String
+  task        AITask
+  provider    AIProviderType
+  model       String
+  enabled     Boolean        @default(true)
+  updatedAt   DateTime       @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, task])
+}
+
+// -----------------------------------------------------------------------------
+// Importação, relatórios e backups
+// -----------------------------------------------------------------------------
+
+model ImportBatch {
+  id            String       @id @default(cuid())
+  householdId   String
+  format        ImportFormat
+  fileName      String
+  fileSha256    String
+  accountId     String?
+  creditCardId  String?
+  status        ImportStatus @default(PREVIEW)
+  mapping       Json?
+  totalRows     Int          @default(0)
+  newRows       Int          @default(0)
+  duplicateRows Int          @default(0)
+  matchedRows   Int          @default(0)
+  importedRows  Int          @default(0)
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  importedAt    DateTime?
+  undoneAt      DateTime?
+
+  household    Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  account      Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard   CreditCard?   @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  rows         ImportRow[]
+  transactions Transaction[]
+
+  @@index([householdId, createdAt])
+}
+
+model ImportRow {
+  id                   String          @id @default(cuid())
+  householdId          String
+  batchId              String
+  rowIndex             Int
+  rawData              Json
+  date                 DateTime?       @db.Date
+  /// Valor com sinal (negativo = saída).
+  amountCents          Int?
+  description          String?
+  /// Identificador externo (ex.: FITID do OFX).
+  externalId           String?
+  fingerprint          String?
+  status               ImportRowStatus @default(NEW)
+  message              String?
+  matchedTransactionId String?
+  createdTransactionId String?         @unique
+  selected             Boolean         @default(true)
+  categoryId           String?
+
+  household          Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  batch              ImportBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  matchedTransaction Transaction?  @relation("ImportRowMatched", fields: [matchedTransactionId], references: [id], onDelete: SetNull)
+  createdTransaction Transaction?  @relation("ImportRowCreated", fields: [createdTransactionId], references: [id], onDelete: SetNull)
+  pendingItems       PendingItem[]
+
+  @@unique([batchId, rowIndex])
+  @@unique([batchId, externalId])
+  @@index([householdId, externalId])
+  @@index([householdId, fingerprint])
+}
+
+model ReportSchedule {
+  id           String     @id @default(cuid())
+  householdId  String
+  type         ReportType
+  enabled      Boolean    @default(true)
+  /// 0 = domingo ... 6 = sábado (relatório semanal).
+  dayOfWeek    Int?
+  /// Dia do mês (relatório mensal).
+  dayOfMonth   Int?
+  hour         Int        @default(8)
+  sendWhatsApp Boolean    @default(false)
+  notifyInApp  Boolean    @default(true)
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  reports   Report[]
+
+  @@unique([householdId, type])
+}
+
+model Report {
+  id            String     @id @default(cuid())
+  householdId   String
+  type          ReportType
+  periodStart   DateTime   @db.Date
+  periodEnd     DateTime   @db.Date
+  data          Json
+  scheduleId    String?
+  generatedById String?
+  createdAt     DateTime   @default(now())
+
+  household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  schedule  ReportSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, type, periodStart])
+}
+
+model BackupRecord {
+  id          String       @id @default(cuid())
+  householdId String?
+  kind        BackupKind
+  status      BackupStatus
+  filePath    String
+  sha256      String?
+  sizeBytes   Int?
+  error       String?
+  verifiedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  household Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
