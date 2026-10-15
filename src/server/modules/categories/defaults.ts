@@ -54,7 +54,7 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
     subcategories: [
       { name: "Combustível", keywords: ["gasolina", "combustivel", "abasteci", "abastecer", "abastecimento", "posto", "etanol", "alcool", "diesel", "gnv", "shell", "ipiranga", "petrobras"] },
       { name: "Estacionamento", keywords: ["estacionamento", "zona azul", "valet", "parking"] },
-      { name: "Aplicativos de transporte", keywords: ["uber", "99", "taxi", "cabify", "indriver", "corrida", "onibus", "metro", "passagem de onibus", "vem"] },
+      { name: "Aplicativos de transporte", keywords: ["uber", "99pop", "99 pop", "taxi", "cabify", "indriver", "corrida", "onibus", "metro", "passagem de onibus", "vem"] },
       { name: "Manutenção do veículo", keywords: ["mecanico", "oficina", "revisao", "pneu", "troca de oleo", "oleo", "lava jato", "lavagem", "borracharia", "pecas"] },
       { name: "Seguro", keywords: ["seguro do carro", "seguro auto", "seguro do veiculo", "seguro da moto"] },
       { name: "Impostos", keywords: ["ipva", "licenciamento", "multa", "detran", "dpvat"] },
@@ -164,7 +164,7 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
     icon: "briefcase",
     color: "#059669",
     subcategories: [
-      { name: "Salário", keywords: ["salario", "pagamento do salario", "holerite", "contracheque", "adiantamento", "vale", "13", "decimo terceiro", "ferias"] },
+      { name: "Salário", keywords: ["salario", "pagamento do salario", "holerite", "contracheque", "adiantamento", "decimo terceiro", "13o salario", "ferias"] },
       { name: "Serviços", keywords: ["cliente", "trabalho", "freela", "freelance", "servico", "projeto", "consultoria", "honorarios", "marketing"] },
       { name: "Comissões", keywords: ["comissao", "comissoes", "bonus", "participacao nos lucros", "plr"] },
     ],

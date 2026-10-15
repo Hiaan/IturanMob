@@ -3,7 +3,7 @@ import path from "node:path";
 
 const alias = { "@": path.resolve(__dirname, "src") };
 
-const testEnv = {
+const testEnv: Record<string, string> = {
   NODE_ENV: "test",
   DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgresql://finance:finance@localhost:5432/finance_ai_test?schema=public",
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
@@ -20,6 +20,8 @@ const testEnv = {
 export default defineConfig({
   resolve: { alias },
   test: {
+    // Os testes de integração compartilham um banco: execução sequencial entre arquivos.
+    fileParallelism: false,
     projects: [
       {
         resolve: { alias },
@@ -37,7 +39,6 @@ export default defineConfig({
           include: ["tests/integration/**/*.test.ts"],
           environment: "node",
           env: testEnv,
-          fileParallelism: false,
           sequence: { concurrent: false },
           testTimeout: 30_000,
           hookTimeout: 60_000,
