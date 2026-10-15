@@ -65,6 +65,7 @@ import { openClarification } from "@/server/ai/engine/clarifications";
 import { applyText, saveCredential, updateTaskConfigs } from "@/server/ai/api";
 import { createTransaction, restoreTransaction } from "@/server/modules/transactions/service";
 import { reprocessMessage, runProcessingJob } from "@/server/whatsapp/processor";
+import { createAccount } from "@/server/modules/accounts/service";
 import { categoryId, createBasicAccounts, resetDatabase } from "./helpers";
 import {
   TZ,
@@ -174,6 +175,18 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
     expect(await balanceOf(fam, itau.id)).toBe(500_000 - 4590);
     expect(await balanceOf(fam, nubank.id)).toBe(100_000);
     expect(await prisma.pendingItem.count({ where: { householdId: fam.householdId, transactionId: tx!.id, status: "OPEN" } })).toBe(0);
+  });
+
+  it("despesa por texto com uma única conta cadastrada: a conta é usada e o saldo é atualizado", async () => {
+    const fam = await createWaFamily();
+    const only = await createAccount(fam.ctx, { name: "Conta Única", institution: "Banco", type: "CHECKING", initialBalanceCents: 50_000, initialBalanceDate: "2026-01-01" });
+    const sent = await sendMessage(fam, { text: "gastei 45,90 no mercado hoje no pix" });
+    const [tx] = await txsOf(fam.householdId);
+    expect(tx).toMatchObject({ amountCents: 4590, accountId: only.id, paymentMethod: "PIX", status: "CONFIRMED" });
+    expect(tx!.ledgerEntries).toHaveLength(1);
+    expect(await balanceOf(fam, only.id)).toBe(50_000 - 4590);
+    expect(await prisma.pendingItem.count({ where: { householdId: fam.householdId, transactionId: tx!.id, status: "OPEN" } })).toBe(0);
+    expect(sent.reply).toContain("Conta Única");
   });
 
   it("receita por texto: 'recebi 3500 de salário' → INCOME em Trabalho › Salário; com conta, credita o saldo", async () => {

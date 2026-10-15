@@ -76,8 +76,12 @@ Há três modos, escolhidos em **Integrações → WhatsApp** (padrão global em
 | Modo | Para quê | Observações |
 |---|---|---|
 | **Simulador** | Desenvolvimento e testes | Identificado na interface como simulação. Não conecta ao WhatsApp. Desative em produção (`WHATSAPP_ENABLE_SIMULATOR=false`). |
-| **Cloud API (oficial)** | Produção recomendada | Exige conta na Meta, número comercial e HTTPS público para o webhook `{APP_URL}/api/v1/integrations/whatsapp/webhook`. Variáveis `WHATSAPP_CLOUD_*`. |
+| **Cloud API (oficial)** | Produção dentro das regras da Meta | **Não funciona em grupos.** Cada membro conversa diretamente com o número comercial da família, e as respostas vão para a conversa de quem enviou. Exige conta na Meta, número comercial verificado e HTTPS público para o webhook `{APP_URL}/api/webhooks/whatsapp`. Variáveis `WHATSAPP_CLOUD_*`. Fora da janela de 24 h, a Meta só aceita *templates* (não implementados). |
 | **QR Code (Baileys)** | Alternativa **não oficial** | **Não é autorizado pela Meta.** O número pode ser bloqueado e a integração pode parar a qualquer momento. A sessão fica criptografada no banco. Use um número dedicado, por sua conta e risco. |
+
+> Hoje, o **único modo que lê um grupo do WhatsApp** é o QR Code (Baileys), que não é oficial. Se a
+> família quiser ficar 100% dentro das regras da Meta, use a Cloud API, sabendo que cada pessoa manda
+> mensagens ao número comercial em vez de escrever num grupo.
 
 Depois de conectar:
 

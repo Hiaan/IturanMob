@@ -58,7 +58,7 @@ test.describe("fluxo financeiro no painel", () => {
     expect(list.data.items).toHaveLength(0);
     const direct = await otherPage.request.get(`/api/v1/transactions/${txId}`);
     expect(direct.status()).toBe(404);
-    const del = await otherPage.request.delete(`/api/v1/transactions/${txId}`);
+    const del = await otherPage.request.delete(`/api/v1/transactions/${txId}`, { headers: { "X-Requested-With": "fetch" } });
     expect(del.status()).toBe(404);
     await other.close();
   });

@@ -12,7 +12,7 @@ e2e) ou por um procedimento manual descrito aqui. "✅" = critério atendido e v
 | Contas com saldo inicial; saldo sempre derivado do ledger | `ledger.test.ts` → "recalcula saldos" | ✅ |
 | Transação criar/editar/excluir/restaurar com auditoria | `ledger.test.ts`, `ai-pipeline.test.ts` | ✅ |
 | Isolamento entre famílias em todas as consultas | `ledger.test.ts` → "isolamento", `ai-pipeline*.test.ts` | ✅ |
-| Dashboard inicial com dados reais e estados vazios | e2e `dashboard.spec.ts` | ✅ |
+| Dashboard inicial com dados reais e estados vazios | e2e `finance-flow.spec.ts` | ✅ |
 
 ## Fase 2: WhatsApp
 
@@ -64,7 +64,7 @@ e2e) ou por um procedimento manual descrito aqui. "✅" = critério atendido e v
 
 | Critério | Verificação | |
 |---|---|---|
-| Gráficos (categorias, mensal, pessoas, formas de pagamento, orçamento, fluxo) com alternativa em tabela | Dashboard; e2e `dashboard.spec.ts` | ✅ |
+| Gráficos (categorias, mensal, pessoas, formas de pagamento, orçamento, fluxo) com alternativa em tabela | Dashboard; e2e `finance-flow.spec.ts` | ✅ |
 | Filtros (período, pessoa, conta, cartão, categoria, regime) | Dashboard | ✅ |
 | Comparativos com origem do cálculo | `/api/v1/analytics/compare`, Relatórios | ✅ |
 | Relatórios semanal/mensal com PDF/XLSX/CSV e agendamento | `reports.test.ts`, `exports.test.ts` | ✅ |
@@ -91,6 +91,24 @@ e2e) ou por um procedimento manual descrito aqui. "✅" = critério atendido e v
 | Docker Compose (postgres, redis, migrate, web, worker + opcionais) e `.env.example` | `docker-compose.yml`, `Dockerfile` | ✅ |
 | Documentação: instalação, configuração, execução, deploy | `docs/` | ✅ |
 
+## Verificação desta versão
+
+| Verificação | Resultado |
+|---|---|
+| `pnpm typecheck` (TypeScript estrito, projeto inteiro) | 0 erros |
+| `pnpm test` (unitários + integração, PostgreSQL e Redis reais) | 28 arquivos, **314 testes** passando (173 unitários + 141 de integração) |
+| `pnpm test:e2e` (Playwright, servidor de desenvolvimento) | **9 testes** passando |
+| e2e contra o build de produção (contêiner standalone) | 9 testes passando |
+| Build Docker (`pnpm install`, `next build`, `pnpm prune --prod`) dentro do contêiner | OK |
+| Contêiner web de produção: páginas, 47 rotas GET da API, relatórios PDF/XLSX/CSV, exportação integral, recálculo do ledger | OK, sem erros no log |
+| Worker com dependências de produção: heartbeat, tarefas periódicas, encerramento gracioso | OK |
+| `docker compose config` (incluindo os perfis `whisper` e `ollama`) | válido |
+
+O passo `apk add` das imagens (ffmpeg, pg_dump 16, tini) não pôde ser executado no ambiente em que
+este projeto foi desenvolvido, porque a rede bloqueava o repositório de pacotes do Alpine. O restante
+da imagem foi construído e testado. Em uma máquina com acesso normal à internet,
+`docker compose up -d --build` executa todos os passos.
+
 ## Pendências conhecidas e limites
 
 - **WhatsApp real**: os modos Cloud API e QR Code foram implementados contra a documentação e as
@@ -100,3 +118,10 @@ e2e) ou por um procedimento manual descrito aqui. "✅" = critério atendido e v
 - **Restauração de backup JSON** (gerado quando não há `pg_dump`) exige script dedicado. O caminho
   recomendado é o `pg_dump` (já incluído na imagem Docker).
 - **Notificações push** (navegador/celular) não foram implementadas. Os canais são o app e o WhatsApp.
+- **Cloud API fora da janela de 24 h**: a Meta exige *templates* aprovados, que não foram
+  implementados. Envios fora da janela ficam registrados como falha.
+- **Falha transitória em um dos itens** de uma mensagem com vários lançamentos: a resposta informa a
+  falha, mas a mensagem não é reprocessada sozinha. O botão "Reprocessar" refaz só o que faltou
+  (idempotente).
+- **Parcela atual** ("3/6") na lista de transações é calculada no navegador com a mesma regra do
+  servidor. O ideal é a API devolver esse número.

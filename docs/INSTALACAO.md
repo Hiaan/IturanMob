@@ -116,9 +116,11 @@ O seed se recusa a rodar com `NODE_ENV=production` e não bloqueia o primeiro ca
 1. **Contas**: cadastre as contas bancárias com o saldo inicial e a data desse saldo.
 2. **Cartões**: cadastre os cartões com os dias de fechamento e vencimento e a conta que paga a fatura.
 3. **Membros**: convide o cônjuge e defina o papel e o telefone de cada um (para o WhatsApp).
-4. **WhatsApp**: em Integrações → WhatsApp, teste no **simulador** e depois conecte a Cloud API
-   oficial (ou, ciente dos riscos, o modo QR Code). Selecione o grupo, autorize os remetentes e
-   registre o consentimento.
+4. **WhatsApp**: em Integrações → WhatsApp, teste no **simulador** e depois conecte:
+   - a Cloud API oficial, em que cada membro conversa com o número comercial, sem grupo; ou
+   - ciente dos riscos, o modo QR Code, que lê o grupo da família mas não é oficial.
+
+   Selecione o grupo (no modo QR Code), autorize os remetentes e registre o consentimento.
 5. **IA** (opcional): em Integrações → IA, cadastre uma chave e autorize o uso externo em
    Configurações → Privacidade e IA. Sem isso, o motor local em português continua funcionando.
 6. Mande no grupo: `gastei 45,90 no mercado no pix`.

@@ -60,6 +60,7 @@ const envSchema = z.object({
   // Worker
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   RATE_LIMIT_LOGIN_PER_15MIN: z.coerce.number().int().default(10),
+  RATE_LIMIT_REGISTER_PER_HOUR: z.coerce.number().int().min(1).default(5),
   RATE_LIMIT_API_PER_MIN: z.coerce.number().int().default(300),
 });
 

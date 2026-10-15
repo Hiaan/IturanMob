@@ -275,7 +275,7 @@ export function TransactionsView() {
       </div>
 
       {view === "list" && (
-        <div className={cn("grid grid-cols-2 gap-3 lg:grid-cols-4", list.isFetching && !list.isLoading && "opacity-70 transition-opacity")}>
+        <div className={cn("grid grid-cols-2 gap-3 xl:grid-cols-4", list.isFetching && !list.isLoading && "opacity-70 transition-opacity")}>
           {list.isLoading || !totals ? (
             Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[74px] rounded-xl" />)
           ) : (

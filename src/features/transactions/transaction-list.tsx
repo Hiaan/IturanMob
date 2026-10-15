@@ -300,18 +300,28 @@ export function TransactionList({
   );
 }
 
+function GroupHeader({ g }: { g: Group }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs font-semibold text-muted-foreground">{g.label}</span>
+      <span className="pr-14">
+        <DayTotals g={g} />
+      </span>
+    </div>
+  );
+}
+
 function GroupRows({ g, selectable, children }: { g: Group; selectable: boolean; children: React.ReactNode }) {
   return (
     <>
       {g.label && (
         <TableRow className="bg-muted/40 hover:bg-muted/40">
-          <TableCell colSpan={selectable ? 6 : 5} className="py-2 pl-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold text-muted-foreground">{g.label}</span>
-              <span className="pr-14">
-                <DayTotals g={g} />
-              </span>
-            </div>
+          {/* Duas células: uma por faixa de largura (colunas Conta/Pessoa só aparecem a partir de xl). */}
+          <TableCell colSpan={selectable ? 4 : 3} className="py-2 pl-4 xl:hidden">
+            <GroupHeader g={g} />
+          </TableCell>
+          <TableCell colSpan={selectable ? 6 : 5} className="hidden py-2 pl-4 xl:table-cell">
+            <GroupHeader g={g} />
           </TableCell>
         </TableRow>
       )}

@@ -83,11 +83,11 @@ Com `APP_URL` em `https://`, os cookies passam a ser `Secure` automaticamente e 
 1. Abra `https://financas.seudominio.com.br/cadastro` e crie a família. Faça isso logo após o deploy:
    o primeiro cadastro é liberado para qualquer pessoa.
 2. Convide os demais membros em Configurações → Membros.
-3. Configure o WhatsApp (Cloud API oficial recomendada) e a IA. Veja [CONFIGURACAO.md](CONFIGURACAO.md).
+3. Configure o WhatsApp e a IA. A comparação entre a Cloud API oficial (sem grupos) e o QR Code (grupo, não oficial) está em [CONFIGURACAO.md](CONFIGURACAO.md#whatsapp).
 
 Para o webhook da **WhatsApp Cloud API**, cadastre no painel da Meta:
 
-- URL: `https://financas.seudominio.com.br/api/v1/integrations/whatsapp/webhook`
+- URL: `https://financas.seudominio.com.br/api/webhooks/whatsapp`
 - Token de verificação: o valor de `WHATSAPP_CLOUD_VERIFY_TOKEN`
 
 ## 6. Atualizar
@@ -166,4 +166,5 @@ derivados de forma idempotente. Os dois também estão disponíveis na tela **Co
 - [ ] Proxy com HTTPS e `proxy_buffering off` para o SSE
 - [ ] Backups automáticos ativos e cópia externa criptografada
 - [ ] Monitor externo em `/api/health`
-- [ ] WhatsApp pela Cloud API oficial. Se usar QR Code, ciente dos riscos e com número dedicado.
+- [ ] WhatsApp: Cloud API oficial (conversas diretas, sem grupo) ou QR Code (grupo, não oficial, com
+      risco de bloqueio e com número dedicado), escolhido de forma consciente

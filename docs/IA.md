@@ -61,6 +61,14 @@ decisão por confiança (ajustável por família)
 serviço financeiro (o mesmo usado pelo painel) → ledger → auditoria → evento em tempo real
 ```
 
+Valores a partir de R$ 10.000,00 **sempre** pedem confirmação, mesmo com confiança máxima.
+
+Conta e cartão não informados:
+
+- com uma única conta (ou um único cartão) cadastrada, ela é usada e a resposta diz qual;
+- com várias, o cartão é perguntado. Para PIX, débito etc., o lançamento é registrado e uma pendência
+  pede a conta. Até a conta ser escolhida, o lançamento não movimenta saldo.
+
 Correções ("na verdade foi 50", "muda a categoria para farmácia") e exclusões ("apaga o último
 lançamento") atuam sobre **um** lançamento identificado. Exclusões são lógicas e podem ser desfeitas
 ("restaura").

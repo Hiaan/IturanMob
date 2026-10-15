@@ -29,6 +29,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  devIndicators: false,
   reactStrictMode: true,
   serverExternalPackages: ["pdfkit", "exceljs", "baileys", "pino", "pino-pretty", "bullmq", "ioredis", "@prisma/client"],
   // Arquivos lidos em tempo de execução que o rastreamento do build standalone não detecta:

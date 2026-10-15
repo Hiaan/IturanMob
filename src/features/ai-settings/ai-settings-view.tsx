@@ -149,7 +149,21 @@ function TaskRow({ t, providers, canManage }: { t: AIConfig["tasks"][number]; pr
       <div>
         <p className="font-medium">{labelOf(AI_TASK_LABELS, t.task)}</p>
         <p className="text-xs text-muted-foreground">{TASK_HELP[t.task]}</p>
-        {effective && (
+        {t.task === "TRANSCRIPTION" && (!effective || effective.provider === "LOCAL") ? (
+          <p className="mt-1.5 flex items-start gap-1 text-xs">
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
+            <span>
+              Em uso: <strong>desativada</strong> <span className="text-muted-foreground">— áudios viram pendência para digitar o lançamento.</span>
+            </span>
+          </p>
+        ) : t.task === "RECEIPT_EXTRACTION" && effective?.provider === "LOCAL" ? (
+          <p className="mt-1.5 flex items-start gap-1 text-xs">
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
+            <span>
+              Em uso: <strong>só a legenda da foto</strong> <span className="text-muted-foreground">— a leitura automática exige um modelo com visão.</span>
+            </span>
+          </p>
+        ) : effective && (
           <p className="mt-1.5 flex items-start gap-1 text-xs">
             {effective.reason ? <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" /> : <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-positive" />}
             <span>

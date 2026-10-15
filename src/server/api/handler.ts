@@ -28,7 +28,8 @@ interface RouteOptions<QS extends z.ZodType | undefined, BS extends z.ZodType | 
   body?: BS;
   permission?: Permission;
   /** Limite de requisições por minuto por usuário/IP (padrão: RATE_LIMIT_API_PER_MIN). */
-  rateLimit?: { key: string; limit: number; windowSeconds: number };
+  /** `limit` pode ser uma função para ler a configuração só na requisição (não no build). */
+  rateLimit?: { key: string; limit: number | (() => number); windowSeconds: number };
 }
 
 type Infer<S> = S extends z.ZodType ? z.output<S> : undefined;
@@ -40,6 +41,8 @@ export function clientIp(req: NextRequest): string | null {
   if (fwd) return fwd.split(",")[0]?.trim() ?? null;
   return req.headers.get("x-real-ip");
 }
+
+const resolveLimit = (limit: number | (() => number)) => (typeof limit === "function" ? limit() : limit);
 
 /** Proteção CSRF: requisições que alteram dados precisam vir da mesma origem. */
 function assertSameOrigin(req: NextRequest) {
@@ -132,7 +135,7 @@ export function authed<QS extends z.ZodType | undefined = undefined, BS extends 
       const ctx: ServiceContext = { ...session.ctx, ip: clientIp(req) };
       if (opts.permission) assertCan(ctx, opts.permission);
       const rl = opts.rateLimit ?? { key: "api", limit: env().RATE_LIMIT_API_PER_MIN, windowSeconds: 60 };
-      await enforceRateLimit(`${rl.key}:${session.user.id}`, rl.limit, rl.windowSeconds);
+      await enforceRateLimit(`${rl.key}:${session.user.id}`, resolveLimit(rl.limit), rl.windowSeconds);
       const params = (await routeCtx.params) ?? {};
       const query = opts.query ? opts.query.parse(parseQueryParams(req)) : undefined;
       const rawBody = await readBody(req);
@@ -153,7 +156,7 @@ export function publicRoute<QS extends z.ZodType | undefined = undefined, BS ext
   return async (req: NextRequest, routeCtx: { params: Promise<RouteParams> }) => {
     try {
       if (!opts.skipOriginCheck) assertSameOrigin(req);
-      if (opts.rateLimit) await enforceRateLimit(`${opts.rateLimit.key}:${clientIp(req) ?? "unknown"}`, opts.rateLimit.limit, opts.rateLimit.windowSeconds);
+      if (opts.rateLimit) await enforceRateLimit(`${opts.rateLimit.key}:${clientIp(req) ?? "unknown"}`, resolveLimit(opts.rateLimit.limit), opts.rateLimit.windowSeconds);
       const params = (await routeCtx.params) ?? {};
       const query = opts.query ? opts.query.parse(parseQueryParams(req)) : undefined;
       const rawBody = await readBody(req);

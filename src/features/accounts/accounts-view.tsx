@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Archive, ArchiveRestore, Eye, EyeOff, Landmark, Lock, MoreHorizontal, PencilLine, Plus, Scale, Trash2, TrendingUp, Users, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, Eye, EyeOff, Landmark, Lock, MoreHorizontal, PencilLine, Plus, Scale, ShieldCheck, Trash2, TrendingUp, Users, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { AccountFormDialog } from "./account-form-dialog";
 import { AdjustBalanceDialog } from "./adjust-balance-dialog";
 import { AccountDetailSheet } from "./account-detail-sheet";
 import { useAccountMutations } from "./use-account-mutations";
+import { LedgerIntegrityDialog } from "./ledger-integrity-dialog";
 
 const SHOW_ARCHIVED_KEY = "fa:accounts:show-archived";
 
@@ -187,6 +188,7 @@ export function AccountsView() {
     }
   };
 
+  const [integrityOpen, setIntegrityOpen] = useState(false);
   const openEdit = (a: AccountDTO | null) => {
     setEditing(a);
     setFormOpen(true);
@@ -198,13 +200,19 @@ export function AccountsView() {
         title="Contas"
         description="Contas bancárias, carteiras e investimentos da família"
         actions={
-          canWrite && (
-            <Button variant="brand" onClick={() => openEdit(null)}>
-              <Plus /> Nova conta
+          <>
+            <Button variant="outline" onClick={() => setIntegrityOpen(true)}>
+              <ShieldCheck /> Verificar integridade
             </Button>
-          )
+            {canWrite && (
+              <Button variant="brand" onClick={() => openEdit(null)}>
+                <Plus /> Nova conta
+              </Button>
+            )}
+          </>
         }
       />
+      <LedgerIntegrityDialog open={integrityOpen} onOpenChange={setIntegrityOpen} />
 
       {accounts.isLoading ? (
         <>

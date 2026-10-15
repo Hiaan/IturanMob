@@ -148,10 +148,17 @@ function AICard() {
           </div>
           {d.tasks.map((t) => {
             const provider = t.effective?.provider ?? t.provider;
+            // Não existe transcrição nem leitura de imagem locais: sem provedor externo, essas tarefas ficam indisponíveis.
+            const unavailable =
+              t.task === "TRANSCRIPTION" && (!t.effective || provider === "LOCAL")
+                ? "Desativada"
+                : t.task === "RECEIPT_EXTRACTION" && provider === "LOCAL"
+                  ? "Só a legenda da foto"
+                  : null;
             return (
               <Row key={t.task} label={labelOf(AI_TASK_LABELS, t.task)}>
-                {!t.enabled ? (
-                  <span className="text-muted-foreground">Desativado</span>
+                {!t.enabled || unavailable ? (
+                  <span className="text-muted-foreground">{unavailable ?? "Desativado"}</span>
                 ) : (
                   <span className="inline-flex items-center gap-1">
                     <Cpu className="size-3.5 text-muted-foreground" aria-hidden />

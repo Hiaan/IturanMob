@@ -4,7 +4,7 @@
 |---|---|---|---|
 | Unitários | Vitest | `tests/unit` | Regras puras: dinheiro, faturamento de cartão, NLU em português (valores, datas, intenções), importadores (CSV/OFX/XLSX), agenda de recorrências, telefones e fronteiras do WhatsApp |
 | Integração | Vitest + PostgreSQL real | `tests/integration` | Serviços de domínio, pipeline de IA, WhatsApp (ingestão, fila, recuperação), relatórios, importação, backups, LGPD e rotas da API |
-| End-to-end | Playwright | `tests/e2e` | Fluxos no navegador: cadastro/login, lançamento em linguagem natural, dashboard, assistente, isolamento entre famílias e layout no celular |
+| End-to-end | Playwright | `tests/e2e` | Fluxos no navegador: cadastro/login, lançamento em linguagem natural, dashboard, assistente, isolamento entre famílias, mensagem pelo simulador de WhatsApp → lançamento + resposta, e layout no celular |
 
 ## Como rodar
 
@@ -21,6 +21,8 @@ pnpm test:integration
 createdb -h localhost -U finance finance_ai_e2e       # uma vez
 pnpm test:e2e
 # com Chromium instalado em outro caminho: PW_CHROMIUM_PATH=/caminho/chromium pnpm test:e2e
+# contra um servidor já em execução (ex.: a imagem de produção), com ALLOW_REGISTRATION=true e
+# RATE_LIMIT_REGISTER_PER_HOUR alto: E2E_BASE_URL=http://localhost:3200 pnpm test:e2e
 ```
 
 Os testes de integração e e2e precisam de PostgreSQL 16 e Redis 7 em execução (ex.:
@@ -34,7 +36,7 @@ validação, resolução de referências, serviços e banco.
 
 | # | Cenário | Onde é testado |
 |---|---|---|
-| 1 | Criar despesa por texto | `ai-pipeline.test.ts` › "despesa por texto…" · e2e `finance-flow.spec.ts` |
+| 1 | Criar despesa por texto | `ai-pipeline.test.ts` › "despesa por texto…" · e2e `finance-flow.spec.ts` e `whatsapp-simulator.spec.ts` |
 | 2 | Criar receita por texto | `ai-pipeline.test.ts` › "receita por texto: 'recebi 3500 de salário'…" |
 | 3 | Criar despesa por áudio | `ai-pipeline.test.ts` › "áudio: sem consentimento nada é enviado… após autorizar, o reprocessamento transcreve e lança" e "servidor de transcrição na rede local…" |
 | 4 | Múltiplas despesas em um áudio | `ai-pipeline.test.ts` › "áudio com vários gastos → 3 lançamentos com sourceIndex distintos" |

@@ -151,7 +151,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   }
 
   // --- Contas e cartões
-  const account = matchByName(raw.accountHint, hc.accounts);
+  let account = matchByName(raw.accountHint, hc.accounts);
   const destination = matchByName(raw.destinationAccountHint, hc.accounts);
   let card = matchByName(raw.cardHint, hc.cards);
   if (raw.accountHint && !account) {
@@ -177,6 +177,12 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
       }
     }
     if (paymentMethod !== "CREDIT_CARD") installmentCount = installmentCount > 1 && paymentMethod === "BANK_SLIP" ? installmentCount : 1;
+  }
+  // Movimento de caixa sem conta informada: com uma única conta cadastrada, ela é a única possível.
+  // Com várias, o lançamento fica com pendência para escolher a conta (nada é presumido).
+  if (!account && !raw.accountHint && ((raw.kind === "EXPENSE" && !card && paymentMethod !== "CREDIT_CARD") || raw.kind === "INCOME") && hc.accounts.length === 1) {
+    account = hc.accounts[0]!;
+    warnings.push(`Conta considerada: ${account.name} (única cadastrada).`);
   }
 
   // --- Categoria (regra explícita do usuário tem prioridade)

@@ -33,7 +33,7 @@ export default defineConfig({
     launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1366, height: 900 } } },
+    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1366, height: 900 } }, testIgnore: /mobile\.spec\.ts/ },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testMatch: /mobile\.spec\.ts/ },
   ],
   webServer: process.env.E2E_BASE_URL
@@ -50,6 +50,7 @@ export default defineConfig({
           TRANSCRIPTION_PROVIDER: "none",
           WHATSAPP_ENABLE_SIMULATOR: "true",
           RATE_LIMIT_LOGIN_PER_15MIN: "1000",
+          RATE_LIMIT_REGISTER_PER_HOUR: "1000",
           RATE_LIMIT_API_PER_MIN: "5000",
           LOG_LEVEL: "warn",
         },

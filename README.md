@@ -93,7 +93,7 @@ PostgreSQL 16 · Redis 7 + BullMQ · pino · Vitest · Playwright · Docker Comp
 
 | Integração | Sem credencial | Com credencial |
 |---|---|---|
-| WhatsApp | **Simulador** de desenvolvimento, identificado como tal na interface | Cloud API oficial (Meta) ou QR Code via Baileys (**não oficial**, com risco de bloqueio do número) |
+| WhatsApp | **Simulador** de desenvolvimento, identificado como tal na interface | Cloud API oficial da Meta (conversas diretas, sem grupo) ou QR Code via Baileys (lê o grupo; **não oficial**, com risco de bloqueio do número) |
 | IA de texto | Motor local em português | Anthropic, OpenAI ou servidor compatível |
 | Transcrição | Áudio vira pendência ("digite o lançamento") | OpenAI Whisper ou servidor local (`--profile whisper`) |
 | Leitura de comprovantes | Usa a legenda da foto; o resto vira pendência | Modelo com visão (Anthropic/OpenAI) |
