@@ -29,10 +29,17 @@ export function schedulerId(taskName: string): string {
 }
 
 async function heartbeat() {
+  let timer: NodeJS.Timeout | undefined;
   try {
-    await redis().set(WORKER_HEARTBEAT_KEY, new Date().toISOString(), "EX", 120);
+    // Com o Redis fora do ar o comando ficaria pendente: limita a espera.
+    await Promise.race([
+      redis().set(WORKER_HEARTBEAT_KEY, new Date().toISOString(), "EX", 120),
+      new Promise((_, reject) => (timer = setTimeout(() => reject(new Error("timeout")), 3000))),
+    ]);
   } catch {
     // Redis indisponível: o health check mostrará o worker como degradado.
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -78,34 +85,18 @@ export async function startWorker(): Promise<WorkerRuntime> {
   // 3) Tarefas periódicas (jobs repetíveis)
   const tasks = new Map<string, PeriodicTask>();
   const periodicQueue = getQueue<PeriodicJobData>(QUEUE_NAMES.periodic);
-  const periodic = createWorker<PeriodicJobData>(
-    QUEUE_NAMES.periodic,
-    async (job: Job<PeriodicJobData>) => {
-      const name = job.data?.task ?? job.name;
-      const task = tasks.get(name);
-      if (!task) {
-        logger.warn({ task: name }, "worker: tarefa periódica desconhecida");
-        return;
-      }
-      const started = Date.now();
-      try {
-        const result = await task.run();
-        logger.info({ task: name, ms: Date.now() - started, result: typeof result === "number" ? result : undefined }, "worker: tarefa periódica concluída");
-      } catch (err) {
-        logger.error({ task: name, ms: Date.now() - started, err: errorInfo(err) }, "worker: tarefa periódica falhou");
-      }
-    },
-    { concurrency: 1 },
-  );
-  workers.push(periodic as unknown as Worker);
+  const loadTasks = async (): Promise<PeriodicTask[]> => {
+    const { loadPeriodicTasks } = await import("../server/jobs/periodic");
+    const list = await loadPeriodicTasks();
+    tasks.clear();
+    for (const t of list) tasks.set(t.name, t);
+    return list;
+  };
 
   let reloadTimer: NodeJS.Timeout | null = null;
   const scheduleTasks = async () => {
     try {
-      const { loadPeriodicTasks } = await import("../server/jobs/periodic");
-      const list = await loadPeriodicTasks();
-      tasks.clear();
-      for (const t of list) tasks.set(t.name, t);
+      const list = await loadTasks();
       const wanted = new Set(list.map((t) => schedulerId(t.name)));
       for (const t of list) {
         await periodicQueue.upsertJobScheduler(
@@ -124,7 +115,34 @@ export async function startWorker(): Promise<WorkerRuntime> {
       reloadTimer = setTimeout(() => void scheduleTasks(), TASK_RELOAD_MS);
     }
   };
-  await scheduleTasks();
+  // Carrega as tarefas ANTES de começar a consumir a fila (jobs vencidos de execuções anteriores).
+  if (await producerReady(2000)) await scheduleTasks();
+  else {
+    logger.warn("worker: Redis indisponível — as tarefas periódicas serão agendadas quando ele voltar");
+    void scheduleTasks();
+  }
+
+  const periodic = createWorker<PeriodicJobData>(
+    QUEUE_NAMES.periodic,
+    async (job: Job<PeriodicJobData>) => {
+      const name = job.data?.task ?? job.name;
+      if (!tasks.has(name)) await loadTasks().catch(() => undefined);
+      const task = tasks.get(name);
+      if (!task) {
+        logger.warn({ task: name }, "worker: tarefa periódica desconhecida");
+        return;
+      }
+      const started = Date.now();
+      try {
+        const result = await task.run();
+        logger.info({ task: name, ms: Date.now() - started, result: typeof result === "number" ? result : undefined }, "worker: tarefa periódica concluída");
+      } catch (err) {
+        logger.error({ task: name, ms: Date.now() - started, err: errorInfo(err) }, "worker: tarefa periódica falhou");
+      }
+    },
+    { concurrency: 1 },
+  );
+  workers.push(periodic as unknown as Worker);
 
   // 4) Heartbeat e recuperação inicial
   await heartbeat();

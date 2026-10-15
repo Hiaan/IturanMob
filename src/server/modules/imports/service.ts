@@ -464,7 +464,19 @@ async function prepareRows(
   const seenExternal = new Map<string, number>();
   let cardPaymentSkipped = 0;
 
+  let repeatedIds = 0;
   const rows = parsed.map<PreparedRow>((r) => {
+    // Identificadores repetidos no próprio arquivo (alguns bancos repetem FITID/documento):
+    // recebem sufixo para manter a unicidade; a duplicidade passa a depender de data/valor/descrição.
+    let externalId = r.externalId;
+    if (externalId) {
+      const seen = (seenExternal.get(externalId) ?? 0) + 1;
+      seenExternal.set(externalId, seen);
+      if (seen > 1) {
+        repeatedIds++;
+        externalId = `${externalId.slice(0, 110)}~${seen}`;
+      }
+    }
     const amount = r.amountCents === null ? null : r.amountCents * signFactor;
     const outflow = (amount ?? 0) < 0;
     const raw: RowRawData = {
@@ -479,7 +491,7 @@ async function prepareRows(
       date: r.date,
       amountCents: amount,
       description: r.description.slice(0, 200),
-      externalId: r.externalId,
+      externalId,
       fingerprint: null,
       categoryId: null,
       status: null,
@@ -498,14 +510,6 @@ async function prepareRows(
     const occurrence = (occurrences.get(dupKey) ?? 0) + 1;
     occurrences.set(dupKey, occurrence);
     row.fingerprint = importRowFingerprint(scopeKey, r.date!, amount, r.description, occurrence);
-
-    if (r.externalId) {
-      const seen = (seenExternal.get(r.externalId) ?? 0) + 1;
-      seenExternal.set(r.externalId, seen);
-      if (seen > 1) {
-        return { ...row, externalId: `${r.externalId}~${seen}`.slice(0, 120), status: "DUPLICATE", message: "Identificador repetido no próprio arquivo.", selected: false };
-      }
-    }
 
     if (isCard) {
       if (amount > 0 || /\b(pagamento|pagto|pgto)\b.*\b(recebido|efetuado|fatura)\b/.test(normalizeText(r.description))) {
@@ -541,6 +545,7 @@ async function prepareRows(
     return row;
   });
 
+  if (repeatedIds) opts.warnings.push("O arquivo contém identificadores repetidos; a detecção de duplicidade também considera data, valor e descrição.");
   if (cardPaymentSkipped) opts.warnings.push(`${cardPaymentSkipped} linha(s) de pagamento/crédito da fatura foram ignoradas (não são compras).`);
   return { rows, cardPurchasesPositive };
 }
@@ -585,12 +590,14 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
       batch: { status: "IMPORTED", accountId: scope.accountId, creditCardId: scope.creditCardId },
       OR: [...(externalIds.length ? [{ externalId: { in: externalIds } }] : []), ...(fingerprints.length ? [{ fingerprint: { in: fingerprints } }] : [])],
     },
-    select: { externalId: true, fingerprint: true, batch: { select: { fileName: true, importedAt: true, createdAt: true } } },
+    select: { externalId: true, fingerprint: true, amountCents: true, batch: { select: { fileName: true, importedAt: true, createdAt: true } } },
   });
   const byExternal = new Map(previous.filter((p) => p.externalId).map((p) => [p.externalId!, p]));
   const byFingerprint = new Map(previous.filter((p) => p.fingerprint).map((p) => [p.fingerprint!, p]));
   for (const r of pending) {
-    const prev = (r.externalId && byExternal.get(r.externalId)) || (r.fingerprint && byFingerprint.get(r.fingerprint));
+    const sameId = r.externalId ? byExternal.get(r.externalId) : undefined;
+    // Mesmo identificador só conta como duplicado com o mesmo valor (protege contra FITIDs reaproveitados).
+    const prev = (sameId && sameId.amountCents === r.amountCents ? sameId : undefined) || (r.fingerprint ? byFingerprint.get(r.fingerprint) : undefined);
     if (!prev) continue;
     const when = prev.batch.importedAt ?? prev.batch.createdAt;
     r.status = "DUPLICATE";
@@ -1033,8 +1040,9 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
   const content = await readStoredFile(meta.storageKey);
   const scope = await resolveScope(ctx, batch.accountId, batch.creditCardId);
   const { rows, meta: newMeta } = await buildRows(ctx, scope, batch.format, content, {
+    // Nova linha de cabeçalho sem mapeamento explícito → detecta as colunas novamente.
     mapping: input.mapping ?? (input.headerRowIndex !== undefined && input.headerRowIndex !== null ? null : meta.mapping),
-    headerRowIndex: input.headerRowIndex ?? (input.mapping ? meta.headerRowIndex : null),
+    headerRowIndex: input.headerRowIndex ?? meta.headerRowIndex,
     invertSigns: input.invertSigns ?? meta.invertSigns,
     excludeBatchId: batchId,
   });
@@ -1101,7 +1109,10 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                   payerMemberId: scope.accountOwnerId ?? undefined,
                 };
         try {
-          await withTransaction(async (db) => {
+          const done = await withTransaction(async (db) => {
+            // Reserva a linha (bloqueio de registro): execuções concorrentes não criam a transação duas vezes.
+            const claimRow = await db.importRow.updateMany({ where: { id: row.id, status: "NEW", createdTransactionId: null }, data: { status: "IMPORTED" } });
+            if (!claimRow.count) return false;
             const res = await createTransaction(
               ctx,
               {
@@ -1114,9 +1125,10 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
               },
               { source: "IMPORT", importBatchId: batchId, checkDuplicates: false, db },
             );
-            await db.importRow.update({ where: { id: row.id }, data: { status: "IMPORTED", createdTransactionId: res.transaction.id } });
+            await db.importRow.update({ where: { id: row.id }, data: { createdTransactionId: res.transaction.id } });
+            return true;
           });
-          created++;
+          if (done) created++;
         } catch (err) {
           errors++;
           logger.warn({ householdId: ctx.householdId, batchId, rowIndex: row.rowIndex, err: errorInfo(err).name }, "imports: linha não importada");

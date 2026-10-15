@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { env } from "@/server/env";
 import ExcelJS from "exceljs";
 import { NextRequest } from "next/server";
 import { prisma } from "@/server/db";
@@ -115,6 +118,10 @@ describe("exportações", () => {
 });
 
 describe("privacidade (LGPD)", () => {
+  afterAll(async () => {
+    // Arquivos de importação gravados pelos testes (área exclusiva deste módulo no armazenamento de teste).
+    await rm(path.join(path.resolve(env().STORAGE_DIR), "imports"), { recursive: true, force: true });
+  });
   beforeEach(async () => {
     await resetDatabase();
   });

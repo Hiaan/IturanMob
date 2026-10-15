@@ -150,6 +150,16 @@ describe("núcleo financeiro (ledger, cartões, transferências)", () => {
     expect((await listAccounts(fam.ctx)).find((a) => a.id === priv.id)).toBeUndefined();
     expect((await listTransactions(fam.ctx, {})).total).toBe(0);
     expect((await listTransactions(fam.wifeCtx, {})).total).toBe(1);
+    // Lançamentos sem conta e compras em cartões visíveis continuam visíveis (regressão de NULL em NOT IN).
+    const { card } = await createBasicAccounts(fam.ctx);
+    await createTransaction(fam.ctx, { type: "EXPENSE", amountCents: 1_500, description: "Padaria", date: "2026-10-10" });
+    await createTransaction(fam.ctx, { type: "EXPENSE", amountCents: 3_000, description: "Cinema", date: "2026-10-10", creditCardId: card.id });
+    const { createCard } = await import("@/server/modules/cards/service");
+    await createCard(fam.wifeCtx, { name: "Cartão da Maria", visibility: "PRIVATE", closingDay: 5, dueDay: 12 });
+    expect((await listTransactions(fam.ctx, {})).total).toBe(2);
+    const summary = await dashboardSummary(fam.ctx, { period: { start: "2026-10-01", end: "2026-10-31" } });
+    expect(summary.expenseCents).toBe(4_500);
+    expect((await listTransactions(fam.wifeCtx, {})).total).toBe(3);
   });
 
   it("despesa com rateio e responsabilidade individual", async () => {

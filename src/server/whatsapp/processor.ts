@@ -1,7 +1,7 @@
 import type { Job } from "bullmq";
 import type { MessageProcessingJob } from "@prisma/client";
 import { prisma } from "../db";
-import { publishEvent } from "../events";
+import { emitEvent as publishEvent } from "./redis-safe";
 import { errorInfo, logger } from "../logger";
 import type { ServiceContext } from "../auth/context";
 import { assertCan } from "../auth/permissions";

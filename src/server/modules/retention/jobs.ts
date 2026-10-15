@@ -21,6 +21,8 @@ export async function runRetentionJobs(now: Date = new Date()): Promise<{ media:
         storageKey: { not: null },
         kind: { in: ["AUDIO", "IMAGE", "DOCUMENT"] },
         OR: [{ retentionUntil: { lte: now } }, { retentionUntil: null, createdAt: { lte: mediaCutoff } }],
+        // Nunca apaga mídia de mensagem ainda não processada (fila, processamento ou falha a reprocessar).
+        messages: { none: { status: { in: ["RECEIVED", "QUEUED", "PROCESSING", "FAILED"] } } },
       },
       select: { id: true, storageKey: true },
       take: 500,

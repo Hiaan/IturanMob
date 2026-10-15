@@ -26,7 +26,7 @@ const envSchema = z.object({
   // IA
   AI_DEFAULT_PROVIDER: z.enum(["LOCAL", "ANTHROPIC", "OPENAI", "OPENAI_COMPATIBLE"]).default("LOCAL"),
   ANTHROPIC_API_KEY: z.string().optional(),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
+  ANTHROPIC_MODEL: z.string().default("claude-opus-5-5"),
   ANTHROPIC_FAST_MODEL: z.string().default("claude-haiku-5-5"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -19,8 +19,10 @@ const schema = z.object({
 
 export function LoginForm() {
   const params = useSearchParams();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(params.get("erro"));
   const [show, setShow] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema), defaultValues: { email: "", password: "" } });
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -38,13 +40,14 @@ export function LoginForm() {
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">Bem-vindo de volta</h1>
       <p className="mt-1 text-sm text-muted-foreground">Entre para acompanhar as finanças da família.</p>
-      <form onSubmit={onSubmit} className="mt-8 grid gap-4" noValidate>
+      <form onSubmit={onSubmit} method="post" action="/api/auth/login-form" className="mt-8 grid gap-4" noValidate>
+        <input type="hidden" name="next" value={params.get("next") ?? "/"} />
         <Field label="E-mail" htmlFor="email" error={form.formState.errors.email?.message}>
-          <Input id="email" type="email" autoComplete="email" {...form.register("email")} aria-invalid={Boolean(form.formState.errors.email)} />
+          <Input id="email" type="email" autoComplete="email" {...form.register("email")} name="email" aria-invalid={Boolean(form.formState.errors.email)} />
         </Field>
         <Field label="Senha" htmlFor="password" error={form.formState.errors.password?.message}>
           <div className="relative">
-            <Input id="password" type={show ? "text" : "password"} autoComplete="current-password" className="pr-10" {...form.register("password")} />
+            <Input id="password" type={show ? "text" : "password"} autoComplete="current-password" className="pr-10" {...form.register("password")} name="password" />
             <button type="button" onClick={() => setShow((s) => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground" aria-label={show ? "Ocultar senha" : "Mostrar senha"}>
               {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
@@ -55,7 +58,7 @@ export function LoginForm() {
             {error}
           </p>
         )}
-        <Button type="submit" variant="brand" size="lg" loading={form.formState.isSubmitting}>
+        <Button type="submit" variant="brand" size="lg" loading={form.formState.isSubmitting} data-hydrated={hydrated ? "true" : "false"}>
           Entrar
         </Button>
       </form>

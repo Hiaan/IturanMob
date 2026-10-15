@@ -42,7 +42,7 @@ export function RegisterForm({ firstRun }: { firstRun: boolean }) {
       <p className="mt-1 text-sm text-muted-foreground">
         {firstRun ? "Este é o primeiro acesso. Você será o proprietário e poderá convidar seu cônjuge depois." : "Crie uma nova família e convide os participantes."}
       </p>
-      <form onSubmit={onSubmit} className="mt-8 grid gap-4" noValidate>
+      <form onSubmit={onSubmit} method="post" className="mt-8 grid gap-4" noValidate>
         <Field label="Nome da família" htmlFor="householdName" error={e.householdName?.message}>
           <Input id="householdName" placeholder="Ex.: Família Silva" {...form.register("householdName")} />
         </Field>

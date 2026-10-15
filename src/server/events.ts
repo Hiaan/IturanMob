@@ -34,7 +34,13 @@ export async function publishEvent(householdId: string, type: RealtimeEventType,
   if (process.env.NODE_ENV === "test" && process.env.TEST_REDIS !== "1") return;
   const event: RealtimeEvent = { type, householdId, entityId, at: new Date().toISOString() };
   try {
-    await redis().publish(householdChannel(householdId), JSON.stringify(event));
+    const client = redis();
+    // Com o Redis indisponível, não espera reconexão: o tempo real é opcional.
+    if (client.status !== "ready") return;
+    await Promise.race([
+      client.publish(householdChannel(householdId), JSON.stringify(event)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1000)),
+    ]);
   } catch (err) {
     // Tempo real é melhor esforço: a falha não pode impedir a operação financeira.
     logger.debug({ err: (err as Error).message, type }, "events: falha ao publicar");

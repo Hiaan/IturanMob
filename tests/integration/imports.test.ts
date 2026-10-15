@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { env } from "@/server/env";
 import { NextRequest } from "next/server";
 import { createSession } from "@/server/auth/session";
 import { prisma } from "@/server/db";
@@ -74,6 +77,10 @@ const BANK_LINES: OfxLine[] = [
 ];
 
 describe("importação e conciliação", () => {
+  afterAll(async () => {
+    // Arquivos de importação gravados pelos testes (área exclusiva deste módulo no armazenamento de teste).
+    await rm(path.join(path.resolve(env().STORAGE_DIR), "imports"), { recursive: true, force: true });
+  });
   beforeEach(async () => {
     await resetDatabase();
   });

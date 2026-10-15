@@ -35,7 +35,7 @@ export function AcceptInviteForm({ token, email, householdName }: { token: strin
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">Entrar em {householdName}</h1>
       <p className="mt-1 text-sm text-muted-foreground">Crie sua senha para acessar as finanças da família ({email}).</p>
-      <form onSubmit={onSubmit} className="mt-8 grid gap-4" noValidate>
+      <form onSubmit={onSubmit} method="post" className="mt-8 grid gap-4" noValidate>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Seu nome" htmlFor="name" error={e.name?.message}>
             <Input id="name" autoComplete="name" {...form.register("name")} />

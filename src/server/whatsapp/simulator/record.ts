@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../db";
-import { publishEvent } from "../../events";
+import { emitEvent as publishEvent } from "../redis-safe";
 import { markSentByBot, withBotPrefix } from "../bot-messages";
 
 /**

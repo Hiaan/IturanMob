@@ -1,0 +1,327 @@
+# Integração com o WhatsApp — Finance AI
+
+Este documento descreve a integração com o WhatsApp: provedores disponíveis, riscos, configuração,
+fluxo de processamento, idempotência, recuperação e privacidade.
+
+> **Resumo de privacidade:** somente o **grupo autorizado** da família (ou, na Cloud API, as conversas
+> diretas dos **membros autorizados**) é processado. Mensagens de qualquer outro chat, ou de pessoas
+> sem autorização/consentimento, são descartadas **sem persistir conteúdo**.
+
+---
+
+## 1. Arquitetura
+
+```
+ WhatsApp ──► Provedor (worker)            Webhook Cloud API (Next.js)
+              Baileys / Simulador            /api/webhooks/whatsapp
+                    │ onMessage                       │
+                    ▼                                 ▼
+              ingest.ts  ──  autoriza chat e remetente, idempotência, mídia (Attachment)
+                    │        grava WhatsAppMessage + MessageProcessingJob (PostgreSQL)
+                    ▼
+        BullMQ "whatsapp-inbound" (jobId = id do MessageProcessingJob)
+                    ▼
+              processor.ts ── handleInboundMessage(messageId)  (motor de IA)
+                    │        status/intenção/pendências; respostas →
+                    ▼
+        BullMQ "whatsapp-outbound" (jobId = hash do dedupeKey)
+                    ▼
+        outbound-consumer.ts ── provedor ativo → SOMENTE o chat autorizado
+                                registra WhatsAppMessage OUTBOUND
+```
+
+- **Banco = fonte da verdade.** A BullMQ (Redis) só despacha. Se o Redis cair, os registros ficam
+  `PENDING` no PostgreSQL e a recuperação (`jobs:recover`, a cada 2 min) reenfileira.
+- **Rotas do Next.js não importam o Baileys.** API ⇄ worker conversam por banco (estado desejado) +
+  Redis (comandos `fa:wa:commands`, QR `fa:wa:qr:{householdId}`, heartbeat `fa:worker:heartbeat`).
+  Um teste unitário (`tests/unit/whatsapp-boundaries.test.ts`) garante essa fronteira.
+- **Abstração:** o sistema só conhece `WhatsAppProvider` e `NormalizedInboundMessage`
+  (`src/server/whatsapp/types.ts`). Trocar de provedor não exige mudanças fora de `src/server/whatsapp`.
+- **O dashboard nunca depende do WhatsApp.** Se a integração cair, apenas o recebimento/envio para;
+  o status e o histórico de erros ficam visíveis em Configurações › WhatsApp e uma notificação
+  `WHATSAPP_CONNECTION_FAILED` é emitida em falhas persistentes.
+
+### Arquivos
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `src/server/whatsapp/types.ts` | Interface `WhatsAppProvider`, `NormalizedInboundMessage`, capacidades, avisos |
+| `src/server/whatsapp/baileys/{provider,auth-state}.ts` | Provedor Baileys (QR) e credenciais criptografadas no PostgreSQL |
+| `src/server/whatsapp/cloud-api/{provider,webhook}.ts` | Cloud API oficial: assinatura, normalização, mídia, envio |
+| `src/server/whatsapp/simulator/{provider,record}.ts` | Simulador de desenvolvimento |
+| `src/server/whatsapp/connection-manager.ts` | Converge conexões, status, eventos, QR, grupos (worker) |
+| `src/server/whatsapp/ingest.ts` | Ingestão (autorização, idempotência, mídia, enfileiramento) |
+| `src/server/whatsapp/processor.ts` | Consumidor `whatsapp-inbound`, reprocessamento |
+| `src/server/whatsapp/outbound-impl.ts` / `outbound-consumer.ts` | Fila de envio (produtor) / entrega (worker) |
+| `src/server/whatsapp/recovery.ts` | `recoverStuckJobs()` |
+| `src/server/whatsapp/service.ts` | Camada usada pelas rotas da API |
+| `src/server/jobs/queues.ts` | Nomes e criação de filas/workers BullMQ |
+| `src/worker/{index,runtime}.ts` | Processo do worker |
+
+---
+
+## 2. Provedores — comparação e riscos
+
+| | **WhatsApp Business Cloud API** | **Baileys** (implementado) | **whatsapp-web.js** (não implementado) | **Simulador** |
+| --- | --- | --- | --- | --- |
+| Oficial / autorizado pela Meta | **Sim** | **Não** | **Não** | n/a (sem WhatsApp) |
+| Número | Comercial, verificado na Meta | Número comum (lê QR Code) | Número comum (Chrome headless) | nenhum |
+| Grupos | **Limitado** — mensagens chegam como conversas diretas com o número comercial | Sim (grupo da família) | Sim | Grupo simulado |
+| Risco de bloqueio do número | Baixo (dentro das políticas) | **Alto** | **Alto** | nenhum |
+| Estabilidade | Alta (API versionada) | Pode **quebrar** com mudanças do protocolo do WhatsApp | Pode quebrar com mudanças do WhatsApp Web | — |
+| Custos | Conversas cobradas pela Meta (há franquia) | Sem custo direto | Sem custo direto | — |
+| Envio fora de resposta | Só dentro da janela de 24 h (fora dela exige *templates*) | Livre (o sistema só envia ao grupo autorizado) | — | registra no banco |
+
+**Baileys e whatsapp-web.js NÃO são oficiais nem autorizados pela Meta.** Usá-los pode levar ao
+**bloqueio do número** e a integração pode **parar de funcionar** a qualquer momento após mudanças no
+protocolo. A tela de status exibe esse aviso sempre que o provedor `BAILEYS` está selecionado.
+
+### Recomendações
+
+1. **Número dedicado** para a integração (especialmente com Baileys) — nunca o número principal.
+2. **Consentimento explícito** de cada participante (campo `whatsappConsentAt`, dado pelo próprio
+   membro em Membros). Sem consentimento, as mensagens da pessoa são ignoradas.
+3. **Grupo exclusivo** para as finanças da família, apenas com os membros autorizados.
+4. Prefira a **Cloud API oficial** quando a família tiver acesso a um número comercial.
+5. Nenhum mecanismo de evasão de detecção é usado: o aparelho conectado aparece como "Finance AI",
+   a presença (online) não é alterada, o histórico não é baixado, não há envio em massa nem mensagens
+   a terceiros — o bot só responde no chat autorizado, com limite de taxa (1 msg/s e 30 msg/h por família).
+
+---
+
+## 3. Configuração
+
+Pré-requisitos comuns: PostgreSQL e Redis em execução, migrations aplicadas e o **worker** rodando:
+
+```bash
+pnpm worker          # = npx tsx --tsconfig tsconfig.json src/worker/index.ts
+pnpm dev:worker      # com recarga automática
+```
+
+O worker carrega o `.env` da raiz (sem sobrescrever variáveis já definidas), mantém o heartbeat em
+`fa:worker:heartbeat` (a cada 30 s) e encerra de forma graciosa em `SIGTERM`/`SIGINT` (aguarda os jobs
+em andamento, desconecta os provedores sem fazer logout). **Execute apenas um worker** por instalação:
+cada sessão do WhatsApp só pode estar aberta em um processo.
+
+Em todos os provedores, cadastre em **Membros** o número de cada participante (E.164, ex.:
+`+5581999999999`), marque **Autorizado no WhatsApp** (administrador) e peça para cada um dar o
+**consentimento** (o próprio membro).
+
+### 3.1 Simulador (desenvolvimento)
+
+> "Simulador — nenhuma conexão real com o WhatsApp". Nada é enviado a ninguém.
+
+1. `.env`: `WHATSAPP_ENABLE_SIMULATOR=true` (padrão) e, opcionalmente, `WHATSAPP_DEFAULT_PROVIDER=SIMULATOR`.
+2. `PATCH /api/v1/integrations/whatsapp/settings {"provider":"SIMULATOR"}`.
+3. `POST .../groups/sync` (cria o grupo "Finanças da Família (Simulador)" — não depende do worker) e
+   autorize-o com `PATCH .../groups/{id} {"authorized":true}`.
+4. (Opcional) `POST .../connect` — com o worker rodando, o status fica `CONNECTED` com o aviso do simulador.
+5. `POST .../simulate` com `{"memberId":"…","text":"gastei 50 no mercado"}` ou
+   `{"memberId":"…","audioBase64":"…","mimeType":"audio/ogg"}` / `imageBase64` / `documentBase64`.
+
+A simulação passa pelo **mesmo** `ingest` e pelo **mesmo** processador:
+- **worker em execução** (heartbeat recente): o job vai para a fila `whatsapp-inbound` e o worker processa;
+  as respostas vão para `whatsapp-outbound` e são registradas como mensagens `OUTBOUND` simuladas.
+- **worker parado**: a rota processa **em linha** (`runProcessingJob(jobId, { inlineSimulator: true })`)
+  e grava as respostas diretamente como mensagens `OUTBOUND` simuladas (`mode: "inline"` na resposta).
+
+Limite prático do simulador: o corpo JSON da API aceita até ~2 MB (≈1,5 MB de arquivo em base64).
+
+### 3.2 Baileys (WhatsApp Web, NÃO oficial)
+
+1. Leia os riscos acima. Use um número dedicado.
+2. `PATCH .../settings {"provider":"BAILEYS"}` e `POST .../connect`.
+3. O worker gera o QR Code; a tela consulta `GET .../qr` (data URL gerada no servidor; 404 se não houver).
+   No celular: WhatsApp › Aparelhos conectados › Conectar aparelho. O QR expira em ~60 s e é renovado;
+   após ~15 QR Codes sem leitura a tentativa é encerrada (clique em Conectar de novo).
+4. Ao conectar, os grupos são sincronizados automaticamente (`POST .../groups/sync` força).
+   Autorize **um** grupo (`PATCH .../groups/{id}`); autorizar outro revoga o anterior.
+5. Credenciais: tabela `WhatsAppAuthState`, **criptografadas** (AES-256-GCM, `ENCRYPTION_KEY`).
+   Trocar a `ENCRYPTION_KEY` invalida a sessão (será preciso ler o QR de novo).
+6. Reconexão automática com **backoff exponencial** (2 s → 5 min). Encerramento da sessão no celular
+   (`loggedOut`) apaga as credenciais, muda o status para `LOGGED_OUT` e notifica a família.
+   `POST .../logout` encerra a sessão no WhatsApp e apaga as credenciais locais.
+
+### 3.3 WhatsApp Business Cloud API (oficial)
+
+1. Em <https://developers.facebook.com>: crie um app do tipo *Business*, adicione o produto **WhatsApp**
+   e registre/verifique o número comercial. Anote o **Phone number ID**.
+2. Gere um **token de acesso permanente** (Usuário do sistema no Business Manager, permissões
+   `whatsapp_business_messaging` e `whatsapp_business_management`).
+3. Em *App settings › Basic*, copie o **App Secret**.
+4. `.env`:
+   ```
+   WHATSAPP_CLOUD_ACCESS_TOKEN=...        # segredo
+   WHATSAPP_CLOUD_PHONE_NUMBER_ID=...     # ou PATCH .../settings {"phoneNumberId":"..."}
+   WHATSAPP_CLOUD_VERIFY_TOKEN=...        # texto aleatório escolhido por você
+   WHATSAPP_CLOUD_APP_SECRET=...          # valida X-Hub-Signature-256
+   WHATSAPP_CLOUD_API_VERSION=v21.0
+   WHATSAPP_CLOUD_HOUSEHOLD_ID=...        # opcional: família de destino do webhook
+   ```
+5. Configure o webhook: URL `https://SEU_DOMINIO/api/webhooks/whatsapp`, *Verify token* =
+   `WHATSAPP_CLOUD_VERIFY_TOKEN`, e assine o campo **messages**. (HTTPS público é obrigatório.)
+6. `PATCH .../settings {"provider":"CLOUD_API"}` e `POST .../connect` (o worker valida as credenciais
+   consultando o número na Graph API e marca `CONNECTED`).
+
+**Chat autorizado na Cloud API:** as mensagens chegam como **conversas diretas** de cada pessoa com o
+número comercial. São processadas apenas as conversas de **membros autorizados com consentimento**
+(cada conversa é tratada como o "grupo da família"). Respostas vão para a conversa de quem enviou;
+notificações são enviadas a cada membro autorizado. Mensagens de grupo recebidas pela Cloud API não
+são processadas. Fora da janela de 24 h desde a última mensagem do membro, a Meta exige *templates*
+aprovados — envios fora da janela falham e ficam registrados como `FAILED` (não implementamos templates).
+
+Família alvo do webhook: `WHATSAPP_CLOUD_HOUSEHOLD_ID`; sem ela, a única conexão com provedor
+`CLOUD_API` (havendo várias, a que tiver o `phoneNumberId` do evento).
+
+O **recebimento** na Cloud API depende só do webhook: as mensagens dos membros autorizados são
+registradas mesmo com a conexão "desconectada" (a Meta não reentrega eventos já confirmados). Para
+pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe apenas o envio.
+
+---
+
+## 4. Variáveis de ambiente
+
+| Variável | Padrão | Uso |
+| --- | --- | --- |
+| `WHATSAPP_DEFAULT_PROVIDER` | `SIMULATOR` | Provedor inicial das novas conexões |
+| `WHATSAPP_ENABLE_SIMULATOR` | `true` | Habilita o simulador e a rota `simulate` (desligue em produção) |
+| `WHATSAPP_BOT_PREFIX` | `🤖` | Prefixo de todas as mensagens do bot (também usado para ignorar o "eco") |
+| `WHATSAPP_CLOUD_ACCESS_TOKEN` | — | Token da Graph API (segredo; nunca vai ao banco) |
+| `WHATSAPP_CLOUD_PHONE_NUMBER_ID` | — | Phone number ID (pode ser sobrescrito por família em `config.phoneNumberId`) |
+| `WHATSAPP_CLOUD_VERIFY_TOKEN` | — | Verificação do webhook (GET) |
+| `WHATSAPP_CLOUD_APP_SECRET` | — | Assinatura `X-Hub-Signature-256` (POST); sem ele o webhook responde 503 |
+| `WHATSAPP_CLOUD_API_VERSION` | `v21.0` | Versão da Graph API |
+| `WHATSAPP_CLOUD_HOUSEHOLD_ID` | — | Família de destino do webhook |
+| `WORKER_CONCURRENCY` | `2` | Concorrência do consumidor `whatsapp-inbound` (famílias diferentes em paralelo) |
+| `ENCRYPTION_KEY` | — | Criptografia das credenciais do Baileys e das mídias |
+| `REDIS_URL` / `DATABASE_URL` | — | Filas/QR/comandos e dados |
+
+---
+
+## 5. Fluxo de processamento
+
+1. **Ingestão** (`ingestMessage(connection, msg)`):
+   1. Chat: Baileys/simulador → só o `WhatsAppGroup.isAuthorized`; Cloud API → conversa direta.
+      Outros chats: descartados sem persistir (apenas contador por motivo no log, sem texto).
+   2. Mensagens do bot: externalId registrado no envio (memória + Redis + `WhatsAppMessage OUTBOUND`)
+      ou texto `fromMe` iniciando com `WHATSAPP_BOT_PREFIX` → ignoradas.
+   3. Idempotência: `(connectionId, externalId)` único — o mesmo evento nunca cria outra mensagem/job.
+   4. Remetente: `HouseholdMember` com `whatsappAuthorized = true` **e** `whatsappConsentAt` preenchido,
+      casado por LID, JID ou telefone E.164 (com equivalência do nono dígito brasileiro). Mensagens
+      `fromMe` (o número conectado é de um dos cônjuges) são atribuídas ao dono do número conectado.
+      Na primeira correspondência o JID/LID é aprendido no membro.
+   5. Tipos sem relevância (figurinha, reação, vídeo, vazio) → `IGNORED`, sem job.
+   6. Áudio/imagem/documento (PDF ou imagem): download (limite **16 MB**), `storeFile("media")`
+      (criptografado) e `Attachment` com `retentionUntil = agora + mediaRetentionDays`
+      (0 = agora, apagado pela retenção após o processamento). O mesmo SHA-256 na família **reutiliza**
+      o Attachment e grava `statusDetail = "Mídia repetida: anexo <id> já recebido em <data>"` para o
+      motor detectar comprovante repetido. Falha/limite no download → mensagem `FAILED` + pendência.
+   7. `MessageProcessingJob(kind PROCESS_MESSAGE)` + fila `whatsapp-inbound` (jobId = id do job).
+      Processamento desligado (`processingEnabled=false`) → mensagem `RECEIVED` sem job; ao religar,
+      os jobs são criados (na hora pela API e também pela recuperação).
+2. **Processamento** (`runProcessingJob`): claim atômico `PENDING → RUNNING` (attempts++), mensagem
+   `PROCESSING`, `handleInboundMessage(messageId)`, grava `PROCESSED / IGNORED / NEEDS_CLARIFICATION / FAILED`,
+   intenção, detalhe e `processedAt`. Mensagens da mesma família são processadas em ordem (trava por
+   família no worker). Respostas → `enqueueOutboundMessage({kind:"reply", quotedExternalId,
+   dedupeKey:"reply:<messageId>:<i>"})` se `HouseholdSettings.whatsappReplies`.
+3. **Falhas:** exceção ou `retryable` → nova tentativa com backoff exponencial (30 s, 1, 2, 4… até 30 min)
+   em `runAfter`; após `maxAttempts` (5) → job `DEAD`, mensagem `FAILED` e `PendingItem PROCESSING_FAILED`
+   (`dedupeKey failed:<messageId>`). Resultado `FAILED` não recuperável também gera a pendência.
+   **Nenhuma mensagem financeira some em silêncio.** Sucesso posterior resolve a pendência.
+4. **Envio** (`whatsapp-outbound`): jobId derivado do `dedupeKey` (duplicatas ignoradas; histórico de
+   7 dias), até 6 tentativas com backoff. O consumidor registra a mensagem `OUTBOUND` (`QUEUED →
+   PROCESSED` ou `FAILED` com o motivo), aplica o prefixo do bot e o limite de 1 msg/s e 30 msg/h por
+   família (excedente é adiado, não descartado).
+
+Status da conexão: `DISCONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`, `LOGGED_OUT`.
+Eventos (`WhatsAppConnectionEvent`): `CONNECTED`, `DISCONNECTED`, `QR`, `ERROR`, `LOGGED_OUT`.
+
+---
+
+## 6. Idempotência e recuperação
+
+| Situação | Comportamento |
+| --- | --- |
+| Mesmo evento entregue duas vezes (reconexão, reentrega do webhook) | Unicidade `(connectionId, externalId)`: devolve a mensagem existente; nenhum job novo |
+| Mesmo comprovante enviado de novo | Attachment reutilizado (SHA-256 por família) + `statusDetail` "Mídia repetida" |
+| Redis fora do ar na ingestão | Mensagem e job ficam no banco (`PENDING`); a recuperação reenfileira |
+| Worker caiu durante o processamento | Job `RUNNING` há > 10 min volta a `PENDING` e é reenfileirado |
+| Reprocessar (`POST messages/{id}/reprocess`) | Reseta o job e reenfileira; o motor não duplica lançamentos |
+| Mesmo envio pedido duas vezes | jobId = hash do `dedupeKey`; marca de entrega no Redis; registro OUTBOUND reaproveitado |
+| Comando ao worker perdido (pub/sub) | O estado desejado (`desiredConnected`, pedidos em `config`) é verificado a cada ~10 s |
+
+`recoverStuckJobs()` (`src/server/whatsapp/recovery.ts`, tarefa `jobs:recover` a cada 2 min) é idempotente:
+`RUNNING` travado → `PENDING`; mensagens `RECEIVED` com processamento ligado → job; `PENDING` vencido e
+ausente da fila → reenfileirado.
+
+---
+
+## 7. Privacidade e segurança
+
+- Somente o chat autorizado é processado; nada de outros chats é gravado (nem texto, nem remetente).
+- Participantes de grupos não autorizados não são armazenados; os nomes dos grupos são guardados
+  apenas para a escolha do grupo a autorizar.
+- Logs nunca contêm conteúdo de mensagens, QR Codes, tokens ou credenciais (o logger do Baileys é
+  substituído por um adaptador que descarta os objetos internos).
+- Credenciais do Baileys e mídias são criptografadas em repouso; o token da Cloud API fica só no ambiente.
+- Webhook: assinatura HMAC-SHA256 verificada em tempo constante; corpo limitado a 3 MB.
+- Ações administrativas (conectar, desconectar, logout, troca de provedor/processamento, autorização
+  de grupo, reprocessamento) são auditadas (`CONNECT`, `DISCONNECT`, `SETTINGS_CHANGE`, `UPDATE`).
+- Permissões: leitura (status, mensagens) para membros; alterações exigem `integrations:manage`.
+
+---
+
+## 8. API
+
+Base: `/api/v1/integrations/whatsapp` (resposta `{ data }`; erros `{ error: { code, message } }`).
+
+| Método | Caminho | Entrada | Saída |
+| --- | --- | --- | --- |
+| GET | `/` | — | Status completo: provedor, aviso de riscos (Baileys), status, número, última conexão, processamento, worker, estatísticas de 7 dias por status, erros recentes, grupos e o autorizado, membros/consentimento, `canSend` |
+| POST | `/connect` · `/disconnect` · `/reconnect` · `/logout` | — | `{ ok, commandDelivered, workerOnline, message }` |
+| PATCH | `/settings` | `{ provider?, processingEnabled?, phoneNumberId? }` | `{ provider, processingEnabled, desiredConnected, requeued }` |
+| GET | `/qr` | — | `{ dataUrl, expiresInSeconds }` ou 404 |
+| POST | `/groups/sync` | — | `{ ok, … }` |
+| PATCH | `/groups/{id}` | `{ authorized: boolean }` | `{ id, name, isAuthorized, revokedGroupId }` (no máximo um autorizado) |
+| GET | `/messages` | `?limit&cursor&status&direction` | `{ items[{ status, type, sender, text, transactions, job, attachment }], nextCursor, scope }` |
+| POST | `/messages/{id}/reprocess` | — | `{ messageId, jobId, queued }` |
+| POST | `/retry-failed` | — | `{ total, requeued, skipped }` |
+| POST | `/simulate` | `{ memberId, text? \| audioBase64? \| imageBase64? \| documentBase64?, mimeType?, fileName? }` | `{ accepted, reason, reasonLabel, messageId, status, mode, outcome }` (só com `SIMULATOR` + `WHATSAPP_ENABLE_SIMULATOR`) |
+
+Webhook da Cloud API: `GET/POST /api/webhooks/whatsapp`.
+
+Para outros módulos: `enqueueOutboundMessage(input)` e `whatsappCanSend(householdId)` em
+`src/server/whatsapp/outbound.ts`.
+
+---
+
+## 9. Limitações conhecidas
+
+- **Baileys v7 (rc) e LIDs:** em grupos, o WhatsApp pode identificar participantes apenas pelo LID
+  (`…@lid`). O sistema usa `participantAlt`/`remoteJidAlt`, o mapeamento LID→telefone do próprio
+  Baileys (`lidMapping`) e aprende o LID de cada membro na primeira mensagem em que telefone e LID
+  aparecem juntos (ou na sincronização do grupo autorizado). Se o WhatsApp entregar só o LID e não houver
+  mapeamento conhecido, a mensagem é descartada como remetente desconhecido até o mapeamento surgir
+  (ex.: sincronizar os grupos). Por ser uma versão *release candidate* não oficial, mudanças de protocolo
+  podem quebrar a conexão.
+- Citação da mensagem original nas respostas (Baileys) depende de cache em memória das mensagens
+  aceitas; após reinício do worker a resposta é enviada sem citação.
+- O histórico anterior à conexão não é importado (apenas mensagens novas e as pendentes de entrega).
+- Um único worker por instalação (sessão do WhatsApp e travas de ordenação são por processo).
+- Cloud API: sem suporte a grupos e a *templates* (envios fora da janela de 24 h falham e ficam registrados).
+- Simulador: arquivo de até ~1,5 MB por mensagem (limite do corpo JSON da API).
+
+---
+
+## 10. Testes
+
+```bash
+TEST_DATABASE_URL="postgresql://…/finance_ai_test_wa?schema=public" npx vitest run --project integration tests/integration/whatsapp-*
+npx vitest run --project unit tests/unit/whatsapp-*
+```
+
+Cobrem: grupo não autorizado ignorado sem persistir; remetente não autorizado/sem consentimento;
+evento repetido sem duplicar; mensagens do bot ignoradas; falha → novas tentativas → `DEAD` + pendência;
+`recoverStuckJobs`; `reprocessMessage`; envio com dedupe e limite de taxa; credenciais criptografadas;
+assinatura do webhook; gerenciador de conexões (simulador); fronteira API × worker (sem Baileys nas rotas);
+Redis fora do ar (ingestão grava `PENDING` sem travar, envio responde `queued:false`, status continua disponível).

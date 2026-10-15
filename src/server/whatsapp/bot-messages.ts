@@ -1,6 +1,6 @@
 import { prisma } from "../db";
 import { env } from "../env";
-import { redis } from "../redis";
+import { withRedis } from "./redis-safe";
 import { BOT_SENT_TTL_SECONDS, botSentKey } from "./keys";
 
 /**
@@ -42,11 +42,8 @@ export async function markSentByBot(connectionId: string, externalId: string): P
     const oldest = recent.keys().next().value;
     if (oldest !== undefined) recent.delete(oldest);
   }
-  try {
-    await redis().set(botSentKey(connectionId, externalId), "1", "EX", BOT_SENT_TTL_SECONDS);
-  } catch {
-    // melhor esforço: o banco (WhatsAppMessage OUTBOUND) e o prefixo continuam valendo
-  }
+  // Melhor esforço: o banco (WhatsAppMessage OUTBOUND) e o prefixo continuam valendo sem Redis.
+  await withRedis((r) => r.set(botSentKey(connectionId, externalId), "1", "EX", BOT_SENT_TTL_SECONDS), null);
 }
 
 export async function wasSentByBot(connectionId: string, externalId: string): Promise<boolean> {
@@ -56,11 +53,5 @@ export async function wasSentByBot(connectionId: string, externalId: string): Pr
     select: { direction: true },
   });
   if (outbound?.direction === "OUTBOUND") return true;
-  try {
-    const r = redis();
-    if (r.status === "ready") return (await r.exists(botSentKey(connectionId, externalId))) === 1;
-  } catch {
-    // ignora
-  }
-  return false;
+  return withRedis(async (r) => (await r.exists(botSentKey(connectionId, externalId))) === 1, false);
 }

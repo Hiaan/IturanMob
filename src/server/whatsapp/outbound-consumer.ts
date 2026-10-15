@@ -3,7 +3,7 @@ import { DelayedError, UnrecoverableError, type Job } from "bullmq";
 import type { WhatsAppConnection, WhatsAppMessage } from "@prisma/client";
 import { prisma } from "../db";
 import { redis } from "../redis";
-import { publishEvent } from "../events";
+import { emitEvent as publishEvent, withRedis } from "./redis-safe";
 import { errorInfo, logger } from "../logger";
 import type { OutboundJobData } from "../jobs/queues";
 import { markSentByBot, withBotPrefix } from "./bot-messages";
@@ -82,19 +82,12 @@ export async function reserveOutboundSlot(householdId: string, now = Date.now())
 }
 
 async function alreadyDelivered(hash: string): Promise<boolean> {
-  try {
-    return (await redis().exists(outboundDoneKey(hash))) === 1;
-  } catch {
-    return false;
-  }
+  return withRedis(async (r) => (await r.exists(outboundDoneKey(hash))) === 1, false);
 }
 
 async function markDelivered(hash: string, externalId: string): Promise<void> {
-  try {
-    await redis().set(outboundDoneKey(hash), externalId, "EX", OUTBOUND_DONE_TTL_SECONDS);
-  } catch {
-    // melhor esforço
-  }
+  // Melhor esforço: o registro OUTBOUND no banco também evita o reenvio.
+  await withRedis((r) => r.set(outboundDoneKey(hash), externalId, "EX", OUTBOUND_DONE_TTL_SECONDS), null);
 }
 
 /** Remetente "estático" do simulador: registra a resposta como mensagem simulada (sem WhatsApp real). */

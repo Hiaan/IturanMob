@@ -1,7 +1,7 @@
 import type { AttachmentKind, HouseholdMember, MessageStatus, MessageType, WhatsAppConnection } from "@prisma/client";
 import { prisma } from "../db";
 import { sha256Hex } from "../crypto";
-import { publishEvent } from "../events";
+import { emitEvent as publishEvent } from "./redis-safe";
 import { errorInfo, logger } from "../logger";
 import { deleteStoredFile, storeFile } from "../storage";
 import { createPendingItem } from "../modules/pending/service";

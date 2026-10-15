@@ -20,6 +20,7 @@ import { closeQueues, getQueue, QUEUE_NAMES, setQueuePrefix } from "@/server/job
 import { ConnectionManager } from "@/server/whatsapp/connection-manager";
 import { handleCloudWebhook } from "@/server/whatsapp/cloud-api/webhook";
 import {
+  getQrCode,
   getWhatsAppStatus,
   listWhatsAppMessages,
   requestConnect,
@@ -31,6 +32,7 @@ import {
   updateWhatsAppSettings,
 } from "@/server/whatsapp/service";
 import { SIMULATOR_GROUP_ID } from "@/server/whatsapp/simulator/provider";
+import { qrKey } from "@/server/whatsapp/keys";
 import { SIMULATOR_NOTICE } from "@/server/whatsapp/types";
 import { createFamily, resetDatabase } from "./helpers";
 
@@ -225,6 +227,33 @@ describe("WhatsApp: serviço, simulador, gerenciador e webhook", () => {
     const events = (await prisma.whatsAppConnectionEvent.findMany({ where: { connectionId: conn.id }, orderBy: { createdAt: "asc" } })).map((e) => e.type);
     expect(events).toEqual(expect.arrayContaining(["CONNECTED", "DISCONNECTED", "LOGGED_OUT"]));
     await manager.stop();
+  });
+
+  it("QR Code: 404 sem QR pendente; data URL gerada no servidor quando há QR no Redis", async () => {
+    const fam = await familyWithMembers();
+    await expect(getQrCode(fam.ctx)).rejects.toThrow(/QR Code/);
+    await redis().set(qrKey(fam.householdId), "2@QRDETESTE,abc,def,ghi", "EX", 30);
+    const qr = await getQrCode(fam.ctx);
+    expect(qr.dataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(qr.expiresInSeconds).toBeGreaterThan(0);
+    expect((await getWhatsAppStatus(fam.ctx)).qrAvailable).toBe(true);
+    await expect(getQrCode(fam.wifeCtx)).rejects.toThrow(/permissão/);
+    await redis().del(qrKey(fam.householdId));
+  });
+
+  it("religar o processamento enfileira as mensagens recebidas enquanto estava pausado", async () => {
+    const fam = await familyWithMembers();
+    await requestGroupSync(fam.ctx);
+    const group = await prisma.whatsAppGroup.findFirstOrThrow({ where: { householdId: fam.householdId } });
+    await setGroupAuthorization(fam.ctx, group.id, true);
+    await updateWhatsAppSettings(fam.ctx, { processingEnabled: false });
+    const paused = await simulateInbound(fam.ctx, { memberId: fam.husbandId, text: "gastei 15 de café" });
+    expect(paused).toMatchObject({ accepted: true, status: "RECEIVED", mode: null });
+    expect(handler).not.toHaveBeenCalled();
+    const res = await updateWhatsAppSettings(fam.ctx, { processingEnabled: true });
+    expect(res.requeued).toBe(1);
+    expect((await prisma.whatsAppMessage.findUniqueOrThrow({ where: { id: paused.messageId! } })).status).toBe("QUEUED");
+    expect(await prisma.auditLog.count({ where: { householdId: fam.householdId, entityType: "WhatsAppConnection", action: "SETTINGS_CHANGE" } })).toBe(2);
   });
 
   it("gerenciador registra ERROR quando o provedor não pode iniciar (Cloud API sem credenciais)", async () => {

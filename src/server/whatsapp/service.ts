@@ -3,8 +3,7 @@ import QRCode from "qrcode";
 import type { MessageStatus, Prisma, WhatsAppProviderType } from "@prisma/client";
 import { prisma } from "../db";
 import { env } from "../env";
-import { redis } from "../redis";
-import { publishEvent } from "../events";
+import { emitEvent as publishEvent, withRedis } from "./redis-safe";
 import type { ServiceContext } from "../auth/context";
 import { assertCan } from "../auth/permissions";
 import { AppError, NotFoundError, ValidationError } from "../errors";
@@ -59,10 +58,7 @@ export async function getWhatsAppStatus(ctx: ServiceContext) {
     }),
     whatsappCanSend(ctx.householdId),
     workerStatus(),
-    redis()
-      .exists(qrKey(ctx.householdId))
-      .then((n) => n === 1)
-      .catch(() => false),
+    withRedis(async (r) => (await r.exists(qrKey(ctx.householdId))) === 1, false),
   ]);
   const byStatus = Object.fromEntries(MESSAGE_STATUSES.map((s) => [s, 0])) as Record<MessageStatus, number>;
   let total = 0;
@@ -226,9 +222,7 @@ export async function requestLogout(ctx: ServiceContext) {
     }),
     prisma.whatsAppConnectionEvent.create({ data: { connectionId: conn.id, type: "LOGGED_OUT", message: "Sessão encerrada pelo usuário" } }),
   ]);
-  await redis()
-    .del(qrKey(ctx.householdId))
-    .catch(() => undefined);
+  await withRedis((r) => r.del(qrKey(ctx.householdId)), 0);
   const delivered = await publishCommand("logout", ctx.householdId);
   await publishEvent(ctx.householdId, "whatsapp.status");
   return {
@@ -300,14 +294,7 @@ export async function updateWhatsAppSettings(ctx: ServiceContext, input: z.infer
 
 export async function getQrCode(ctx: ServiceContext) {
   assertCan(ctx, "integrations:manage");
-  let qr: string | null = null;
-  let ttl = -1;
-  try {
-    const r = redis();
-    [qr, ttl] = await Promise.all([r.get(qrKey(ctx.householdId)), r.ttl(qrKey(ctx.householdId))]);
-  } catch {
-    qr = null;
-  }
+  const [qr, ttl] = await withRedis((r) => Promise.all([r.get(qrKey(ctx.householdId)), r.ttl(qrKey(ctx.householdId))]), [null, -1] as [string | null, number]);
   if (!qr) throw new NotFoundError("QR Code");
   const dataUrl = await QRCode.toDataURL(qr, { errorCorrectionLevel: "M", margin: 1, width: 320 });
   return { dataUrl, expiresInSeconds: ttl > 0 ? ttl : QR_TTL_SECONDS };

@@ -20,17 +20,8 @@ import { BudgetHistoryChart } from "./budget-history-chart";
 import { BudgetRow } from "./budget-row";
 import { MonthSwitcher } from "./month-switcher";
 import { useBudgetMutations, useBudgets } from "./use-budgets";
+import { SummaryTile } from "./summary-tile";
 import type { BudgetList } from "./types";
-
-function SummaryTile({ label, value, children, className }: { label: string; value: React.ReactNode; children?: React.ReactNode; className?: string }) {
-  return (
-    <Card className={cn("p-5", className)}>
-      <p className="text-[13px] font-medium text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold leading-none tracking-tight">{value}</p>
-      {children && <div className="mt-2 text-xs text-muted-foreground">{children}</div>}
-    </Card>
-  );
-}
 
 function Summary({ data, isCurrentMonth, isPastMonth }: { data: BudgetList; isCurrentMonth: boolean; isPastMonth: boolean }) {
   const limit = data.totalLimitCents;
@@ -39,7 +30,7 @@ function Summary({ data, isCurrentMonth, isPastMonth }: { data: BudgetList; isCu
   const percent = limit ? Math.round((spent / limit) * 1000) / 10 : 0;
   const projected = data.items.reduce((s, i) => s + i.projectedCents, 0);
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       <SummaryTile label="Limite total" value={formatBRL(limit)}>
         {data.items.length} {data.items.length === 1 ? "categoria" : "categorias"} com orçamento
       </SummaryTile>
@@ -73,7 +64,7 @@ function Summary({ data, isCurrentMonth, isPastMonth }: { data: BudgetList; isCu
 function LoadingState() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Carregando orçamentos">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Skeleton key={i} className="h-28 rounded-xl" />
         ))}

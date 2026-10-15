@@ -31,7 +31,7 @@ import {
   type SendTextOptions,
   type WhatsAppProvider,
 } from "../types";
-import { useDatabaseAuthState } from "./auth-state";
+import { clearAuthState, useDatabaseAuthState, type DatabaseAuthState } from "./auth-state";
 
 type ILogger = SocketConfig["logger"];
 
@@ -138,7 +138,10 @@ export class BaileysProvider implements WhatsAppProvider {
   private qrCycles = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private groupsTimer: NodeJS.Timeout | null = null;
-  private clearCreds: (() => Promise<void>) | null = null;
+  /** Estado de autenticação reaproveitado entre reconexões (recarregado só após logout). */
+  private auth: DatabaseAuthState | null = null;
+  /** Gravações de credenciais em série (a reconexão aguarda a última gravação). */
+  private saving: Promise<void> = Promise.resolve();
   private hasCreds = false;
   private readonly blog = makeBaileysLogger();
   /** Mensagens ACEITAS recentes (somente do chat autorizado), para citar na resposta. Apenas em memória. */
@@ -158,8 +161,9 @@ export class BaileysProvider implements WhatsAppProvider {
   private async connect(): Promise<void> {
     if (this.stopped) return;
     const gen = ++this.generation;
-    const auth = await useDatabaseAuthState(this.opts.connectionId);
-    this.clearCreds = auth.clear;
+    await this.saving;
+    if (!this.auth) this.auth = await useDatabaseAuthState(this.opts.connectionId);
+    const auth = this.auth;
     this.hasCreds = Boolean(auth.state.creds.me);
     let version: [number, number, number] | undefined;
     try {
@@ -188,8 +192,11 @@ export class BaileysProvider implements WhatsAppProvider {
     this.sock = sock;
 
     sock.ev.on("creds.update", () => {
-      if (gen !== this.generation) return;
-      void auth.saveCreds().catch((err) => logger.warn({ err: errorInfo(err).message }, "whatsapp: falha ao salvar credenciais"));
+      // O objeto de credenciais é compartilhado entre reconexões; após logout (auth descartado) nada é gravado.
+      if (this.auth !== auth) return;
+      this.saving = this.saving
+        .then(() => auth.saveCreds())
+        .catch((err) => logger.warn({ err: errorInfo(err).message }, "whatsapp: falha ao salvar credenciais"));
     });
     sock.ev.on("connection.update", (update) => {
       if (gen !== this.generation) return;
@@ -246,7 +253,9 @@ export class BaileysProvider implements WhatsAppProvider {
     if (code === DisconnectReason.loggedOut || code === DisconnectReason.multideviceMismatch) {
       this.stopped = true;
       this.generation++;
-      await this.clearCreds?.().catch(() => undefined);
+      await this.saving;
+      await clearAuthState(this.opts.connectionId).catch(() => undefined);
+      this.auth = null;
       await this.opts.callbacks.onStatus({
         status: "LOGGED_OUT",
         error: "A sessão foi encerrada no celular (aparelho desconectado). Leia o QR Code novamente para reconectar.",
@@ -418,6 +427,8 @@ export class BaileysProvider implements WhatsAppProvider {
         // ignora
       }
     }
+    // Garante que as últimas credenciais foram gravadas antes de encerrar.
+    await this.saving;
   }
 
   async logout(): Promise<void> {
@@ -433,7 +444,9 @@ export class BaileysProvider implements WhatsAppProvider {
       }
     }
     await this.stop();
-    await (this.clearCreds ?? (await useDatabaseAuthState(this.opts.connectionId)).clear)();
+    await this.saving;
+    await clearAuthState(this.opts.connectionId);
+    this.auth = null;
   }
 
   isConnected(): boolean {

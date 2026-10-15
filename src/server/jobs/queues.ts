@@ -93,7 +93,8 @@ function timeout<T>(ms: number, message: string): { promise: Promise<T>; cancel:
 export async function producerReady(timeoutMs = 2000): Promise<boolean> {
   const conn = producer();
   if (conn.status === "ready") return true;
-  if (conn.status === "end" || conn.status === "close") return false;
+  // "reconnecting": uma tentativa já falhou (Redis fora do ar) — falha rápido em vez de esperar.
+  if (conn.status === "end" || conn.status === "close" || conn.status === "reconnecting") return false;
   const t = timeout<boolean>(timeoutMs, "timeout");
   try {
     return await Promise.race([

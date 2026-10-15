@@ -1,8 +1,8 @@
 import type { Redis } from "ioredis";
 import type { Prisma, WhatsAppConnection, WhatsAppConnectionStatus, WhatsAppProviderType } from "@prisma/client";
 import { prisma } from "../db";
-import { redis, newRedisConnection } from "../redis";
-import { publishEvent } from "../events";
+import { newRedisConnection } from "../redis";
+import { emitEvent as publishEvent, withRedis } from "./redis-safe";
 import { errorInfo, logger } from "../logger";
 import { notify } from "../modules/notifications/service";
 import { parseCommand } from "./commands";
@@ -293,20 +293,14 @@ export class ConnectionManager implements ProviderRegistry {
   // ---------------------------------------------------------------------------
 
   private async clearQr(householdId: string) {
-    try {
-      await redis().del(qrKey(householdId));
-    } catch {
-      // TTL curto: expira sozinho
-    }
+    // TTL curto: se o Redis estiver fora, expira sozinho.
+    await withRedis((r) => r.del(qrKey(householdId)), 0);
   }
 
   private async handleQr(run: Running, qr: string) {
     if (!this.isCurrent(run)) return;
-    try {
-      await redis().set(qrKey(run.householdId), qr, "EX", QR_TTL_SECONDS);
-    } catch (err) {
-      logger.warn({ err: errorInfo(err).message }, "whatsapp: QR Code não armazenado (Redis indisponível)");
-    }
+    const stored = await withRedis((r) => r.set(qrKey(run.householdId), qr, "EX", QR_TTL_SECONDS), null, 3000);
+    if (!stored) logger.warn("whatsapp: QR Code não armazenado (Redis indisponível)");
     if (run.lastStatus !== "QR_PENDING") await this.recordStatus(run, { status: "QR_PENDING" });
     else await publishEvent(run.householdId, "whatsapp.status");
   }

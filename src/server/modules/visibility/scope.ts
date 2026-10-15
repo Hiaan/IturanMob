@@ -36,24 +36,22 @@ export async function getVisibilityScope(ctx: ServiceContext, db: Db = prisma): 
   return { hiddenAccountIds: accounts.map((a) => a.id), hiddenCardIds: cards.map((c) => c.id) };
 }
 
-/** Filtro Prisma para transações visíveis. */
+/**
+ * Filtro Prisma para transações visíveis (seguro para NULL — "NOT IN" com coluna nula
+ * resultaria em NULL e ocultaria lançamentos sem conta/cartão).
+ * Visível quando: não movimenta conta, ou movimenta ao menos uma conta visível;
+ * e não é despesa em cartão oculto.
+ */
 export function visibleTransactionWhere(scope: VisibilityScope): Prisma.TransactionWhereInput {
   const conds: Prisma.TransactionWhereInput[] = [];
   if (scope.hiddenAccountIds.length) {
     const hidden = scope.hiddenAccountIds;
-    // Oculta se a conta de origem está oculta E (não há destino OU o destino também está oculto).
     conds.push({
-      NOT: {
-        AND: [
-          { accountId: { in: hidden } },
-          { OR: [{ destinationAccountId: null }, { destinationAccountId: { in: hidden } }] },
-        ],
-      },
+      OR: [{ accountId: null, destinationAccountId: null }, { accountId: { notIn: hidden } }, { destinationAccountId: { notIn: hidden } }],
     });
-    conds.push({ NOT: { AND: [{ accountId: null }, { destinationAccountId: { in: hidden } }] } });
   }
   if (scope.hiddenCardIds.length) {
-    conds.push({ NOT: { AND: [{ creditCardId: { in: scope.hiddenCardIds } }, { type: "EXPENSE" }] } });
+    conds.push({ OR: [{ creditCardId: null }, { creditCardId: { notIn: scope.hiddenCardIds } }, { type: { not: "EXPENSE" } }] });
   }
   return conds.length ? { AND: conds } : {};
 }
@@ -65,13 +63,12 @@ export function visibleTransactionSql(scope: VisibilityScope, alias = "t"): Pris
   if (scope.hiddenAccountIds.length) {
     const hidden = Prisma.join(scope.hiddenAccountIds);
     parts.push(
-      Prisma.sql`NOT (${a}."accountId" IN (${hidden}) AND (${a}."destinationAccountId" IS NULL OR ${a}."destinationAccountId" IN (${hidden})))`,
+      Prisma.sql`((${a}."accountId" IS NULL AND ${a}."destinationAccountId" IS NULL) OR (${a}."accountId" IS NOT NULL AND ${a}."accountId" NOT IN (${hidden})) OR (${a}."destinationAccountId" IS NOT NULL AND ${a}."destinationAccountId" NOT IN (${hidden})))`,
     );
-    parts.push(Prisma.sql`NOT (${a}."accountId" IS NULL AND ${a}."destinationAccountId" IS NOT NULL AND ${a}."destinationAccountId" IN (${hidden}))`);
   }
   if (scope.hiddenCardIds.length) {
     const hiddenCards = Prisma.join(scope.hiddenCardIds);
-    parts.push(Prisma.sql`NOT (${a}."type" = 'EXPENSE' AND ${a}."creditCardId" IS NOT NULL AND ${a}."creditCardId" IN (${hiddenCards}))`);
+    parts.push(Prisma.sql`(${a}."creditCardId" IS NULL OR ${a}."creditCardId" NOT IN (${hiddenCards}) OR ${a}."type" <> 'EXPENSE')`);
   }
   if (!parts.length) return Prisma.sql`TRUE`;
   return Prisma.join(parts, " AND ");
