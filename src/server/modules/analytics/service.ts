@@ -56,6 +56,8 @@ export interface AnalyticsFilters {
   categoryIds?: string[] | null;
   /** Natureza: Pessoal, Empresa ou Tudo. Sem informar, vale o padrão da família. */
   scope?: "PERSONAL" | "BUSINESS" | "ALL" | null;
+  /** Forma de pagamento (ex.: só cartão de crédito). */
+  paymentMethod?: string | null;
 }
 
 export type ReportScopeValue = "PERSONAL" | "BUSINESS" | "ALL";
@@ -94,6 +96,7 @@ function filterSql(f: AnalyticsFilters): Prisma.Sql {
   }
   if (f.accountId) parts.push(Prisma.sql`t."accountId" = ${f.accountId}`);
   if (f.creditCardId) parts.push(Prisma.sql`t."creditCardId" = ${f.creditCardId}`);
+  if (f.paymentMethod) parts.push(Prisma.sql`t."paymentMethod"::text = ${f.paymentMethod}`);
   if (f.categoryIds?.length) parts.push(Prisma.sql`t."categoryId" IN (${Prisma.join(f.categoryIds)})`);
   return parts.length ? Prisma.join(parts, " AND ") : Prisma.sql`TRUE`;
 }

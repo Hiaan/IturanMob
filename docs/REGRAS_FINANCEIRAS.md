@@ -121,6 +121,22 @@ A família escolhe o regime padrão em Configurações. Todos os relatórios ace
   (`findMatchingScheduledPayment`) em vez de criar uma despesa nova.
 - Valor variável (energia, água): o valor da regra é uma estimativa. Vale o valor pago.
 
+### 9.1 Gastos fixos e projeção
+
+`GET /api/v1/fixed-expenses?scope=&months=` (padrão 12 meses, recorte da natureza da família):
+
+- **Contas fixas:** recorrências de despesa ativas (valor fixo ou "≈" estimado), dia, conta/cartão,
+  categoria e equivalente mensal.
+- **Parcelas do cartão:** compras parceladas com parcelas a vencer (de hoje em diante): parcela atual/
+  total, valor da parcela, restantes, total restante e mês da última parcela; ordenadas pelo término e
+  somadas por cartão.
+- **Projeção mês a mês:** contas fixas (separando as do cartão, ex.: assinaturas) + parcelas por cartão
+  pelo vencimento da fatura; em cada mês, quantos parcelamentos terminam e quanto deixam de pesar a
+  partir do mês seguinte. Repasse fica de fora; só leitura.
+- **Fatura por categoria:** o detalhe da fatura traz `byCategory` (valor, %, quantidade) e `byNature`
+  (Pessoal/Empresa/Repasse); `GET /api/v1/cards/spending-by-category` dá a fatura atual e a anterior de
+  cada cartão e a soma de todos. As análises aceitam `paymentMethod` (ex.: só cartão de crédito).
+
 ## 10. Conciliação de extratos importados
 
 Na importação de CSV, OFX, XLSX ou PDF, cada linha é comparada com as transações existentes da mesma

@@ -74,6 +74,9 @@ Outras coberturas além dos 22 cenários:
 - natureza Pessoal/Empresa/Repasse: `transaction-nature.test.ts` (caixa e fatura idênticos, recortes
   Pessoal/Empresa/Tudo e padrão da família, resultado da empresa, regras definir/perguntar com valor
   mínimo no cartão, prévia da importação com "aplicar às parecidas").
+- gastos fixos: `fixed-expenses.test.ts` (recorrências, parcelas em andamento conferidas com as parcelas
+  do banco, projeção, recortes Pessoal/Empresa/Tudo sem Repasse, fatura por categoria e por natureza,
+  cartões atual/anterior, filtro por forma de pagamento/cartão).
 
 ## Boas práticas para novos testes
 

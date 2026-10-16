@@ -29,6 +29,8 @@ export const periodQuerySchema = z.object({
   categoryIds: qs.list(z.string()),
   /** Natureza: Pessoal, Empresa ou Tudo (padrão da família quando não informado). */
   scope: z.enum(["PERSONAL", "BUSINESS", "ALL"]).optional(),
+  /** Forma de pagamento (ex.: CREDIT_CARD para "só cartão"). */
+  paymentMethod: z.enum(["PIX", "DEBIT_CARD", "CREDIT_CARD", "CASH", "BANK_SLIP", "BANK_TRANSFER", "AUTO_DEBIT", "VOUCHER", "OTHER"]).optional(),
 });
 
 export type PeriodQuery = z.output<typeof periodQuerySchema>;
@@ -38,5 +40,5 @@ export function periodFromQuery(q: { preset: PeriodPreset; start?: string; end?:
 }
 
 export function filtersFromQuery(q: PeriodQuery) {
-  return { memberId: q.memberId, accountId: q.accountId, creditCardId: q.creditCardId, categoryIds: q.categoryIds, scope: q.scope };
+  return { memberId: q.memberId, accountId: q.accountId, creditCardId: q.creditCardId, categoryIds: q.categoryIds, scope: q.scope, paymentMethod: q.paymentMethod };
 }
