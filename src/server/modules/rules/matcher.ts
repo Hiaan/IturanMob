@@ -6,6 +6,9 @@ export interface RuleSubject {
   merchant?: string | null;
   amountCents: number;
   type: string;
+  /** Conta/cartão do lançamento (regras com condição "só nesta conta/cartão"). */
+  accountId?: string | null;
+  creditCardId?: string | null;
 }
 
 function textMatches(rule: Pick<FinancialRule, "matchType" | "pattern">, value: string): boolean {
@@ -40,6 +43,8 @@ export function findMatchingRule<T extends FinancialRule>(rules: T[], subject: R
     if (rule.transactionType && rule.transactionType !== subject.type) continue;
     if (rule.minAmountCents != null && subject.amountCents < rule.minAmountCents) continue;
     if (rule.maxAmountCents != null && subject.amountCents > rule.maxAmountCents) continue;
+    if (rule.matchAccountId && subject.accountId !== rule.matchAccountId) continue;
+    if (rule.matchCreditCardId && subject.creditCardId !== rule.matchCreditCardId) continue;
     const fields =
       rule.matchField === "MERCHANT"
         ? [subject.merchant ?? ""]

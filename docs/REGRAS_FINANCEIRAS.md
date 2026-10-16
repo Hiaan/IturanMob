@@ -229,6 +229,30 @@ prefixado), taxa (ex.: 101,5% do CDI) e data de início.
 - Limites: 15 MB por arquivo, 5.000 lançamentos por arquivo, 60 páginas por PDF e 20 arquivos por
   confirmação em massa.
 
+### 10.5 Desconsiderar nos relatórios (repasse de cliente, reembolso)
+
+Para dinheiro que passa pela conta/cartão mas não é da família — ex.: anúncios (Facebook Ads) pagos no
+cartão para um cliente, que reembolsa por Pix.
+
+- Marca por lançamento (`Transaction.excludedFromReports`), com motivo (Repasse de cliente, Reembolso,
+  Outro), cliente/pessoa e observação opcionais. Só receitas e despesas (transferência e pagamento de
+  fatura já não contam como receita/despesa). Auditado; desfazer a qualquer momento.
+- **Sai de:** receitas/despesas do painel, gastos por categoria/pessoa/forma de pagamento, maiores
+  gastos, orçamentos e alertas, comparativos, gastos fora do padrão, relatórios (PDF/XLSX/CSV) e
+  respostas do assistente/WhatsApp ("quanto gastamos"). Vale nos dois regimes: na competência sai a
+  compra; no caixa saem as parcelas dela nas faturas.
+- **Não muda:** saldo das contas e o ledger, fatura do cartão (parcelas, total e pagamento), limite
+  usado, patrimônio, projeção de caixa e contas a pagar. Nada é repostado — só a marca é gravada.
+- Lista de lançamentos: aparece com o selo "Desconsiderado"; filtro mostrar/ocultar/somente; os totais
+  da lista mostram os desconsiderados à parte. Exportações trazem a coluna "Relatórios".
+- **Saldo do repasse** por cliente (só "Repasse de cliente"): recebido − gasto. Negativo = falta receber
+  do cliente; positivo = recebido a mais (ainda a gastar ou devolver).
+- **Regra automática** (Categorias → Regras): ação "Desconsiderar nos relatórios" com motivo e cliente;
+  condição opcional "só nesta conta" / "só neste cartão" (ex.: "Facebk" no cartão Nubank). Vale para
+  lançamentos novos (manual, importação, WhatsApp) mesmo com categoria definida, e pode ser aplicada aos
+  anteriores. Não combina com regra de transferência.
+- Se o lançamento virar transferência, a marca é removida (transferência nunca é receita/despesa).
+
 ## 11. Indicadores do painel
 
 | Indicador | Regra |

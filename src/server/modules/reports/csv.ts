@@ -25,6 +25,8 @@ export interface ExportTransactionRow {
   status: string;
   installmentCount: number;
   deleted: boolean;
+  /** "" ou "Desconsiderado (Repasse de cliente · Cliente X)": fora dos relatórios, mas no saldo/fatura. */
+  reports: string;
 }
 
 function signedAmount(t: TransactionDTO): number {
@@ -69,10 +71,13 @@ export function toExportRow(t: TransactionDTO): ExportTransactionRow {
     status: t.deletedAt ? "Excluída" : t.status === "PENDING" ? "Aguardando confirmação" : "Confirmada",
     installmentCount: t.installmentCount,
     deleted: Boolean(t.deletedAt),
+    reports: t.exclusion ? `Desconsiderado (${EXCLUSION_LABELS[t.exclusion.reason] ?? "Outro"}${t.exclusion.party ? ` · ${t.exclusion.party}` : ""})` : "",
   };
 }
 
-export const CSV_HEADERS = ["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação"];
+const EXCLUSION_LABELS: Record<string, string> = { CLIENT_PASSTHROUGH: "Repasse de cliente", REIMBURSEMENT: "Reembolso", OTHER: "Outro" };
+
+export const CSV_HEADERS = ["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Relatórios"];
 
 /** Evita que planilhas interpretem textos como fórmulas (injeção de fórmulas em CSV). */
 export function safeCsvText(value: string): string {
@@ -97,6 +102,7 @@ export function renderTransactionsCsv(rows: ExportTransactionRow[]): Buffer {
     safeCsvText(r.accountOrCard),
     safeCsvText(r.responsible),
     r.status,
+    safeCsvText(r.reports),
   ]);
   const text = Papa.unparse({ fields: CSV_HEADERS, data }, { delimiter: ";", newline: "\r\n", quotes: false, header: true });
   return Buffer.from(`﻿${text}\r\n`, "utf8");

@@ -13,6 +13,7 @@ import { createPendingItem, resolvePendingWhere } from "../pending/service";
 import { getSettings } from "../households/service";
 import { getVisibilityScope, visibleTransactionWhere } from "../visibility/scope";
 import { findMatchingRule } from "../rules/matcher";
+import { canExcludeType, exclusionFromRule, type ExclusionFields } from "./report-exclusion";
 import { buildInstallmentPlan } from "../cards/billing";
 import { ensureStatement, resolvePaymentStatement } from "../cards/statements";
 import { buildLedgerPostings, isPostable } from "./postings";
@@ -61,6 +62,8 @@ type Normalized = TransactionFields & {
   currency: string;
   /** Receita/despesa/ajuste em moeda estrangeira: valor em reais pela PTAX da data. */
   amountBrlCents: number | null;
+  /** Desconsiderar nos relatórios (definido por regra na criação). */
+  exclusion?: ExclusionFields | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -255,12 +258,25 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
 }
 
 async function applyRules(db: Db, ctx: ServiceContext, data: Normalized, merchantName: string | null | undefined): Promise<string | null> {
-  if (data.categoryId || (data.type !== "EXPENSE" && data.type !== "INCOME")) return null;
+  if (data.type !== "EXPENSE" && data.type !== "INCOME") return null;
   // Regras de transferência (aplicação/resgate) não mexem em categoria.
   const rules = await db.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setTransferAccountId: null } });
   if (!rules.length) return null;
-  const rule = findMatchingRule(rules, { description: data.description, merchant: merchantName ?? null, amountCents: data.amountCents, type: data.type });
-  if (!rule) return null;
+  const subject = { description: data.description, merchant: merchantName ?? null, amountCents: data.amountCents, type: data.type, accountId: data.accountId, creditCardId: data.creditCardId };
+  // Desconsiderar nos relatórios (repasse/reembolso): vale mesmo quando a categoria já veio definida.
+  const excludeRule = findMatchingRule(
+    rules.filter((r) => r.setExcludeFromReports),
+    subject,
+  );
+  if (excludeRule) {
+    data.exclusion = exclusionFromRule(ctx, excludeRule);
+    await db.financialRule.update({ where: { id: excludeRule.id }, data: { timesApplied: { increment: 1 } } });
+  }
+  if (data.categoryId) return excludeRule?.id ?? null;
+  // Regra que só desconsidera não decide categoria (deixa a próxima regra classificar).
+  const categoryRules = rules.filter((r) => !r.setExcludeFromReports || r.setCategoryId || r.setPaymentMethod || r.setAccountId || r.setOwnership);
+  const rule = findMatchingRule(categoryRules, subject);
+  if (!rule) return excludeRule?.id ?? null;
   if (rule.setCategoryId) {
     const cat = await db.category.findFirst({ where: { id: rule.setCategoryId, householdId: ctx.householdId } });
     const expected = data.type === "INCOME" ? "INCOME" : "EXPENSE";
@@ -275,7 +291,7 @@ async function applyRules(db: Db, ctx: ServiceContext, data: Normalized, merchan
     data.ownership = "INDIVIDUAL";
     data.responsibleMemberId = rule.setResponsibleMemberId;
   }
-  await db.financialRule.update({ where: { id: rule.id }, data: { timesApplied: { increment: 1 } } });
+  if (rule.id !== excludeRule?.id) await db.financialRule.update({ where: { id: rule.id }, data: { timesApplied: { increment: 1 } } });
   return rule.id;
 }
 
@@ -481,6 +497,7 @@ export async function createTransaction(
         aiMetadata: opts.aiMetadata ?? (ruleId ? { ruleId } : undefined),
         fingerprint: transactionFingerprint({ ...data, merchantName: input.merchantName }),
         createdByMemberId: ctx.memberId,
+        ...(data.exclusion && canExcludeType(data.type) ? data.exclusion : {}),
         allocations: data.allocations.length ? { create: data.allocations } : undefined,
       },
       include: { allocations: true },
@@ -682,6 +699,8 @@ export async function updateTransaction(
         responsibleMemberId: data.responsibleMemberId,
         goalId: data.goalId,
         fingerprint: transactionFingerprint({ ...data, merchantName: merged.merchantName }),
+        // Só receita/despesa pode ficar desconsiderada (virou transferência/pagamento: volta ao normal).
+        ...(canExcludeType(data.type) ? {} : { excludedFromReports: false, exclusionReason: null, exclusionParty: null, exclusionNote: null, excludedAt: null, excludedByMemberId: null }),
         version: { increment: 1 },
         allocations: { deleteMany: {}, create: data.allocations },
       },
@@ -800,6 +819,8 @@ export async function buildTransactionWhere(ctx: ServiceContext, raw: Transactio
   const and: Prisma.TransactionWhereInput[] = [{ householdId: ctx.householdId }, visibleTransactionWhere(scope)];
   if (f.deleted === "exclude") and.push({ deletedAt: null });
   if (f.deleted === "only") and.push({ deletedAt: { not: null } });
+  if (f.excluded === "hide") and.push({ excludedFromReports: false });
+  if (f.excluded === "only") and.push({ excludedFromReports: true });
   if (f.start) and.push({ [f.dateField]: { gte: isoToDate(f.start) } });
   if (f.end) and.push({ [f.dateField]: { lte: isoToDate(f.end) } });
   if (f.types?.length) and.push({ type: { in: f.types } });
@@ -854,15 +875,30 @@ export async function listTransactions(ctx: ServiceContext, raw: TransactionList
     prisma.transaction.findMany({ where, orderBy, skip: (f.page - 1) * f.pageSize, take: f.pageSize, include: transactionInclude }),
     prisma.transaction.count({ where }),
     // Totais em reais: lançamentos em moeda estrangeira entram pelo valor em reais (PTAX da data).
-    prisma.transaction.groupBy({ by: ["type", "currency"], where: { AND: [where, { status: "CONFIRMED", deletedAt: null }] }, _sum: { amountCents: true, amountBrlCents: true } }),
+    prisma.transaction.groupBy({
+      by: ["type", "currency", "excludedFromReports"],
+      where: { AND: [where, { status: "CONFIRMED", deletedAt: null }] },
+      _sum: { amountCents: true, amountBrlCents: true },
+    }),
   ]);
-  const sumOf = (t: string) => sums.filter((s) => s.type === t).reduce((acc, s) => acc + ((s.currency === "BRL" ? s._sum.amountCents : s._sum.amountBrlCents) ?? 0), 0);
+  // Receitas/despesas desconsideradas nos relatórios ficam fora dos totais (aparecem à parte).
+  const sumOf = (t: string, excluded: boolean | null = false) =>
+    sums
+      .filter((s) => s.type === t && (excluded === null || s.excludedFromReports === excluded))
+      .reduce((acc, s) => acc + ((s.currency === "BRL" ? s._sum.amountCents : s._sum.amountBrlCents) ?? 0), 0);
   return {
     items: rows.map(serializeTransaction),
     total,
     page: f.page,
     pageSize: f.pageSize,
-    totals: { expenseCents: sumOf("EXPENSE"), incomeCents: sumOf("INCOME"), transferCents: sumOf("TRANSFER"), cardPaymentCents: sumOf("CARD_PAYMENT") },
+    totals: {
+      expenseCents: sumOf("EXPENSE"),
+      incomeCents: sumOf("INCOME"),
+      transferCents: sumOf("TRANSFER", null),
+      cardPaymentCents: sumOf("CARD_PAYMENT", null),
+      excludedExpenseCents: sumOf("EXPENSE", true),
+      excludedIncomeCents: sumOf("INCOME", true),
+    },
   };
 }
 

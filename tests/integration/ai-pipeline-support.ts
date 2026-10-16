@@ -50,6 +50,8 @@ export interface SendInput {
   media?: { bytes: Buffer; mimeType: string; fileName?: string };
   /** Reenvio do mesmo evento do provedor (mesmo id externo). */
   externalId?: string;
+  /** Resposta citando outra mensagem (id externo dela). */
+  quotedExternalId?: string;
 }
 
 /** Ingere uma mensagem do grupo e a processa em linha (simulador). */
@@ -70,6 +72,7 @@ export async function sendMessage(wa: WaFamily, input: SendInput) {
       text: type === "TEXT" ? (input.text ?? null) : null,
       caption: type === "TEXT" ? null : (input.text ?? null),
       media: media ? { mimeType: media.mimeType, sizeBytes: media.bytes.length, fileName: media.fileName, download: async () => media.bytes } : null,
+      ...(input.quotedExternalId ? { quotedExternalId: input.quotedExternalId } : {}),
     },
   );
   if (!res.accepted || !res.messageId) throw new Error(`mensagem não aceita: ${res.reason ?? "?"}`);

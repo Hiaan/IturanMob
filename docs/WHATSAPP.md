@@ -247,6 +247,19 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
    (lidos em imagem). PDF sem lançamentos reconhecíveis → pendência com o motivo.
 5. Reprocessar a mesma mensagem reaproveita a prévia já criada.
 
+**Desconsiderar nos relatórios (repasse/reembolso).** Comandos determinísticos, sem IA
+(`src/server/ai/engine/report-exclusion.ts`), que só marcam o lançamento — saldo e fatura não mudam:
+
+- *desconsidera esse* respondendo (citando) a mensagem do lançamento **ou** a confirmação do robô → os
+  lançamentos daquela mensagem. Sem citar → o último lançamento de quem escreveu (48 h).
+- *o pix do Fulano é repasse*, *isso foi reembolso*, *desconsidera o pix de 500 do João*,
+  *marca como repasse o anúncio do cliente X* → procura nos últimos 90 dias pelo cliente/texto/valor;
+  mais de um → pergunta com números (aceita *todos*).
+- *recebi 200 do Beltrano, é repasse* → registra e já desconsidera (o marcador não vira descrição).
+- *considerar de novo* / *volta a considerar* / *não é repasse* → desfaz.
+- A resposta lembra que saldo e fatura não mudam e, para repasse com cliente, mostra o saldo do repasse.
+- *desconsidera a mensagem anterior* continua sendo excluir o último lançamento (fluxo de exclusão).
+
 Status da conexão: `DISCONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`, `LOGGED_OUT`.
 Eventos (`WhatsAppConnectionEvent`): `CONNECTED`, `DISCONNECTED`, `QR`, `ERROR`, `LOGGED_OUT`.
 

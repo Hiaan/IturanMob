@@ -19,6 +19,7 @@ import { extractReceipt } from "../vision/receipt";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
+import { applyExclusion, handleExclusionCommand, hasExclusionMarker, parseExclusionCommand, stripExclusionMarker, type QuotedRef } from "../engine/report-exclusion";
 import type { InboundMessageResult } from "./types";
 
 /**
@@ -53,7 +54,13 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
   try {
     let outcome: ActionOutcome;
     if (message.type === "TEXT") {
-      outcome = await processText(ctx, message.text ?? "", { messageId, chatId: message.chatId, source: "WHATSAPP_TEXT", answerQueries: settings?.whatsappAnswerQueries ?? true });
+      outcome = await processText(ctx, message.text ?? "", {
+        messageId,
+        chatId: message.chatId,
+        source: "WHATSAPP_TEXT",
+        answerQueries: settings?.whatsappAnswerQueries ?? true,
+        quoted: message.quotedExternalId ? { connectionId: message.connectionId, externalId: message.quotedExternalId } : null,
+      });
     } else if (message.type === "AUDIO") {
       outcome = await processAudio(ctx, message, settings?.whatsappAnswerQueries ?? true, settings?.transcriptRetentionDays ?? 365);
     } else if (message.type === "IMAGE" || message.type === "DOCUMENT") {
@@ -77,6 +84,8 @@ interface TextOptions {
   source: TransactionSource;
   answerQueries: boolean;
   attachmentId?: string | null;
+  /** Mensagem citada (resposta a um lançamento ou à confirmação do robô). */
+  quoted?: QuotedRef | null;
 }
 
 async function processText(ctx: ServiceContext, text: string, opts: TextOptions): Promise<ActionOutcome> {
@@ -89,8 +98,20 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
     const imported = await answerImportConfirmation(ctx, opts.chatId, text, null);
     if (imported) return imported;
   }
-  const result = await interpretText(ctx, text, { senderMemberId: ctx.memberId, messageId: opts.messageId, hc });
-  return executeInterpretation(ctx, result, exec);
+  // "desconsidera esse" / "o pix do fulano é repasse": comando determinístico, sem IA.
+  const exclusion = parseExclusionCommand(text);
+  if (exclusion) return handleExclusionCommand(ctx, hc, exclusion, { channel: "WHATSAPP", chatId: opts.chatId, messageId: opts.messageId, quoted: opts.quoted ?? null });
+  // "recebi 500 do Fulano, é repasse": registra (sem o marcador na descrição) e já desconsidera.
+  const marker = hasExclusionMarker(text);
+  const toInterpret = marker ? stripExclusionMarker(text) || text : text;
+  const result = await interpretText(ctx, toInterpret, { senderMemberId: ctx.memberId, messageId: opts.messageId, hc });
+  const outcome = await executeInterpretation(ctx, result, { ...exec, text: toInterpret });
+  if (marker && outcome.intent === "CREATE_TRANSACTIONS" && outcome.transactionIds.length) {
+    const marked = await applyExclusion(ctx, hc, marker, outcome.transactionIds);
+    // Logo depois da confirmação do registro (antes de eventuais perguntas de complemento).
+    if (marked.transactionIds.length) outcome.replies.splice(Math.min(1, outcome.replies.length), 0, ...marked.replies);
+  }
+  return outcome;
 }
 
 type MessageWithAttachment = Prisma.WhatsAppMessageGetPayload<{ include: { attachment: true } }>;
@@ -118,7 +139,14 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
       },
     });
   }
-  const outcome = await processText(ctx, transcript, { messageId: message.id, chatId: message.chatId, source: "WHATSAPP_AUDIO", answerQueries, attachmentId: att.id });
+  const outcome = await processText(ctx, transcript, {
+    messageId: message.id,
+    chatId: message.chatId,
+    source: "WHATSAPP_AUDIO",
+    answerQueries,
+    attachmentId: att.id,
+    quoted: message.quotedExternalId ? { connectionId: message.connectionId, externalId: message.quotedExternalId } : null,
+  });
   if (outcome.transactionIds.length) {
     await prisma.attachment.updateMany({ where: { id: att.id, transactionId: null }, data: { transactionId: outcome.transactionIds[0]! } });
   }

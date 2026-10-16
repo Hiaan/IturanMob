@@ -76,6 +76,8 @@ export const transactionListSchema = z.object({
   merchantId: idSchema.optional(),
   uncategorized: z.boolean().optional(),
   deleted: z.enum(["exclude", "include", "only"]).default("exclude"),
+  /** Desconsiderados nos relatórios: mostrar junto (padrão), ocultar ou só eles. */
+  excluded: z.enum(["all", "hide", "only"]).default("all"),
   sort: z.enum(["date_desc", "date_asc", "amount_desc", "amount_asc", "created_desc"]).default("date_desc"),
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(500).default(50),

@@ -209,9 +209,10 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   let ruleId: string | null = null;
   if (raw.kind === "EXPENSE" || raw.kind === "INCOME") {
     const kind = raw.kind === "INCOME" ? "INCOME" : "EXPENSE";
+    // Regras que só desconsideram nos relatórios não decidem a categoria (aplicadas ao gravar).
     const rule = findMatchingRule(
-      hc.rules.filter((r) => !r.setTransferAccountId),
-      { description: raw.description, merchant: raw.merchant, amountCents: amountCents ?? 0, type: raw.kind },
+      hc.rules.filter((r) => !r.setTransferAccountId && (!r.setExcludeFromReports || r.setCategoryId)),
+      { description: raw.description, merchant: raw.merchant, amountCents: amountCents ?? 0, type: raw.kind, accountId: account?.id ?? null, creditCardId: card?.id ?? null },
     );
     if (rule?.setCategoryId) {
       const cat = hc.categories.find((c) => c.id === rule.setCategoryId && c.kind === kind);

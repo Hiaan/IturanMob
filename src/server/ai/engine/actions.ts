@@ -23,6 +23,7 @@ import { AppError } from "../../errors";
 import { findMentions, matchCategory, detectPaymentMethod, parseLocally } from "../nlu/local-parser";
 import { CONFIRM_HINT, createdLine, kindVerb, missingQuestion, relativeDate } from "./replies";
 import { closeClarification, findOpenClarification, openClarification } from "./clarifications";
+import { answerExclusionChoice } from "./report-exclusion";
 import { answerFollowUp, askNextFollowUp, planFollowUps } from "./follow-ups";
 import { decide, resolveMember, type ResolvedDraft } from "./resolve";
 import type { InterpretResult, RecentTx } from "./interpret";
@@ -166,7 +167,8 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
       aiMetadata,
       checkDuplicates: true,
       scheduledPaymentId,
-      applyRules: !d.categoryId,
+      // Categoria já resolvida não é trocada; regras de "desconsiderar" valem sempre.
+      applyRules: true,
     },
   );
   if (opts.attachmentId && d.index === 0) {
@@ -575,6 +577,15 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
   }
 
   if (open.kind === "CHOOSE_TRANSACTION") {
+    if (payload.action === "report-exclusion") {
+      const answered = await answerExclusionChoice(ctx, hc, open, norm);
+      if (answered) return answered;
+      if (NO.test(norm)) {
+        await closeClarification(open.id, "CANCELLED");
+        return { status: "PROCESSED", intent: "REJECTION", replies: ["Ok, nada foi alterado."], transactionIds: [] };
+      }
+      return null;
+    }
     const candidates = (payload.candidates as string[] | undefined) ?? [];
     const m = /^(\d{1,2})\b|\b(primeir[oa]|segund[oa]|terceir[oa]|quart[oa])\b/.exec(norm);
     if (!m) {

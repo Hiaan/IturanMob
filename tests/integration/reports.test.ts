@@ -200,7 +200,7 @@ describe("relatórios", () => {
 
     const csv = await exportReport(fam.ctx, report.id, "csv");
     const text = csv.content.toString("utf8");
-    expect(text.startsWith("﻿Data;Descrição;Categoria;Subcategoria;Tipo;Valor;Forma de pagamento;Conta/Cartão;Responsável;Situação\r\n")).toBe(true);
+    expect(text.startsWith("﻿Data;Descrição;Categoria;Subcategoria;Tipo;Valor;Forma de pagamento;Conta/Cartão;Responsável;Situação;Relatórios\r\n")).toBe(true);
     expect(text).toContain("10/10/2026;Supermercado Bom Preço;Alimentação;Supermercado;Despesa;-258,00;");
     expect(text).toContain(";Receita;3500,00;");
     expect(text).toContain("Pagamento de fatura;-300,00;");

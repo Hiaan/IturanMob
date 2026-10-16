@@ -46,16 +46,16 @@ function setWidths(ws: ExcelJS.Worksheet, widths: number[]) {
 /** Planilha de transações (reutilizada na exportação avulsa). */
 export function addTransactionsSheet(wb: ExcelJS.Workbook, rows: ExportTransactionRow[], name = "Transações do período") {
   const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
-  const header = ws.addRow(["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação"]);
+  const header = ws.addRow(["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Relatórios"]);
   styleHeader(header);
   for (const r of rows) {
-    const row = ws.addRow([isoToDate(r.date), r.description, r.category, r.subcategory, r.typeLabel, reais(r.signedAmountCents), r.paymentMethod, r.accountOrCard, r.responsible, r.status]);
+    const row = ws.addRow([isoToDate(r.date), r.description, r.category, r.subcategory, r.typeLabel, reais(r.signedAmountCents), r.paymentMethod, r.accountOrCard, r.responsible, r.status, r.reports]);
     row.getCell(1).numFmt = DATE_FORMAT;
     row.getCell(6).numFmt = BRL_FORMAT;
     if (r.deleted) row.font = { color: { argb: "FF94A3B8" }, strike: true };
   }
-  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: 10 } };
-  setWidths(ws, [12, 42, 20, 20, 20, 15, 22, 28, 26, 22]);
+  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: rows.length + 1, column: 11 } };
+  setWidths(ws, [12, 42, 20, 20, 20, 15, 22, 28, 26, 22, 34]);
   return ws;
 }
 

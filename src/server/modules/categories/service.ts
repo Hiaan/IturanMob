@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parsePatch } from "../../validation";
+import { assertExclusionRuleCompatible } from "../transactions/report-exclusion";
 import { prisma, withTransaction } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -186,6 +187,18 @@ export const ruleSchema = z.object({
   setTransferAccountId: z.string().nullish(),
   setOwnership: z.enum(["SHARED", "INDIVIDUAL"]).nullish(),
   setResponsibleMemberId: z.string().nullish(),
+  /** Desconsiderar nos relatórios (repasse de cliente, reembolso): saldo e fatura não mudam. */
+  setExcludeFromReports: z.boolean().default(false),
+  setExclusionReason: z.enum(["CLIENT_PASSTHROUGH", "REIMBURSEMENT", "OTHER"]).nullish(),
+  setExclusionParty: z
+    .string()
+    .trim()
+    .max(80)
+    .transform((v) => v || null)
+    .nullish(),
+  /** Condições opcionais: só lançamentos desta conta / deste cartão. */
+  matchAccountId: z.string().nullish(),
+  matchCreditCardId: z.string().nullish(),
   priority: z.number().int().min(0).max(10000).default(100),
   active: z.boolean().default(true),
 });
@@ -218,6 +231,21 @@ async function validateRuleRefs(ctx: ServiceContext, data: Partial<z.output<type
   if (data.setResponsibleMemberId && !(await prisma.householdMember.findFirst({ where: { id: data.setResponsibleMemberId, householdId: ctx.householdId } }))) {
     throw new ValidationError("Membro inválido.");
   }
+  if (data.matchAccountId && !(await prisma.account.findFirst({ where: { id: data.matchAccountId, householdId: ctx.householdId } }))) {
+    throw new ValidationError("Conta da condição inválida.", { field: "matchAccountId" });
+  }
+  if (data.matchCreditCardId && !(await prisma.creditCard.findFirst({ where: { id: data.matchCreditCardId, householdId: ctx.householdId } }))) {
+    throw new ValidationError("Cartão da condição inválido.", { field: "matchCreditCardId" });
+  }
+  if (data.matchAccountId && data.matchCreditCardId) {
+    throw new ValidationError("Escolha uma conta ou um cartão na condição, não os dois.", { field: "matchCreditCardId" });
+  }
+  assertExclusionRuleCompatible(data);
+  if (data.setExcludeFromReports && !data.setExclusionReason) data.setExclusionReason = "CLIENT_PASSTHROUGH";
+  if (data.setExcludeFromReports === false) {
+    data.setExclusionReason = null;
+    data.setExclusionParty = null;
+  }
 }
 
 export async function listRules(ctx: ServiceContext) {
@@ -229,6 +257,8 @@ export async function listRules(ctx: ServiceContext) {
       subcategory: { select: { name: true } },
       account: { select: { name: true } },
       transferAccount: { select: { name: true } },
+      matchAccount: { select: { name: true } },
+      matchCreditCard: { select: { name: true } },
     },
   });
 }
@@ -248,6 +278,12 @@ export async function updateRule(ctx: ServiceContext, id: string, input: Partial
   const current = await prisma.financialRule.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!current) throw new NotFoundError("Regra");
   await validateRuleRefs(ctx, { ...data, matchType: data.matchType ?? current.matchType, pattern: data.pattern ?? current.pattern });
+  assertExclusionRuleCompatible({
+    setExcludeFromReports: data.setExcludeFromReports ?? current.setExcludeFromReports,
+    setTransferAccountId: data.setTransferAccountId === undefined ? current.setTransferAccountId : data.setTransferAccountId,
+  });
+  if (data.matchAccountId && current.matchCreditCardId && data.matchCreditCardId === undefined) data.matchCreditCardId = null;
+  if (data.matchCreditCardId && current.matchAccountId && data.matchAccountId === undefined) data.matchAccountId = null;
   if (data.setTransferAccountId) {
     data.setCategoryId = null;
     data.setSubcategoryId = null;
@@ -279,11 +315,41 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
       include: { merchant: { select: { name: true } } },
       take: 2000,
     });
-    const ids = candidates.filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type })).map((t) => t.id);
+    const ids = candidates
+      .filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type, accountId: t.accountId, creditCardId: t.creditCardId }))
+      .map((t) => t.id);
     if (!ids.length) return { applied: 0 };
     const res = await convertToTransfers(ctx, { transactionIds: ids.slice(0, 500), counterpartAccountId: rule.setTransferAccountId });
     if (res.converted) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: res.converted } } });
     return { applied: res.converted };
+  }
+  if (rule.setExcludeFromReports) {
+    // Desconsiderar: marca os lançamentos anteriores que casam com a regra (saldo e fatura não mudam).
+    const { findMatchingRule } = await import("../rules/matcher");
+    const { setReportExclusion } = await import("../transactions/report-exclusion");
+    const candidates = await prisma.transaction.findMany({
+      where: { householdId: ctx.householdId, deletedAt: null, excludedFromReports: false, type: rule.transactionType ?? { in: ["EXPENSE", "INCOME"] } },
+      include: { merchant: { select: { name: true } } },
+      orderBy: { date: "desc" },
+      take: 5000,
+    });
+    const ids = candidates
+      .filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type, accountId: t.accountId, creditCardId: t.creditCardId }))
+      .map((t) => t.id);
+    let applied = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const res = await setReportExclusion(
+        ctx,
+        { transactionIds: ids.slice(i, i + 500), excluded: true, reason: rule.setExclusionReason ?? "CLIENT_PASSTHROUGH", party: rule.setExclusionParty ?? null },
+        { reason: `Regra: ${rule.name}` },
+      );
+      applied += res.updated;
+    }
+    // A mesma regra também classifica? Segue para a categoria abaixo.
+    if (!rule.setCategoryId) {
+      if (applied) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: applied } } });
+      return { applied };
+    }
   }
   if (!rule.setCategoryId) throw new ValidationError("Esta regra não define categoria.");
   const { findMatchingRule } = await import("../rules/matcher");
@@ -301,7 +367,7 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
   let applied = 0;
   for (const t of txs) {
     if ((t.type === "INCOME" ? "INCOME" : "EXPENSE") !== target.kind) continue;
-    if (!findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type })) continue;
+    if (!findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type, accountId: t.accountId, creditCardId: t.creditCardId })) continue;
     if (t.categoryId === rule.setCategoryId && t.subcategoryId === rule.setSubcategoryId) continue;
     await updateTransaction(ctx, t.id, { categoryId: rule.setCategoryId, subcategoryId: rule.setSubcategoryId }, { reason: `Regra: ${rule.name}` });
     applied++;

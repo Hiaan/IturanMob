@@ -65,6 +65,11 @@ Outras coberturas além dos 22 cenários:
   aplicações no meio do mês, IR/IOF) e `investment-yield.test.ts` (integração: Banco Central simulado,
   idempotência, BCB fora do ar, exclusão respeitada, ajuste ao saldo do banco);
 - edições parciais não reaplicam valores padrão: `partial-updates.test.ts`.
+- desconsiderar nos relatórios (repasse de cliente): `report-exclusion.test.ts` (saldo, ledger, parcelas,
+  fatura e projeção idênticos antes/depois; relatórios em competência e caixa; orçamento; lista e
+  filtros; saldo do repasse; regra com condição de cartão aplicada aos novos e anteriores; desfazer),
+  `whatsapp-report-exclusion.test.ts` (citação da confirmação do robô, "o pix do fulano é repasse",
+  "todos", "considerar de novo") e `report-exclusion-nlu.test.ts` (frases).
 
 ## Boas práticas para novos testes
 

@@ -47,13 +47,13 @@ describe("exportações", () => {
     const text = csv.content.toString("utf8");
     expect(text.charCodeAt(0)).toBe(0xfeff);
     const lines = text.slice(1).trimEnd().split("\r\n");
-    expect(lines[0]).toBe("Data;Descrição;Categoria;Subcategoria;Tipo;Valor;Forma de pagamento;Conta/Cartão;Responsável;Situação");
-    expect(lines[1]).toBe("05/10/2026;Salário;Trabalho;;Receita;3500,00;;Itaú;Família;Confirmada");
+    expect(lines[0]).toBe("Data;Descrição;Categoria;Subcategoria;Tipo;Valor;Forma de pagamento;Conta/Cartão;Responsável;Situação;Relatórios");
+    expect(lines[1]).toBe("05/10/2026;Salário;Trabalho;;Receita;3500,00;;Itaú;Família;Confirmada;");
     // Texto com fórmula é neutralizado; aspas escapadas; rateio descrito.
     expect(lines[2]).toContain(`"'=HYPERLINK(""x"")"`);
     expect(lines[2]).toContain(";-1234,56;");
     expect(lines[2]).toContain("João (R$ 1.000,00); Maria (R$ 234,56)");
-    expect(lines[3]).toBe("07/10/2026;Cinema;Sem categoria;;Despesa;-90,00;Cartão de crédito;Nubank Crédito;Maria;Confirmada");
+    expect(lines[3]).toBe("07/10/2026;Cinema;Sem categoria;;Despesa;-90,00;Cartão de crédito;Nubank Crédito;Maria;Confirmada;");
     expect(lines[4]).toContain(";Transferência;100,00;Transferência bancária;Itaú → Nubank;;Confirmada");
 
     const xlsx = await exportTransactions(fam.ctx, { types: ["EXPENSE"], start: "2026-10-01" }, "xlsx");

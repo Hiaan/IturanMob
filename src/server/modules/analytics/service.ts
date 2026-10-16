@@ -98,7 +98,8 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
     t."paymentMethod"::text AS "paymentMethod", t."accountId", t."creditCardId", t."payerMemberId", t."responsibleMemberId",
     t.ownership::text AS ownership, t."installmentCount"`;
   // Receitas/despesas em moeda estrangeira entram em reais (PTAX da data); sem cotação ainda, ficam de fora.
-  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
+  // Desconsiderados (repasse de cliente, reembolso) ficam fora de todo relatório — saldo e fatura não mudam.
+  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND t."excludedFromReports" = false AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
   const amountBrl = Prisma.sql`(CASE WHEN t.currency = 'BRL' THEN t."amountCents" ELSE t."amountBrlCents" END)`;
 
   let rows: RawRow[];

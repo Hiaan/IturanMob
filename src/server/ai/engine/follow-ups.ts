@@ -10,6 +10,7 @@ import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { findMentions, matchCategory, parseLocally } from "../nlu/local-parser";
 import { closeClarification, openClarification } from "./clarifications";
+import { parseExclusionCommand } from "./report-exclusion";
 import type { HouseholdContext } from "./context";
 
 /**
@@ -145,6 +146,8 @@ const NEW_CATEGORY_COLORS = ["#0ea5e9", "#f97316", "#a855f7", "#14b8a6", "#ec489
 
 /** Mensagem que claramente não é resposta: tem valor ou é pergunta/correção/exclusão. */
 function looksLikeNewMessage(text: string, hc: HouseholdContext): boolean {
+  // "desconsidera esse", "o pix do fulano é repasse": comando, não resposta à pergunta.
+  if (parseExclusionCommand(text)) return true;
   if (extractAmounts(text).length) return true;
   // "confirmar"/"cancelar"/"importar" respondem a outra pergunta (ex.: importação de PDF), nunca viram categoria.
   if (/^(confirm\w*|cancel\w*|importa\w*)\b/.test(normalizeForNlu(text))) return true;

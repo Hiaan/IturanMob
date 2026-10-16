@@ -12,6 +12,7 @@ export const transactionInclude = {
   payer: { select: { id: true, displayName: true, color: true } },
   responsible: { select: { id: true, displayName: true, color: true } },
   allocations: { include: { member: { select: { id: true, displayName: true, color: true } } } },
+  excludedBy: { select: { id: true, displayName: true } },
   _count: { select: { attachments: true } },
 } satisfies Prisma.TransactionInclude;
 
@@ -44,6 +45,15 @@ export interface TransactionDTO {
   updatedAt: string;
   deletedAt: string | null;
   goalId: string | null;
+  /** Desconsiderado nos relatórios: continua no saldo, no ledger e na fatura. */
+  excludedFromReports: boolean;
+  exclusion: {
+    reason: "CLIENT_PASSTHROUGH" | "REIMBURSEMENT" | "OTHER";
+    party: string | null;
+    note: string | null;
+    excludedAt: string | null;
+    excludedBy: { id: string; displayName: string } | null;
+  } | null;
   category: { id: string; name: string; color: string; icon: string; kind: string } | null;
   subcategory: { id: string; name: string } | null;
   merchant: { id: string; name: string } | null;
@@ -86,6 +96,16 @@ export function serializeTransaction(tx: TransactionWithRelations): TransactionD
     updatedAt: tx.updatedAt.toISOString(),
     deletedAt: tx.deletedAt?.toISOString() ?? null,
     goalId: tx.goalId,
+    excludedFromReports: tx.excludedFromReports,
+    exclusion: tx.excludedFromReports
+      ? {
+          reason: tx.exclusionReason ?? "OTHER",
+          party: tx.exclusionParty,
+          note: tx.exclusionNote,
+          excludedAt: tx.excludedAt?.toISOString() ?? null,
+          excludedBy: tx.excludedBy,
+        }
+      : null,
     category: tx.category,
     subcategory: tx.subcategory,
     merchant: tx.merchant,

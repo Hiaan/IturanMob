@@ -118,7 +118,7 @@ export function resolveOwnMove(
   const transferRules = rules.filter((r) => r.setTransferAccountId && r.setTransferAccountId !== scope.id);
   if (transferRules.length) {
     // O "tipo" da regra limita o sentido: saída (aplicação) = EXPENSE, entrada (resgate) = INCOME.
-    const rule = findMatchingRule(transferRules, { description, merchant: null, amountCents: Math.abs(amountCents), type: amountCents < 0 ? "EXPENSE" : "INCOME" });
+    const rule = findMatchingRule(transferRules, { description, merchant: null, amountCents: Math.abs(amountCents), type: amountCents < 0 ? "EXPENSE" : "INCOME", accountId: scope.id });
     if (rule && accounts.some((a) => a.id === rule.setTransferAccountId)) return { kind: "RULE", counterpartId: rule.setTransferAccountId, ruleId: rule.id };
   }
   const kind = detectOwnMove(description);

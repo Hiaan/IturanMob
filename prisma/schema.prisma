@@ -82,6 +82,14 @@ enum PaymentMethod {
   OTHER
 }
 
+/// Por que um lançamento foi desconsiderado nos relatórios (continua no saldo, no ledger e na fatura).
+enum ReportExclusionReason {
+  /// Repasse de cliente: o dinheiro recebido/gasto é de outra pessoa (ex.: anúncios pagos no cartão).
+  CLIENT_PASSTHROUGH
+  REIMBURSEMENT
+  OTHER
+}
+
 enum TransactionSource {
   MANUAL
   WHATSAPP_TEXT
@@ -538,6 +546,7 @@ model HouseholdMember {
   paidTransactions     Transaction[]            @relation("TransactionPayer")
   responsibleFor       Transaction[]            @relation("TransactionResponsible")
   createdTransactions  Transaction[]            @relation("TransactionCreator")
+  excludedTransactions Transaction[]            @relation("TransactionExcluder")
   allocations          TransactionAllocation[]
   messages             WhatsAppMessage[]
   notifications        Notification[]
@@ -616,6 +625,7 @@ model Account {
   importBatches         ImportBatch[]
   rules                 FinancialRule[]        @relation("RuleAccount")
   transferRules         FinancialRule[]        @relation("RuleTransferAccount")
+  matchRules            FinancialRule[]        @relation("RuleMatchAccount")
 
   @@unique([householdId, name])
   @@index([householdId])
@@ -652,6 +662,7 @@ model CreditCard {
   recurringTransactions RecurringTransaction[]
   scheduledPayments     ScheduledPayment[]
   importBatches         ImportBatch[]
+  matchRules            FinancialRule[]        @relation("RuleMatchCard")
 
   @@unique([householdId, name])
   @@index([householdId])
@@ -747,11 +758,11 @@ model Merchant {
 
 /// Regras explícitas de categorização definidas pelo usuário.
 model FinancialRule {
-  id                     String           @id @default(cuid())
+  id                     String                 @id @default(cuid())
   householdId            String
   name                   String
-  matchField             RuleMatchField   @default(ANY)
-  matchType              RuleMatchType    @default(CONTAINS)
+  matchField             RuleMatchField         @default(ANY)
+  matchType              RuleMatchType          @default(CONTAINS)
   pattern                String
   minAmountCents         Int?
   maxAmountCents         Int?
@@ -765,19 +776,28 @@ model FinancialRule {
   /// Movimentação entre contas próprias (aplicação/resgate de investimento, mesma titularidade):
   /// a linha importada/mensagem vira TRANSFERÊNCIA com esta conta do outro lado.
   setTransferAccountId   String?
-  priority               Int              @default(100)
-  active                 Boolean          @default(true)
-  source                 RuleSource       @default(USER)
-  timesApplied           Int              @default(0)
+  /// Desconsiderar nos relatórios (repasse/reembolso): não muda saldo, ledger nem fatura.
+  setExcludeFromReports  Boolean                @default(false)
+  setExclusionReason     ReportExclusionReason?
+  setExclusionParty      String?
+  /// Condições opcionais: só lançamentos desta conta / deste cartão.
+  matchAccountId         String?
+  matchCreditCardId      String?
+  priority               Int                    @default(100)
+  active                 Boolean                @default(true)
+  source                 RuleSource             @default(USER)
+  timesApplied           Int                    @default(0)
   createdById            String?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   household       Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
   category        Category?    @relation(fields: [setCategoryId], references: [id], onDelete: SetNull)
   subcategory     Subcategory? @relation(fields: [setSubcategoryId], references: [id], onDelete: SetNull)
   account         Account?     @relation("RuleAccount", fields: [setAccountId], references: [id], onDelete: SetNull)
   transferAccount Account?     @relation("RuleTransferAccount", fields: [setTransferAccountId], references: [id], onDelete: SetNull)
+  matchAccount    Account?     @relation("RuleMatchAccount", fields: [matchAccountId], references: [id], onDelete: SetNull)
+  matchCreditCard CreditCard?  @relation("RuleMatchCard", fields: [matchCreditCardId], references: [id], onDelete: SetNull)
 
   @@index([householdId, active])
 }
@@ -792,13 +812,13 @@ model FinancialRule {
 /// - TRANSFER: gera saída na conta de origem e entrada na de destino (não é receita nem despesa).
 /// - CARD_PAYMENT: saída na conta pagadora, vinculada à fatura (não é despesa — evita dupla contagem).
 model Transaction {
-  id                     String            @id @default(cuid())
+  id                     String                 @id @default(cuid())
   householdId            String
   type                   TransactionType
-  status                 TransactionStatus @default(CONFIRMED)
+  status                 TransactionStatus      @default(CONFIRMED)
   amountCents            Int
   /// Moeda de `amountCents`: a da conta de origem (cartões e contas sem moeda definida: BRL).
-  currency               String            @default("BRL")
+  currency               String                 @default("BRL")
   /// TRANSFER entre moedas diferentes: valor creditado na conta de destino, na moeda dela.
   destinationAmountCents Int?
   /// Receita/despesa/ajuste em moeda estrangeira: valor em reais pela PTAX da data (relatórios).
@@ -809,9 +829,9 @@ model Transaction {
   categoryId             String?
   subcategoryId          String?
   /// Data da ocorrência (compra/recebimento/pagamento).
-  date                   DateTime          @db.Date
+  date                   DateTime               @db.Date
   /// Data de competência (padrão = data da ocorrência).
-  competenceDate         DateTime          @db.Date
+  competenceDate         DateTime               @db.Date
   paymentMethod          PaymentMethod?
   /// Conta de origem (despesa/transferência/pagamento de fatura) ou de destino (receita).
   accountId              String?
@@ -820,16 +840,16 @@ model Transaction {
   creditCardId           String?
   /// Fatura paga (somente CARD_PAYMENT).
   statementId            String?
-  installmentCount       Int               @default(1)
+  installmentCount       Int                    @default(1)
   /// Quem efetivamente pagou/recebeu.
   payerMemberId          String?
   /// Quem é economicamente responsável (INDIVIDUAL) ou família (SHARED).
-  ownership              Ownership         @default(SHARED)
+  ownership              Ownership              @default(SHARED)
   responsibleMemberId    String?
-  source                 TransactionSource @default(MANUAL)
+  source                 TransactionSource      @default(MANUAL)
   sourceMessageId        String?
   /// Índice do lançamento dentro da mensagem de origem (mensagens com vários gastos).
-  sourceIndex            Int               @default(0)
+  sourceIndex            Int                    @default(0)
   importBatchId          String?
   recurringTransactionId String?
   goalId                 String?
@@ -837,12 +857,21 @@ model Transaction {
   aiMetadata             Json?
   /// Impressão digital para detecção de duplicidade (valor+data+estabelecimento).
   fingerprint            String?
+  /// Desconsiderado nos relatórios (receitas/despesas, categorias, orçamentos, assistente).
+  /// Continua no saldo, no ledger, na fatura do cartão e na projeção de caixa.
+  excludedFromReports    Boolean                @default(false)
+  exclusionReason        ReportExclusionReason?
+  /// Cliente/pessoa do repasse ou reembolso (agrupa o saldo do repasse).
+  exclusionParty         String?
+  exclusionNote          String?
+  excludedAt             DateTime?
+  excludedByMemberId     String?
   createdByMemberId      String?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
   deletedAt              DateTime?
   deletedByMemberId      String?
-  version                Int               @default(1)
+  version                Int                    @default(1)
 
   household          Household             @relation(fields: [householdId], references: [id], onDelete: Cascade)
   merchant           Merchant?             @relation(fields: [merchantId], references: [id], onDelete: SetNull)
@@ -855,6 +884,7 @@ model Transaction {
   payer              HouseholdMember?      @relation("TransactionPayer", fields: [payerMemberId], references: [id], onDelete: SetNull)
   responsible        HouseholdMember?      @relation("TransactionResponsible", fields: [responsibleMemberId], references: [id], onDelete: SetNull)
   createdBy          HouseholdMember?      @relation("TransactionCreator", fields: [createdByMemberId], references: [id], onDelete: SetNull)
+  excludedBy         HouseholdMember?      @relation("TransactionExcluder", fields: [excludedByMemberId], references: [id], onDelete: SetNull)
   sourceMessage      WhatsAppMessage?      @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
   importBatch        ImportBatch?          @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
   recurring          RecurringTransaction? @relation(fields: [recurringTransactionId], references: [id], onDelete: SetNull)
@@ -878,6 +908,7 @@ model Transaction {
   @@index([householdId, categoryId])
   @@index([householdId, deletedAt])
   @@index([householdId, fingerprint])
+  @@index([householdId, excludedFromReports])
   @@index([accountId])
   @@index([destinationAccountId])
   @@index([creditCardId])
