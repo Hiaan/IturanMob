@@ -13,6 +13,9 @@ export const qk = {
   rules: ["rules"] as const,
   transactions: (p?: unknown) => ["transactions", p ?? {}] as const,
   transaction: (id: string) => ["transactions", "detail", id] as const,
+  /** Sob o prefixo "transactions": invalidados junto com qualquer mudança de lançamento. */
+  passthrough: (p?: unknown) => ["transactions", "passthrough", p ?? {}] as const,
+  exclusionParties: ["transactions", "exclusion-parties"] as const,
   analytics: (name: string, p?: unknown) => ["analytics", name, p ?? {}] as const,
   pending: (p?: unknown) => ["pending", p ?? {}] as const,
   pendingCounts: ["pending", "counts"] as const,

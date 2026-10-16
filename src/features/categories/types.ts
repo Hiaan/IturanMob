@@ -16,6 +16,13 @@ export interface RuleDTO {
   setTransferAccountId: string | null;
   setOwnership: string | null;
   setResponsibleMemberId: string | null;
+  /** Desconsiderar nos relatórios (repasse de cliente, reembolso): saldo e fatura não mudam. */
+  setExcludeFromReports: boolean;
+  setExclusionReason: "CLIENT_PASSTHROUGH" | "REIMBURSEMENT" | "OTHER" | null;
+  setExclusionParty: string | null;
+  /** Condições opcionais: só lançamentos desta conta / deste cartão (no máximo uma das duas). */
+  matchAccountId: string | null;
+  matchCreditCardId: string | null;
   priority: number;
   active: boolean;
   source: "USER" | "ASSISTANT" | "WHATSAPP";
@@ -26,9 +33,14 @@ export interface RuleDTO {
   subcategory: { name: string } | null;
   account: { name: string } | null;
   transferAccount: { name: string } | null;
+  matchAccount?: { name: string } | null;
+  matchCreditCard?: { name: string } | null;
 }
 
-export type RuleInput = Omit<RuleDTO, "id" | "source" | "timesApplied" | "createdAt" | "updatedAt" | "category" | "subcategory" | "account" | "transferAccount" | "setOwnership" | "setResponsibleMemberId">;
+export type RuleInput = Omit<
+  RuleDTO,
+  "id" | "source" | "timesApplied" | "createdAt" | "updatedAt" | "category" | "subcategory" | "account" | "transferAccount" | "matchAccount" | "matchCreditCard" | "setOwnership" | "setResponsibleMemberId"
+>;
 
 export const MATCH_FIELD_LABELS: Record<RuleDTO["matchField"], string> = {
   ANY: "Descrição ou estabelecimento",

@@ -3,6 +3,7 @@ import {
   Bot,
   CircleDashed,
   CreditCard,
+  EyeOff,
   FileUp,
   Mic,
   MessageCircle,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { CategoryIcon } from "@/features/categories/category-icon";
 import type { TransactionDTO } from "@/features/finance/types";
 import { useAccountCurrencies } from "@/features/accounts/currency";
+import { exclusionLabel, exclusionTitle } from "./report-exclusion";
 
 export const SOURCE_ICONS: Record<string, LucideIcon> = {
   MANUAL: PenLine,
@@ -60,6 +62,17 @@ export function PendingBadge() {
   return (
     <Badge variant="warning" title="Aguardando confirmação — ainda não afeta saldos e relatórios">
       <CircleDashed aria-hidden /> Pendente
+    </Badge>
+  );
+}
+
+/** Selo "Desconsiderado" (fora dos relatórios; continua no saldo e na fatura). */
+export function ExcludedBadge({ tx }: { tx: Pick<TransactionDTO, "excludedFromReports" | "exclusion"> }) {
+  if (!tx.excludedFromReports) return null;
+  return (
+    <Badge variant="outline" className="border-dashed border-muted-foreground/50 text-muted-foreground" title={exclusionTitle(tx)}>
+      <EyeOff aria-hidden /> Desconsiderado
+      <span className="sr-only"> nos relatórios: {exclusionLabel(tx)}</span>
     </Badge>
   );
 }

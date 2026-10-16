@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { CheckCircle2, Eye, MoreHorizontal, Paperclip, RotateCcw, Trash2, Users } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, MoreHorizontal, Paperclip, RotateCcw, Trash2, Undo2, Users } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -12,10 +12,15 @@ import { WEEKDAY_NAMES, formatDateBR, formatDateTimeBR, formatLongDateBR, weekda
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { capitalize, cn } from "@/lib/utils";
 import type { CardDTO, TransactionDTO } from "@/features/finance/types";
-import { AmountText, PendingBadge, SourceTag, TransactionIcon, categoryLabel, personLabel, whereLabel } from "./transaction-visuals";
+import { AmountText, ExcludedBadge, PendingBadge, SourceTag, TransactionIcon, categoryLabel, personLabel, whereLabel } from "./transaction-visuals";
 import { currentInstallmentLabel } from "./installments";
+import { canExcludeFromReports } from "./report-exclusion";
 
-export type RowAction = "open" | "confirm" | "delete" | "restore" | "purge";
+/** exclude: desconsiderar nos relatórios (ou editar); include: voltar a considerar. */
+export type RowAction = "open" | "confirm" | "delete" | "restore" | "purge" | "exclude" | "include";
+
+/** Valor de lançamento desconsiderado: mais apagado, mas legível (continua no saldo). */
+const excludedAmount = (tx: TransactionDTO) => (tx.excludedFromReports ? "text-muted-foreground" : undefined);
 
 interface Group {
   key: string;
@@ -40,7 +45,8 @@ function groupItems(items: TransactionDTO[], grouped: boolean, today: string): G
       groups.push(g);
     }
     g.items.push(tx);
-    if (tx.status === "CONFIRMED" && !tx.deletedAt) {
+    // Desconsiderados nos relatórios não entram nos totais do dia (como nos totais do topo).
+    if (tx.status === "CONFIRMED" && !tx.deletedAt && !tx.excludedFromReports) {
       // Totais do dia em reais: moeda estrangeira pela PTAX da data (sem cotação ainda, fica de fora).
       const brl = !tx.currency || tx.currency === "BRL" ? tx.amountCents : (tx.amountBrlCents ?? 0);
       if (tx.type === "INCOME") g.incomeCents += brl;
@@ -81,6 +87,18 @@ function RowMenu({ tx, trash, onAction, canWrite, canDelete }: { tx: Transaction
             <CheckCircle2 /> Confirmar
           </DropdownMenuItem>
         )}
+        {!trash && canWrite && canExcludeFromReports(tx) && (
+          <>
+            <DropdownMenuItem onSelect={() => onAction("exclude", tx)}>
+              <EyeOff /> {tx.excludedFromReports ? "Editar desconsideração…" : "Desconsiderar nos relatórios…"}
+            </DropdownMenuItem>
+            {tx.excludedFromReports && (
+              <DropdownMenuItem onSelect={() => onAction("include", tx)}>
+                <Undo2 /> Voltar a considerar
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
         {trash && canDelete && (
           <DropdownMenuItem onSelect={() => onAction("restore", tx)}>
             <RotateCcw /> Restaurar
@@ -104,6 +122,7 @@ function MetaBadges({ tx, cardsById }: { tx: TransactionDTO; cardsById: Map<stri
   return (
     <>
       {tx.status === "PENDING" && <PendingBadge />}
+      <ExcludedBadge tx={tx} />
       {inst && (
         <Badge variant="info" title={inst.title}>
           <span className="sr-only">Parcela </span>
@@ -236,7 +255,7 @@ export function TransactionList({
                         {person.payer && <p className="truncate text-xs text-muted-foreground">pago por {person.payer.split(" ")[0]}</p>}
                       </TableCell>
                       <TableCell className="text-right">
-                        <AmountText tx={tx} accountId={accountId} />
+                        <AmountText tx={tx} accountId={accountId} className={excludedAmount(tx)} />
                       </TableCell>
                       <TableCell className="pr-3" onClick={(e) => e.stopPropagation()}>
                         <RowMenu tx={tx} trash={trash} onAction={onAction} canWrite={canWrite} canDelete={canDelete} />
@@ -277,7 +296,7 @@ export function TransactionList({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2">
                         <span className="truncate text-sm font-medium">{tx.description}</span>
-                        <AmountText tx={tx} accountId={accountId} className="text-sm" />
+                        <AmountText tx={tx} accountId={accountId} className={cn("text-sm", excludedAmount(tx))} />
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                         {categoryLabel(tx)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { resolvePeriod, type PeriodPreset } from "@/lib/dates";
+import { isISODate, resolvePeriod, type PeriodPreset } from "@/lib/dates";
 import type { SmartPatch } from "./smart-search";
 
 export type TxPreset = PeriodPreset | "all";
@@ -26,6 +26,8 @@ export interface TxFilters {
   sources?: string[];
   minAmountCents?: number;
   maxAmountCents?: number;
+  /** Desconsiderados nos relatórios: ocultar ou só eles (ausente = mostrar junto, o padrão). */
+  excluded?: "hide" | "only";
   sort: TxSort;
 }
 
@@ -55,10 +57,11 @@ export function countAdvanced(f: TxFilters): number {
     f.paymentMethods?.length,
     f.sources?.length,
     f.minAmountCents != null || f.maxAmountCents != null,
+    f.excluded,
   ].filter(Boolean).length;
 }
 
-export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized"] as const;
+export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "start", "end", "period"] as const;
 
 /** Converte parâmetros da URL (links do dashboard, busca global, contas, cartões) em filtros. */
 export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
@@ -79,6 +82,13 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   const status = sp.get("status");
   if (status === "PENDING" || status === "CONFIRMED") patch.status = status;
   if (sp.get("uncategorized") === "1" || sp.get("uncategorized") === "true") patch.uncategorized = true;
+  // Desconsiderados nos relatórios (?excluded=hide|only) e período (?start=&end= ou ?period=all).
+  const excluded = sp.get("excluded");
+  if (excluded === "hide" || excluded === "only") patch.excluded = excluded;
+  const start = sp.get("start");
+  const end = sp.get("end");
+  if (isISODate(start) && isISODate(end) && start <= end) Object.assign(patch, { preset: "custom", start, end });
+  else if (sp.get("period") === "all") Object.assign(patch, { preset: "all", start: undefined, end: undefined });
   return patch;
 }
 
@@ -162,6 +172,7 @@ export function buildListParams(f: TxFilters, today: string, smart: { search: st
     sources: p.sources ?? f.sources,
     minAmountCents: p.minAmountCents ?? f.minAmountCents,
     maxAmountCents: p.maxAmountCents ?? f.maxAmountCents,
+    excluded: f.excluded,
     search: smart.search || undefined,
     sort: f.sort,
     page,

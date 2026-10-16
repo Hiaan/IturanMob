@@ -160,6 +160,22 @@ export function FiltersSheet({
             </div>
           </fieldset>
 
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-[13px] font-medium">Desconsiderados nos relatórios</legend>
+            <div className="flex flex-wrap gap-2">
+              <ToggleChip pressed={!filters.excluded} onClick={() => onChange({ excluded: undefined })}>
+                Mostrar (padrão)
+              </ToggleChip>
+              <ToggleChip pressed={filters.excluded === "hide"} onClick={() => onChange({ excluded: "hide" })}>
+                Ocultar
+              </ToggleChip>
+              <ToggleChip pressed={filters.excluded === "only"} onClick={() => onChange({ excluded: "only" })}>
+                Somente
+              </ToggleChip>
+            </div>
+            <p className="text-xs text-muted-foreground">Repasses de clientes, reembolsos e outros valores que não são da família. Nunca entram nos totais de receitas e despesas, mas continuam no saldo e na fatura.</p>
+          </fieldset>
+
           <div className="grid gap-2">
             <Label htmlFor="flt-category" className="text-[13px]">
               Categoria
@@ -359,6 +375,7 @@ export function ActiveFilterChips({
     chips.push({ key: "sub", label: `Categoria: ${cat ? `${cat.name} › ${sub?.name}` : "Subcategoria"}`, clear: () => onChange({ subcategoryId: undefined }) });
   }
   if (filters.uncategorized) chips.push({ key: "unc", label: "Sem categoria", clear: () => onChange({ uncategorized: undefined }) });
+  if (filters.excluded) chips.push({ key: "excl", label: filters.excluded === "only" ? "Só desconsiderados" : "Sem os desconsiderados", clear: () => onChange({ excluded: undefined }) });
   if (filters.accountId) chips.push({ key: "acc", label: `Conta: ${accounts.data?.find((a) => a.id === filters.accountId)?.name ?? "…"}`, clear: () => onChange({ accountId: undefined }) });
   if (filters.creditCardId) chips.push({ key: "card", label: `Cartão: ${cards.data?.find((c) => c.id === filters.creditCardId)?.name ?? "…"}`, clear: () => onChange({ creditCardId: undefined }) });
   if (filters.memberId) {

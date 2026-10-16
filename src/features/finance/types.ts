@@ -99,6 +99,19 @@ export interface MemberDTO {
   isMe: boolean;
 }
 
+/** Motivo de "Desconsiderar nos relatórios". */
+export type ExclusionReason = "CLIENT_PASSTHROUGH" | "REIMBURSEMENT" | "OTHER";
+
+/** Marca de "Desconsiderado nos relatórios": continua no saldo, no extrato e na fatura. */
+export interface TransactionExclusion {
+  reason: ExclusionReason;
+  /** Cliente/pessoa do repasse (agrupa o saldo do repasse). */
+  party: string | null;
+  note: string | null;
+  excludedAt: string | null;
+  excludedBy: { id: string; displayName: string } | null;
+}
+
 export interface TransactionDTO {
   id: string;
   type: "EXPENSE" | "INCOME" | "TRANSFER" | "CARD_PAYMENT" | "ADJUSTMENT";
@@ -125,6 +138,9 @@ export interface TransactionDTO {
   updatedAt: string;
   deletedAt: string | null;
   goalId: string | null;
+  /** Desconsiderado nos relatórios (repasse de cliente, reembolso…): saldo e fatura não mudam. */
+  excludedFromReports: boolean;
+  exclusion: TransactionExclusion | null;
   category: { id: string; name: string; color: string; icon: string; kind: string } | null;
   subcategory: { id: string; name: string } | null;
   merchant: { id: string; name: string } | null;
@@ -146,5 +162,6 @@ export interface TransactionList {
   total: number;
   page: number;
   pageSize: number;
-  totals: { expenseCents: number; incomeCents: number; transferCents: number; cardPaymentCents: number };
+  /** Receitas/despesas sem os desconsiderados nos relatórios; estes vêm à parte (excluded*). */
+  totals: { expenseCents: number; incomeCents: number; transferCents: number; cardPaymentCents: number; excludedExpenseCents: number; excludedIncomeCents: number };
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, CheckCircle2, ExternalLink, FileText, ImageOff, Info, Mic, PencilLine, Trash2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, EyeOff, FileText, ImageOff, Info, Mic, PencilLine, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +16,13 @@ import { cn } from "@/lib/utils";
 import { useCan, useMe } from "@/features/me/use-me";
 import { TransactionForm } from "./transaction-form";
 import { TransactionHistory } from "./transaction-history";
-import { AmountText, PendingBadge, SourceTag, TransactionIcon, categoryLabel } from "./transaction-visuals";
+import { AmountText, ExcludedBadge, PendingBadge, SourceTag, TransactionIcon, categoryLabel } from "./transaction-visuals";
 import { useTransactionActions, useTransactionDetail, type TransactionDetail } from "./use-transaction-actions";
 import { DeleteTransactionsDialog, PurgeTransactionsDialog } from "./confirm-dialogs";
 import { describeExchange, isForeignCurrency, useAccountCurrencies } from "@/features/accounts/currency";
+import { ReportExclusionDialog } from "./report-exclusion-dialog";
+import { EXCLUSION_REASON_LABELS, canExcludeFromReports, exclusionAuthorLine, sameParty, usePassthrough, useReportExclusion } from "./report-exclusion";
+import { PassthroughBalance, excludedListHref } from "./passthrough-card";
 
 const EDITABLE_TYPES = new Set(["EXPENSE", "INCOME", "TRANSFER"]);
 
@@ -86,6 +89,105 @@ function AttachmentItem({ a }: { a: TransactionDetail["attachments"][number] }) 
   );
 }
 
+/** Saldo do repasse com o cliente deste lançamento (desde o início). */
+function PartyBalance({ party }: { party: string }) {
+  const q = usePassthrough(null);
+  const stats = q.data?.parties.find((p) => sameParty(p.party, party));
+  if (q.isLoading) return <Skeleton className="mt-3 h-[74px]" />;
+  if (!stats) return null;
+  return (
+    <div className="mt-3 rounded-lg border bg-card p-3">
+      <p className="text-xs font-medium">
+        Saldo do repasse com {stats.party ?? party} <span className="font-normal text-muted-foreground">· desde o início · {stats.count} {stats.count === 1 ? "lançamento" : "lançamentos"}</span>
+      </p>
+      <dl className="mt-2 grid grid-cols-3 gap-2">
+        <div className="min-w-0">
+          <dt className="text-[11px] text-muted-foreground">Recebido</dt>
+          <dd className="truncate text-sm font-semibold tabular text-positive">+{formatBRL(stats.receivedCents)}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[11px] text-muted-foreground">Gasto</dt>
+          <dd className="truncate text-sm font-semibold tabular">−{formatBRL(stats.spentCents)}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[11px] text-muted-foreground">Saldo</dt>
+          <dd>
+            <PassthroughBalance cents={stats.balanceCents} srLabel />
+          </dd>
+        </div>
+      </dl>
+      <Link href={excludedListHref(null)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
+        Ver repasses de todos os clientes <ArrowRight className="size-3.5" aria-hidden />
+      </Link>
+    </div>
+  );
+}
+
+/** Quadro "Desconsiderado nos relatórios": motivo, cliente, quem/quando e as ações. */
+function ExclusionPanel({
+  tx,
+  timezone,
+  canWrite,
+  onEdit,
+  onUndo,
+  undoing,
+}: {
+  tx: TransactionDetail;
+  timezone?: string;
+  canWrite: boolean;
+  onEdit: () => void;
+  onUndo: () => void;
+  undoing: boolean;
+}) {
+  const e = tx.exclusion;
+  const author = exclusionAuthorLine(tx, timezone);
+  const party = e?.reason === "CLIENT_PASSTHROUGH" ? e.party : null;
+  const where = tx.creditCard
+    ? `Continua na fatura do cartão ${tx.creditCard.name} e no limite usado`
+    : tx.account
+      ? `Continua no saldo de ${tx.account.name}`
+      : "Continua registrado";
+  return (
+    <section aria-labelledby="exclusion-title" className="rounded-xl border border-dashed border-muted-foreground/40 bg-muted/40 p-3.5">
+      <div className="flex items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-card text-muted-foreground" aria-hidden>
+          <EyeOff className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 id="exclusion-title" className="text-sm font-semibold">
+            Desconsiderado nos relatórios
+          </h3>
+          <p className="mt-0.5 break-words text-sm">
+            {EXCLUSION_REASON_LABELS[e?.reason ?? "OTHER"]}
+            {e?.party && (
+              <>
+                {" · "}
+                <span className="font-medium">{e.party}</span>
+              </>
+            )}
+          </p>
+          {e?.note && <p className="mt-0.5 break-words text-xs text-muted-foreground">“{e.note}”</p>}
+          {author && <p className="mt-0.5 text-xs text-muted-foreground">Marcado {author}</p>}
+        </div>
+      </div>
+      <p className="mt-2.5 text-xs text-muted-foreground">
+        <strong className="font-medium text-foreground/80">{where}.</strong> Só não entra em receitas, despesas, categorias, orçamentos, comparativos e relatórios.
+      </p>
+      {party && <PartyBalance party={party} />}
+      {canWrite && !tx.deletedAt && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={onEdit} aria-label="Editar desconsideração">
+            <PencilLine /> Editar
+          </Button>
+          <Button size="sm" variant="outline" loading={undoing} onClick={onUndo}>
+            <Undo2 /> Voltar a considerar
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Painel lateral com todos os dados, parcelas, anexos, histórico e ações de uma transação. */
 export function TransactionDetailSheet({ id, onClose }: { id: string | null; onClose: () => void }) {
   const q = useTransactionDetail(id);
@@ -94,6 +196,8 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
   const canWrite = useCan("transactions:write");
   const canDelete = useCan("transactions:delete");
   const actions = useTransactionActions();
+  const exclusion = useReportExclusion();
+  const [exclusionOpen, setExclusionOpen] = useState(false);
   const currencies = useAccountCurrencies();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -102,10 +206,12 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
 
   useEffect(() => {
     setEditing(false);
+    setExclusionOpen(false);
   }, [id]);
 
   const deleted = Boolean(tx?.deletedAt);
   const editable = tx && EDITABLE_TYPES.has(tx.type) && !deleted && canWrite;
+  const excludable = Boolean(tx && canExcludeFromReports(tx) && canWrite);
   const currency = tx?.currency ?? "BRL";
   // Transferência entre moedas: valor que saiu (origem) e o creditado no destino.
   const crossTransfer = tx?.type === "TRANSFER" && tx.destinationAmountCents != null;
@@ -166,6 +272,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <AmountText tx={tx} className="text-2xl tracking-tight" secondary={false} />
                 {tx.status === "PENDING" && <PendingBadge />}
+                <ExcludedBadge tx={tx} />
                 {deleted && (
                   <Badge variant="negative">
                     <Trash2 aria-hidden /> Na lixeira
@@ -201,6 +308,11 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                   <CheckCircle2 /> Confirmar
                 </Button>
               )}
+              {excludable && !tx.excludedFromReports && (
+                <Button size="sm" variant="outline" onClick={() => setExclusionOpen(true)} title="Repasse de cliente, reembolso…: o saldo da conta e a fatura do cartão não mudam">
+                  <EyeOff /> Desconsiderar nos relatórios
+                </Button>
+              )}
               {!deleted && canDelete && (
                 <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
                   <Trash2 /> Excluir
@@ -224,6 +336,16 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
             </div>
 
             <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+              {tx.excludedFromReports && (
+                <ExclusionPanel
+                  tx={tx}
+                  timezone={tz}
+                  canWrite={excludable}
+                  onEdit={() => setExclusionOpen(true)}
+                  onUndo={() => exclusion.mutate({ transactionIds: [tx.id], excluded: false })}
+                  undoing={exclusion.isPending}
+                />
+              )}
               <Section title="Detalhes">
                 <dl className="divide-y">
                   <Row label="Situação">{tx.status === "PENDING" ? "Aguardando confirmação (não afeta saldos)" : "Confirmada"}</Row>
@@ -352,6 +474,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
               </Section>
             </div>
 
+            <ReportExclusionDialog open={exclusionOpen} onOpenChange={setExclusionOpen} items={[tx]} />
             <DeleteTransactionsDialog
               open={confirmDelete}
               onOpenChange={setConfirmDelete}

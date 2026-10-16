@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/features/me/use-me";
+import { PassthroughCard } from "@/features/transactions/passthrough-card";
 import { ReportGenerator } from "./report-generator";
 import { ReportHistory } from "./report-history";
 import { ReportViewer } from "./report-viewer";
@@ -88,7 +89,7 @@ export function ReportsView() {
         <TabsContent value="relatorios" className="space-y-4">
           <ReportGenerator timezone={timezone} onGenerated={(r) => select(r.id)} />
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div id="report-viewer" className="min-w-0 scroll-mt-20">
+            <div id="report-viewer" className="min-w-0 scroll-mt-20 space-y-4">
               {report.data ? (
                 <ReportViewer report={report.data} isFetching={report.isFetching && report.isPlaceholderData} />
               ) : report.error ? (
@@ -100,6 +101,13 @@ export function ReportsView() {
                   icon={FileBarChart2}
                   title="Nenhum relatório ainda"
                   description="Escolha o mês ou a semana acima e gere o primeiro relatório. Os relatórios programados também aparecem aqui."
+                />
+              )}
+              {/* Repasses de clientes (desconsiderados): só aparece para quem tem algum. */}
+              {!report.isLoading && (
+                <PassthroughCard
+                  period={report.data ? report.data.data.period : null}
+                  description="Repasses de clientes ficam fora das receitas e despesas deste relatório, mas continuam no saldo e na fatura."
                 />
               )}
             </div>

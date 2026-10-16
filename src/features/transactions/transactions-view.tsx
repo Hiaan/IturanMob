@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Info, List, Plus, Scale, SearchX, Search, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, EyeOff, Info, List, Plus, Scale, SearchX, Search, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,9 @@ import { BulkBar, BulkReclassifyDialog } from "./bulk-actions";
 import { ConvertTransferDialog } from "./convert-transfer-dialog";
 import { DeleteTransactionsDialog, PurgeTransactionsDialog } from "./confirm-dialogs";
 import { useTransactionActions } from "./use-transaction-actions";
+import { ReportExclusionDialog } from "./report-exclusion-dialog";
+import { EXCLUSION_KEEPS_BALANCE, useReportExclusion } from "./report-exclusion";
+import { PassthroughCard } from "./passthrough-card";
 
 const PAGE_SIZE = 50;
 
@@ -78,6 +81,7 @@ export function TransactionsView() {
   const categories = useCategories();
   const cards = useCards({ includeArchived: true });
   const actions = useTransactionActions();
+  const exclusion = useReportExclusion();
 
   const { filters, update, reset, loaded, init } = usePersistentTxFilters();
   const [view, setView] = useState<"list" | "trash">("list");
@@ -91,6 +95,13 @@ export function TransactionsView() {
   const [convertOpen, setConvertOpen] = useState(false);
   const [toDelete, setToDelete] = useState<{ items: TransactionDTO[]; bulk: boolean } | null>(null);
   const [toPurge, setToPurge] = useState<TransactionDTO[] | null>(null);
+  /** Lançamentos no diálogo "Desconsiderar nos relatórios" (um, pela linha, ou a seleção). */
+  const [toExclude, setToExclude] = useState<{ items: TransactionDTO[]; bulk: boolean }>({ items: [], bulk: false });
+  const [excludeOpen, setExcludeOpen] = useState(false);
+  const openExclude = (items: TransactionDTO[], bulk: boolean) => {
+    setToExclude({ items, bulk });
+    setExcludeOpen(true);
+  };
 
   // --- URL: filtros vindos de links (?categoryId=, ?type=, ?accountId=…) e detalhe (?id=) ---
   // history.replaceState é integrado ao roteador do Next (sem ida ao servidor).
@@ -177,6 +188,8 @@ export function TransactionsView() {
     else if (a === "delete") setToDelete({ items: [tx], bulk: false });
     else if (a === "restore") actions.restore.mutate(tx.id);
     else if (a === "purge") setToPurge([tx]);
+    else if (a === "exclude") openExclude([tx], false);
+    else if (a === "include") exclusion.mutate({ transactionIds: [tx.id], excluded: false });
   };
 
   const onRemoveToken = (t: SmartToken) => setSearchText((s) => removeToken(s, t.raw));
@@ -189,7 +202,11 @@ export function TransactionsView() {
   const from = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const to = Math.min(page * PAGE_SIZE, total);
   const grouped = filters.sort === "date_desc" || filters.sort === "date_asc";
-  const busy = actions.bulk.isPending || actions.purge.isPending;
+  const busy = actions.bulk.isPending || actions.purge.isPending || exclusion.isPending;
+  const onlyExcluded = view === "list" && filters.excluded === "only";
+  const excludedIn = totals?.excludedIncomeCents ?? 0;
+  const excludedOut = totals?.excludedExpenseCents ?? 0;
+  const showExcludedTotals = view === "list" && !onlyExcluded && (excludedIn > 0 || excludedOut > 0);
 
   return (
     <div className="space-y-5">
@@ -280,23 +297,48 @@ export function TransactionsView() {
         <div className={cn("grid grid-cols-2 gap-3 xl:grid-cols-4", list.isFetching && !list.isLoading && "opacity-70 transition-opacity")}>
           {list.isLoading || !totals ? (
             Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[74px] rounded-xl" />)
+          ) : onlyExcluded ? (
+            <>
+              <TotalTile label="Entradas desconsideradas" value={excludedIn} icon={TrendingUp} tone="positive" hint={`Receitas confirmadas desconsideradas nos relatórios. ${EXCLUSION_KEEPS_BALANCE}`} />
+              <TotalTile label="Saídas desconsideradas" value={excludedOut} icon={TrendingDown} tone="negative" hint={`Despesas confirmadas desconsideradas nos relatórios. ${EXCLUSION_KEEPS_BALANCE}`} />
+              <TotalTile label="Diferença" value={excludedIn - excludedOut} icon={Scale} signed hint="Entradas menos saídas desconsideradas (fora dos relatórios)." />
+              <TotalTile label="Lançamentos" value={total.toLocaleString("pt-BR")} icon={EyeOff} hint="Lançamentos desconsiderados encontrados (inclui pendentes)" />
+            </>
           ) : (
             <>
-              <TotalTile label="Receitas" value={totals.incomeCents} icon={TrendingUp} tone="positive" hint="Receitas confirmadas que atendem aos filtros" />
-              <TotalTile label="Despesas" value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras no cartão pelo valor total)" />
+              <TotalTile label="Receitas" value={totals.incomeCents} icon={TrendingUp} tone="positive" hint="Receitas confirmadas que atendem aos filtros (sem as desconsideradas nos relatórios)" />
+              <TotalTile label="Despesas" value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras no cartão pelo valor total; sem as desconsideradas nos relatórios)" />
               <TotalTile label="Resultado" value={totals.incomeCents - totals.expenseCents} icon={Scale} signed hint="Receitas menos despesas. Transferências e pagamentos de fatura não entram no cálculo." />
               <TotalTile label="Lançamentos" value={total.toLocaleString("pt-BR")} icon={ArrowLeftRight} hint="Total de lançamentos encontrados (inclui pendentes)" />
             </>
           )}
         </div>
       )}
-      {view === "list" && totals && (totals.transferCents > 0 || totals.cardPaymentCents > 0) && (
+      {view === "list" && totals && (totals.transferCents > 0 || totals.cardPaymentCents > 0 || showExcludedTotals) && (
         <p className="-mt-2 text-xs text-muted-foreground">
           Totais consideram apenas lançamentos confirmados.
           {totals.transferCents > 0 && ` Transferências: ${formatBRL(totals.transferCents)}.`}
           {totals.cardPaymentCents > 0 && ` Pagamentos de fatura: ${formatBRL(totals.cardPaymentCents)} (não contam como despesa).`}
+          {showExcludedTotals && (
+            <>
+              {" "}
+              <span className="font-medium text-foreground/80">
+                Desconsiderados:{" "}
+                <span className="tabular">
+                  {excludedIn > 0 && `+${formatBRL(excludedIn)}`}
+                  {excludedIn > 0 && excludedOut > 0 && " / "}
+                  {excludedOut > 0 && `−${formatBRL(excludedOut)}`}
+                </span>
+              </span>{" "}
+              (fora dos relatórios; continuam no saldo e na fatura).{" "}
+              <button type="button" onClick={() => update({ excluded: "only" })} className="font-medium text-brand hover:underline">
+                Ver só eles
+              </button>
+            </>
+          )}
         </p>
       )}
+      {onlyExcluded && <PassthroughCard period={shownPeriod} showListLink={false} />}
 
       {list.isLoading || !loaded ? (
         <ListSkeleton />
@@ -305,6 +347,17 @@ export function TransactionsView() {
       ) : items.length === 0 ? (
         view === "trash" ? (
           <EmptyState icon={Trash2} title={debounced ? "Nada encontrado na lixeira" : "A lixeira está vazia"} description="Lançamentos excluídos aparecem aqui e podem ser restaurados." />
+        ) : onlyExcluded && !debounced ? (
+          <EmptyState
+            icon={EyeOff}
+            title="Nenhum lançamento desconsiderado no período"
+            description="Abra um lançamento e use “Desconsiderar nos relatórios” para tirar repasses de clientes e reembolsos das receitas e despesas. O saldo e a fatura não mudam."
+            action={
+              <Button variant="outline" onClick={() => update({ excluded: undefined })}>
+                Mostrar todos os lançamentos
+              </Button>
+            }
+          />
         ) : hasAnyFilter ? (
           <EmptyState
             icon={SearchX}
@@ -375,7 +428,7 @@ export function TransactionsView() {
           )}
         </nav>
       )}
-      {selectedItems.length > 0 && <div className="h-20" aria-hidden />}
+      {selectedItems.length > 0 && <div className="h-24" aria-hidden />}
 
       <BulkBar
         items={selectedItems}
@@ -386,6 +439,13 @@ export function TransactionsView() {
         onClear={() => setSelected(new Set())}
         onReclassify={() => setReclassifyOpen(true)}
         onConvertTransfer={() => setConvertOpen(true)}
+        onExclude={() => openExclude(selectedItems, true)}
+        onInclude={() =>
+          exclusion.mutate(
+            { transactionIds: selectedItems.filter((t) => t.excludedFromReports).map((t) => t.id), excluded: false },
+            { onSuccess: () => setSelected(new Set()) },
+          )
+        }
         onConfirm={() =>
           actions.bulk.mutate({ action: "confirm", ids: selectedItems.filter((t) => t.status === "PENDING").map((t) => t.id) }, { onSuccess: () => setSelected(new Set()) })
         }
@@ -412,6 +472,7 @@ export function TransactionsView() {
           )
         }
       />
+      <ReportExclusionDialog open={excludeOpen} onOpenChange={setExcludeOpen} items={toExclude.items} onDone={() => toExclude.bulk && setSelected(new Set())} />
       <ConvertTransferDialog open={convertOpen} onOpenChange={setConvertOpen} items={selectedItems} lookup={items} onDone={() => setSelected(new Set())} />
       <DeleteTransactionsDialog
         open={Boolean(toDelete)}

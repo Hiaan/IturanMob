@@ -158,6 +158,7 @@ function RecentTransactions({ account }: { account: AccountDTO }) {
                   <span className="block truncate text-xs text-muted-foreground">
                     {formatDateBR(tx.date)} · {categoryLabel(tx)}
                     {tx.status === "PENDING" && " · pendente"}
+                    {tx.excludedFromReports && " · desconsiderado nos relatórios"}
                   </span>
                 </span>
                 <AmountText tx={tx} accountId={account.id} className="text-sm" />

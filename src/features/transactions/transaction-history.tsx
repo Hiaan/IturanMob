@@ -6,6 +6,7 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/dates";
 import { OWNERSHIP_LABELS, PAYMENT_METHOD_LABELS, TRANSACTION_SOURCE_LABELS, TRANSACTION_STATUS_LABELS, TRANSACTION_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import type { AuditEntry } from "./use-transaction-actions";
+import { EXCLUSION_REASON_LABELS } from "./report-exclusion";
 
 const ACTIONS: Record<string, { label: string; icon: LucideIcon; tone: string }> = {
   CREATE: { label: "Criado", icon: CirclePlus, tone: "text-brand" },
@@ -49,6 +50,10 @@ const FIELD_LABELS: Record<string, string> = {
   allocations: "Rateio",
   deletedAt: "Exclusão",
   goalId: "Meta",
+  excludedFromReports: "Relatórios",
+  exclusionReason: "Motivo",
+  exclusionParty: "Cliente/pessoa",
+  exclusionNote: "Observação (desconsiderado)",
 };
 
 export function TransactionHistory({ history, timezone }: { history: AuditEntry[]; timezone?: string }) {
@@ -90,6 +95,10 @@ export function TransactionHistory({ history, timezone }: { history: AuditEntry[
         return Array.isArray(v) && v.length ? (v as Array<{ memberId: string; amountCents: number }>).map((a) => `${memberName(a.memberId)} ${formatBRL(a.amountCents)}`).join(", ") : "sem rateio";
       case "deletedAt":
         return formatDateTimeBR(String(v), timezone);
+      case "excludedFromReports":
+        return v === true ? "Desconsiderado (saldo e fatura não mudam)" : "Considerado";
+      case "exclusionReason":
+        return labelOf(EXCLUSION_REASON_LABELS, String(v));
       case "merchantId":
       case "statementId":
       case "goalId":
