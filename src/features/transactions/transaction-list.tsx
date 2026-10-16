@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatMoney } from "@/lib/money";
 import { WEEKDAY_NAMES, formatDateBR, formatDateTimeBR, formatLongDateBR, weekday } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { capitalize, cn } from "@/lib/utils";
@@ -41,8 +41,10 @@ function groupItems(items: TransactionDTO[], grouped: boolean, today: string): G
     }
     g.items.push(tx);
     if (tx.status === "CONFIRMED" && !tx.deletedAt) {
-      if (tx.type === "INCOME") g.incomeCents += tx.amountCents;
-      if (tx.type === "EXPENSE") g.expenseCents += tx.amountCents;
+      // Totais do dia em reais: moeda estrangeira pela PTAX da data (sem cotação ainda, fica de fora).
+      const brl = !tx.currency || tx.currency === "BRL" ? tx.amountCents : (tx.amountBrlCents ?? 0);
+      if (tx.type === "INCOME") g.incomeCents += brl;
+      if (tx.type === "EXPENSE") g.expenseCents += brl;
     }
   }
   return groups;
@@ -109,7 +111,7 @@ function MetaBadges({ tx, cardsById }: { tx: TransactionDTO; cardsById: Map<stri
         </Badge>
       )}
       {tx.allocations.length > 1 && (
-        <Badge variant="muted" title={tx.allocations.map((a) => `${a.displayName}: ${formatBRL(a.amountCents)}`).join(" · ")}>
+        <Badge variant="muted" title={tx.allocations.map((a) => `${a.displayName}: ${formatMoney(a.amountCents, tx.currency)}`).join(" · ")}>
           <Users aria-hidden /> Rateio
         </Badge>
       )}

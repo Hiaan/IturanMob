@@ -57,8 +57,13 @@ export interface StatementInfoDTO {
 export interface ImportRowTransfer {
   accountId: string | null;
   accountName: string | null;
+  accountCurrency: string | null;
   direction: "OUT" | "IN";
-  reason: "INVESTMENT" | "OWN_ACCOUNTS" | "RULE" | "MANUAL" | null;
+  reason: "INVESTMENT" | "OWN_ACCOUNTS" | "FOREIGN" | "RULE" | "MANUAL" | null;
+  /** Contas de moedas diferentes: valor do outro lado (na moeda da outra conta) já informado. */
+  counterpartAmountCents: number | null;
+  /** Contas de moedas diferentes sem o valor do outro lado: a linha fica fora da importação. */
+  needsCounterpartAmount: boolean;
 }
 
 export interface ImportRowDTO {
@@ -114,6 +119,8 @@ export interface RowsTransferInput {
   transferAccountId: string | null;
   applyToSimilar?: boolean;
   remember?: boolean;
+  /** Conta em outra moeda: valor do outro lado, na moeda dela (uma linha por vez, sem applyToSimilar). */
+  counterpartAmountCents?: number | null;
 }
 
 export type RowsTransferResult = ImportPreview & { updatedRows: number; ruleCreated: boolean };

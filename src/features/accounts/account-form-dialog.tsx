@@ -21,6 +21,7 @@ import { useMe } from "@/features/me/use-me";
 import type { AccountDTO } from "@/features/finance/types";
 import { ACCOUNT_COLORS, ACCOUNT_TYPE_ICON, AccountIcon, ColorSwatches } from "./account-icon";
 import { useAccountMutations, type AccountInput } from "./use-account-mutations";
+import { CURRENCY_OPTIONS, isForeignCurrency, type CurrencyCode } from "./currency";
 import { YIELD_INDEXES, YIELD_RATE_UNIT, bpsToPercentText, isPercentOfIndex, percentTextToBps, supportsYield, type YieldIndex } from "./yield";
 
 const NONE = "__none__";
@@ -36,13 +37,14 @@ const schema = z
     initialBalanceDate: z.string().length(10, "Informe a data do saldo inicial"),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida"),
     includeInTotals: z.boolean(),
+    currency: z.enum(["BRL", "USD", "EUR", "GBP"]),
     yieldEnabled: z.boolean(),
     yieldIndex: z.enum(["CDI", "SELIC", "IPCA", "PREFIXED"]),
     yieldRate: z.string(),
     yieldStartDate: z.string(),
   })
   .superRefine((v, ctx) => {
-    if (!v.yieldEnabled || !supportsYield(v.type)) return;
+    if (!v.yieldEnabled || !supportsYield(v.type) || v.currency !== "BRL") return;
     const bps = percentTextToBps(v.yieldRate);
     if (!v.yieldRate.trim()) ctx.addIssue({ code: "custom", path: ["yieldRate"], message: isPercentOfIndex(v.yieldIndex) ? "Informe o percentual (ex.: 100)" : "Informe a taxa ao ano" });
     else if (bps === null) ctx.addIssue({ code: "custom", path: ["yieldRate"], message: "Use um número com até 2 casas decimais (ex.: 101,5)" });
@@ -76,16 +78,19 @@ function defaults(account: AccountDTO | null | undefined, today: string, enableY
         initialBalanceDate: account.initialBalanceDate,
         color: account.color,
         includeInTotals: account.includeInTotals,
+        currency: (account.currency ?? "BRL") as CurrencyCode,
         ...yieldValues,
       }
-    : { name: "", institution: "", type: "CHECKING", visibility: "SHARED", ownerMemberId: NONE, initialBalanceCents: 0, initialBalanceDate: today, color: ACCOUNT_COLORS[0]!, includeInTotals: true, ...yieldValues };
+    : { name: "", institution: "", type: "CHECKING", visibility: "SHARED", ownerMemberId: NONE, initialBalanceCents: 0, initialBalanceDate: today, color: ACCOUNT_COLORS[0]!, includeInTotals: true, currency: "BRL", ...yieldValues };
 }
 
 const YIELD_FIELDS = ["yieldIndex", "yieldRateBps", "yieldStartDate"] as const;
+/** Só vão no PATCH quando mudam: rendimento (reapura os meses) e moeda (travada depois dos lançamentos). */
+const SEND_IF_CHANGED = [...YIELD_FIELDS, "currency"] as const;
 
 /**
  * Corpo do PATCH na edição. Os campos básicos vão sempre (a rota ainda aplica os padrões do schema
- * aos campos ausentes); os do rendimento só quando mudam, porque alterá-los reapura os meses.
+ * aos campos ausentes); os do rendimento e a moeda só quando mudam.
  * `null` quando nada mudou.
  */
 function editPayload(account: AccountDTO, next: AccountInput): Partial<AccountInput> | null {
@@ -100,6 +105,7 @@ function editPayload(account: AccountDTO, next: AccountInput): Partial<AccountIn
     color: account.color,
     icon: account.icon,
     includeInTotals: account.includeInTotals,
+    currency: account.currency ?? "BRL",
     yieldIndex: account.yieldIndex,
     yieldRateBps: account.yieldRateBps,
     yieldStartDate: account.yieldStartDate,
@@ -107,7 +113,7 @@ function editPayload(account: AccountDTO, next: AccountInput): Partial<AccountIn
   const changed = (Object.keys(next) as Array<keyof AccountInput>).filter((k) => next[k] !== before[k]);
   if (!changed.length) return null;
   const out: Partial<AccountInput> = { ...next };
-  for (const k of YIELD_FIELDS) if (!changed.includes(k)) delete out[k];
+  for (const k of SEND_IF_CHANGED) if (!changed.includes(k)) delete out[k];
   // Desligar basta enviar o indexador nulo: taxa e início são limpos pelo servidor.
   if (next.yieldIndex === null && changed.includes("yieldIndex")) {
     delete out.yieldRateBps;
@@ -136,15 +142,18 @@ export function AccountFormDialog({
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults(account, today, focusYield) });
   const { control, register, handleSubmit, reset, setValue, formState } = form;
   const e = formState.errors;
-  const [type, color, visibility, initial, name, initialDate, yieldEnabled, yieldIndex] = useWatch({
+  const [type, color, visibility, initial, name, initialDate, yieldEnabled, yieldIndex, currency] = useWatch({
     control,
-    name: ["type", "color", "visibility", "initialBalanceCents", "name", "initialBalanceDate", "yieldEnabled", "yieldIndex"],
+    name: ["type", "color", "visibility", "initialBalanceCents", "name", "initialBalanceDate", "yieldEnabled", "yieldIndex", "currency"],
   });
   const yieldSectionRef = useRef<HTMLElement | null>(null);
   const yieldRateRef = useRef<HTMLInputElement | null>(null);
   // Início do rendimento acompanha a data do saldo inicial até a pessoa escolher outra.
   const startTouched = useRef(false);
-  const yieldEligible = supportsYield(type);
+  const foreign = isForeignCurrency(currency);
+  const yieldEligible = supportsYield(type) && !foreign;
+  // A moeda não muda depois que a conta tem lançamentos (o servidor recusa).
+  const currencyLocked = Boolean(account && account.transactionsCount > 0);
   const unit = YIELD_RATE_UNIT[yieldIndex];
 
   useEffect(() => {
@@ -169,7 +178,7 @@ export function AccountFormDialog({
 
   const submit = handleSubmit((v) => {
     setServerError(null);
-    const yieldOn = v.yieldEnabled && supportsYield(v.type);
+    const yieldOn = v.yieldEnabled && supportsYield(v.type) && v.currency === "BRL";
     const full: AccountInput = {
       name: v.name,
       institution: v.institution.trim() || null,
@@ -181,6 +190,7 @@ export function AccountFormDialog({
       color: v.color,
       icon: account && account.type === v.type ? account.icon : (ACCOUNT_TYPE_ICON[v.type]?.name ?? "landmark"),
       includeInTotals: v.includeInTotals,
+      currency: v.currency,
       ...(yieldOn
         ? { yieldIndex: v.yieldIndex, yieldRateBps: percentTextToBps(v.yieldRate), yieldStartDate: v.yieldStartDate }
         : account
@@ -257,6 +267,38 @@ export function AccountFormDialog({
                 )}
               />
             </Field>
+            <Field
+              label="Moeda"
+              htmlFor="acc-currency"
+              hint={currencyLocked ? "A conta já tem lançamentos: a moeda não muda. Para outra moeda, crie outra conta." : !account && !foreign ? "Conta no exterior (ex.: Wise em dólar)? Escolha a moeda dela." : undefined}
+            >
+              <Controller
+                control={control}
+                name="currency"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange} disabled={currencyLocked}>
+                    <SelectTrigger id="acc-currency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCY_OPTIONS.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </Field>
+            {foreign && (
+              <p className="flex gap-2 rounded-lg bg-info/10 px-3 py-2 text-xs text-info sm:mt-[26px]">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  Saldo e lançamentos em {currency}. Nos totais e relatórios, o valor entra em reais pela PTAX do Banco Central. Rendimento automático só existe em contas em reais.
+                </span>
+              </p>
+            )}
           </div>
 
           <Controller
@@ -301,7 +343,7 @@ export function AccountFormDialog({
               htmlFor="acc-initial"
               hint={account ? "Para corrigir o saldo de hoje, prefira “Ajustar saldo”." : initial < 0 ? "Saldo negativo (cheque especial)" : "Use a tecla − para valor negativo"}
             >
-              <Controller control={control} name="initialBalanceCents" render={({ field }) => <MoneyInput id="acc-initial" allowNegative value={field.value} onChange={field.onChange} />} />
+              <Controller control={control} name="initialBalanceCents" render={({ field }) => <MoneyInput id="acc-initial" allowNegative currency={currency} value={field.value} onChange={field.onChange} />} />
             </Field>
             <Field label="Data do saldo inicial" htmlFor="acc-initial-date" error={e.initialBalanceDate?.message} required>
               <Input id="acc-initial-date" type="date" {...register("initialBalanceDate")} />
@@ -414,7 +456,8 @@ export function AccountFormDialog({
           ) : (
             account?.yieldIndex && (
               <p className="flex gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
-                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />O rendimento automático só vale para investimento e poupança: com este tipo, ele será desligado ao salvar. Os rendimentos já lançados continuam na conta.
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                {foreign ? "O rendimento automático só vale para contas em reais" : "O rendimento automático só vale para investimento e poupança"}: com {foreign ? "esta moeda" : "este tipo"}, ele será desligado ao salvar. Os rendimentos já lançados continuam na conta.
               </p>
             )
           )}

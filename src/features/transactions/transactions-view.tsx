@@ -16,7 +16,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { describePeriod, todayISO } from "@/lib/dates";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import { useCan, useMe } from "@/features/me/use-me";
@@ -417,7 +417,7 @@ export function TransactionsView() {
         open={Boolean(toDelete)}
         onOpenChange={(o) => !o && setToDelete(null)}
         count={toDelete?.items.length ?? 0}
-        description={toDelete?.items.length === 1 ? `${toDelete.items[0]?.description} (${formatBRL(toDelete.items[0]?.amountCents)})` : undefined}
+        description={toDelete?.items.length === 1 ? `${toDelete.items[0]?.description} (${formatMoney(toDelete.items[0]?.amountCents, toDelete.items[0]?.currency)})` : undefined}
         loading={actions.remove.isPending || actions.bulk.isPending}
         onConfirm={() => {
           if (!toDelete) return;

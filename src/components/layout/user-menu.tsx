@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
+import { LogOut, Monitor, MonitorSmartphone, Moon, Settings, Sun } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MemberAvatar } from "@/components/ui/avatar";
 import { MEMBER_ROLE_LABELS, labelOf } from "@/lib/labels";
+import { usePwaEnvironment } from "@/lib/client/pwa";
+import { INSTALL_SECTION_HREF } from "@/components/pwa/install-instructions";
 
 export function UserMenu({ name, email, color, role, householdName }: { name: string; email: string; color: string; role: string; householdName: string }) {
   const { setTheme, theme } = useTheme();
+  const pwa = usePwaEnvironment();
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST", headers: { "X-Requested-With": "fetch" } });
     window.location.href = "/login";
@@ -43,6 +46,13 @@ export function UserMenu({ name, email, color, role, householdName }: { name: st
             <Settings /> Configurações
           </Link>
         </DropdownMenuItem>
+        {pwa && !pwa.standalone && (
+          <DropdownMenuItem asChild>
+            <Link href={INSTALL_SECTION_HREF}>
+              <MonitorSmartphone /> Instalar o app
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem variant="destructive" onSelect={logout}>
           <LogOut /> Sair
         </DropdownMenuItem>

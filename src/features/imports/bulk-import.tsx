@@ -39,7 +39,7 @@ import { formatDateBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards } from "@/features/finance/hooks";
 import { canRetryBulkItem, clearBulkSession, isBulkUploading, recordBulkResults, removeBulkItem, retryBulkItem, type BulkItem, type BulkSession } from "./bulk-store";
-import { bankLabel, commonWarnings, formatFileSize, formatFromFileName, isTransferWarning, isUnresolvedTransfer, needsMappingReview, needsScopeReview, statementKindLabel } from "./helpers";
+import { bankLabel, commonWarnings, formatFileSize, formatFromFileName, isTransferWarning, isUnresolvedTransfer, needsCounterpartAmount, needsMappingReview, needsScopeReview, statementKindLabel } from "./helpers";
 import { FormatTile, ROW_STATUS, formatLabel } from "./status";
 import { Stepper } from "./stepper";
 import { useBulkCommit, useImportPreviews } from "./use-imports";
@@ -85,14 +85,17 @@ interface Stats {
   transfers: number;
   /** Parecem aplicação/resgate, mas sem a conta do outro lado: ficam de fora até escolher. */
   unresolvedTransfers: number;
+  /** Remessa/câmbio entre moedas sem o valor na outra moeda: fica de fora até informar. */
+  awaitingAmount: number;
 }
 
-const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0, transfers: 0, unresolvedTransfers: 0 };
+const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0, transfers: 0, unresolvedTransfers: 0, awaitingAmount: 0 };
 
 function statsOf(p: ImportPreview): Stats {
   const s = { ...EMPTY_STATS, newRows: p.counts.NEW, matched: p.counts.MATCHED, divergent: p.counts.DIVERGENT, duplicate: p.counts.DUPLICATE, skipped: p.counts.SKIPPED, error: p.counts.ERROR };
   for (const r of p.rows) {
     if (r.status === "NEW" && isUnresolvedTransfer(r)) s.unresolvedTransfers++;
+    if (needsCounterpartAmount(r)) s.awaitingAmount++;
     if (!r.selected) continue;
     if (r.kind === "TRANSFER" && r.transfer?.accountId && (r.status === "NEW" || r.status === "MATCHED")) s.transfers++;
     if (r.status === "NEW") s.selectedNew++;
@@ -216,6 +219,7 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
   const reviewLabel = state === "mapping" ? "Ajustar mapeamento" : state === "ready" || state === "scope" ? "Revisar" : "Ver conciliação";
   const ReviewIcon = state === "mapping" ? Columns3 : FileSearch;
   const unresolvedTransfers = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter((r) => r.status === "NEW" && isUnresolvedTransfer(r)).length : 0;
+  const awaitingAmount = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter(needsCounterpartAmount).length : 0;
 
   return (
     <li className="p-3 sm:p-4">
@@ -323,6 +327,14 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
             <p className="min-w-0 break-words">
               {unresolvedTransfers} linha(s) parecem aplicação/resgate ou transferência entre contas próprias, mas falta a conta do outro lado: ficam fora da importação até você escolher a
               conta em “Revisar”.
+            </p>
+          </div>
+        )}
+        {preview && (state === "ready" || state === "scope") && awaitingAmount > 0 && (
+          <div role="note" className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-xs">
+            <ArrowLeftRight className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+            <p className="min-w-0 break-words">
+              {awaitingAmount} remessa(s)/câmbio(s) entre contas de moedas diferentes ficam fora da importação até você informar o valor na outra moeda em “Revisar”.
             </p>
           </div>
         )}
@@ -627,6 +639,9 @@ export function BulkImport({ session }: { session: BulkSession }) {
                 )}
                 {readyStats.unresolvedTransfers > 0 && (
                   <p className="text-foreground">{readyStats.unresolvedTransfers} linha(s) que parecem aplicação/resgate, sem a conta do outro lado, ficam de fora — escolha a conta em “Revisar” para incluí-las.</p>
+                )}
+                {readyStats.awaitingAmount > 0 && (
+                  <p className="text-foreground">{readyStats.awaitingAmount} remessa(s)/câmbio(s) sem o valor na outra moeda ficam de fora — informe o valor em “Revisar” para incluí-las.</p>
                 )}
                 {mapping.length > 0 && <p className="text-foreground">{mapping.length} arquivo(s) que precisam de revisão do mapeamento ficam de fora.</p>}
                 {scope.length > 0 && <p className="text-foreground">{scope.length} PDF(s) com destino a conferir (nenhuma linha selecionada) ficam de fora.</p>}

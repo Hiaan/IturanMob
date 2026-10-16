@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BellRing, MessageCircle, MoonStar } from "lucide-react";
+import { BellRing, MessageCircle, MoonStar, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ interface PreferenceDTO {
   inApp: boolean;
   whatsapp: boolean;
   email: boolean;
+  /** Notificação no celular (Web Push). Só é enviada com frequência "Imediata". */
+  push: boolean;
   frequency: Frequency;
   quietStart: string | null;
   quietEnd: string | null;
@@ -32,7 +34,7 @@ const FREQUENCY_LABELS: Record<Frequency, string> = { IMMEDIATE: "Imediata", DAI
 const QUERY_KEY = ["notifications", "preferences"] as const;
 
 function same(a: PreferenceDTO, b: PreferenceDTO) {
-  return a.inApp === b.inApp && a.whatsapp === b.whatsapp && a.frequency === b.frequency && (a.quietStart ?? "") === (b.quietStart ?? "") && (a.quietEnd ?? "") === (b.quietEnd ?? "");
+  return a.inApp === b.inApp && a.whatsapp === b.whatsapp && a.push === b.push && a.frequency === b.frequency && (a.quietStart ?? "") === (b.quietStart ?? "") && (a.quietEnd ?? "") === (b.quietEnd ?? "");
 }
 
 function quietError(p: PreferenceDTO): string | null {
@@ -40,8 +42,8 @@ function quietError(p: PreferenceDTO): string | null {
 }
 
 /**
- * Preferências de notificação do membro logado: uma linha por tipo, com canais (aplicativo e
- * WhatsApp), frequência e horário silencioso. Salva via PUT /api/v1/notifications/preferences.
+ * Preferências de notificação do membro logado: uma linha por tipo, com canais (aplicativo,
+ * celular/push e WhatsApp), frequência e horário silencioso. Salva via PUT /api/v1/notifications/preferences.
  */
 export function NotificationPreferencesForm() {
   const qc = useQueryClient();
@@ -61,7 +63,7 @@ export function NotificationPreferencesForm() {
   const save = useMutation({
     mutationFn: () =>
       api.put<PreferenceDTO[]>("/api/v1/notifications/preferences", {
-        items: changed.map((p) => ({ type: p.type, inApp: p.inApp, whatsapp: p.whatsapp, frequency: p.frequency, quietStart: p.quietStart || null, quietEnd: p.quietEnd || null })),
+        items: changed.map((p) => ({ type: p.type, inApp: p.inApp, whatsapp: p.whatsapp, push: p.push, frequency: p.frequency, quietStart: p.quietStart || null, quietEnd: p.quietEnd || null })),
       }),
     onSuccess: (data) => {
       qc.setQueryData(QUERY_KEY, data);
@@ -80,7 +82,7 @@ export function NotificationPreferencesForm() {
           <BellRing className="size-4 text-brand" aria-hidden /> Notificações
         </CardTitle>
         <CardDescription>
-          Escolha o que você quer receber no aplicativo e no grupo do WhatsApp. As mensagens de WhatsApp vão para o grupo da família (compartilhado) e são limitadas a 6 por hora.
+          Escolha o que você quer receber no aplicativo, no celular (push) e no grupo do WhatsApp. As mensagens de WhatsApp vão para o grupo da família (compartilhado) e são limitadas a 6 por hora.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -94,11 +96,11 @@ export function NotificationPreferencesForm() {
           <ErrorState error={q.error} onRetry={() => q.refetch()} compact />
         ) : (
           draft && (
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="flex items-start gap-2 text-sm text-muted-foreground">
                   <MoonStar className="mt-0.5 size-4 shrink-0" aria-hidden />
-                  <span>Horário silencioso: mensagens de WhatsApp ficam guardadas e são enviadas depois do fim do período.</span>
+                  <span>Horário silencioso: notificações no celular e mensagens de WhatsApp ficam guardadas e são enviadas depois do fim do período.</span>
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input type="time" value={bulkStart} onChange={(e) => setBulkStart(e.target.value)} className="h-9 w-28" aria-label="Início do horário silencioso (todos)" />
@@ -113,30 +115,45 @@ export function NotificationPreferencesForm() {
                 </div>
               </div>
 
-              <div className="hidden grid-cols-[minmax(0,1.6fr)_5rem_5.5rem_10rem_minmax(0,1.4fr)] items-center gap-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground lg:grid">
+              <div className="hidden grid-cols-[minmax(0,1.6fr)_4.5rem_4.5rem_5.5rem_10rem_minmax(0,1.4fr)] items-center gap-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground xl:grid">
                 <span>Tipo</span>
                 <span className="text-center">No app</span>
+                <span className="text-center">Celular</span>
                 <span className="text-center">WhatsApp</span>
                 <span>Frequência</span>
                 <span>Horário silencioso</span>
               </div>
-              <ul className="grid gap-2 lg:gap-0 lg:divide-y lg:rounded-xl lg:border">
+              <ul className="grid grid-cols-1 gap-2 xl:gap-0 xl:divide-y xl:rounded-xl xl:border">
                 {draft.map((p) => {
                   const off = p.frequency === "OFF";
+                  // Push só sai na frequência "Imediata" (o resumo diário não vira notificação no celular).
+                  const pushAvailable = p.frequency === "IMMEDIATE";
                   const err = quietError(p);
                   const label = NOTIFICATION_TYPE_LABELS[p.type] ?? p.label;
                   return (
                     <li
                       key={p.type}
-                      className="grid gap-3 rounded-xl border p-3 lg:grid-cols-[minmax(0,1.6fr)_5rem_5.5rem_10rem_minmax(0,1.4fr)] lg:items-center lg:rounded-none lg:border-0 lg:px-3 lg:py-2.5"
+                      className="grid grid-cols-1 gap-3 rounded-xl border p-3 xl:grid-cols-[minmax(0,1.6fr)_4.5rem_4.5rem_5.5rem_10rem_minmax(0,1.4fr)] xl:items-center xl:rounded-none xl:border-0 xl:px-3 xl:py-2.5"
                     >
                       <span className={cn("text-sm font-medium", off && "text-muted-foreground")}>{label}</span>
-                      <div className="flex items-center justify-between gap-2 lg:justify-center">
-                        <span className="text-xs text-muted-foreground lg:hidden">No aplicativo</span>
+                      <div className="flex items-center justify-between gap-2 xl:justify-center">
+                        <span className="text-xs text-muted-foreground xl:hidden">No aplicativo</span>
                         <Switch checked={p.inApp} disabled={off} onCheckedChange={(v) => patch(p.type, { inApp: v })} aria-label={`${label}: no aplicativo`} />
                       </div>
-                      <div className="flex items-center justify-between gap-2 lg:justify-center">
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground lg:hidden">
+                      <div className="flex items-center justify-between gap-2 xl:justify-center">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground xl:hidden">
+                          <Smartphone className="size-3.5" aria-hidden /> No celular (push){!off && !pushAvailable && " — só na frequência Imediata"}
+                        </span>
+                        <Switch
+                          checked={p.push && pushAvailable}
+                          disabled={!pushAvailable}
+                          onCheckedChange={(v) => patch(p.type, { push: v })}
+                          aria-label={`${label}: no celular (push)${pushAvailable ? "" : ", disponível só na frequência Imediata"}`}
+                          title={pushAvailable ? undefined : "Disponível só na frequência Imediata"}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 xl:justify-center">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground xl:hidden">
                           <MessageCircle className="size-3.5" aria-hidden /> WhatsApp (grupo)
                         </span>
                         <Switch checked={p.whatsapp} disabled={off} onCheckedChange={(v) => patch(p.type, { whatsapp: v })} aria-label={`${label}: WhatsApp`} />
@@ -184,7 +201,7 @@ export function NotificationPreferencesForm() {
                 })}
               </ul>
               <p className="text-xs text-muted-foreground">
-                “Resumo diário” agrupa as mensagens de WhatsApp do dia em uma só, enviada no início da noite; no aplicativo a notificação aparece na hora. “Desligada” não gera notificação desse tipo para você.
+                “Resumo diário” agrupa as mensagens de WhatsApp do dia em uma só, enviada no início da noite; no aplicativo a notificação aparece na hora. Notificações no celular são enviadas só na frequência “Imediata” e só para aparelhos ativados acima. “Desligada” não gera notificação desse tipo para você.
               </p>
             </div>
           )

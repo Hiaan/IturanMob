@@ -259,7 +259,8 @@ export function CardFormDialog({ open, onOpenChange, card }: { open: boolean; on
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NONE}>Nenhuma</SelectItem>
-                        {(accounts.data ?? []).map((a) => (
+                        {/* A fatura é paga em reais: contas em moeda estrangeira ficam de fora. */}
+                        {(accounts.data ?? []).filter((a) => (a.currency ?? "BRL") === "BRL" || a.id === field.value).map((a) => (
                           <SelectItem key={a.id} value={a.id}>
                             {a.name}
                           </SelectItem>

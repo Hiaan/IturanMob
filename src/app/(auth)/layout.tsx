@@ -2,7 +2,7 @@ import { ShieldCheck, Wallet, MessageCircle, Sparkles } from "lucide-react";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+    <div className="grid min-h-dvh px-safe lg:grid-cols-[1.05fr_1fr]">
       <div className="relative hidden overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex lg:flex-col">
         <div className="pointer-events-none absolute -right-32 -top-32 size-[28rem] rounded-full bg-emerald-500/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-40 -left-20 size-[30rem] rounded-full bg-sky-500/10 blur-3xl" />
@@ -28,7 +28,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </ul>
         </div>
       </div>
-      <div className="flex items-center justify-center px-4 py-10 sm:px-8">
+      <div className="flex items-center justify-center px-4 pb-[calc(2.5rem+var(--safe-bottom))] pt-[calc(2.5rem+var(--safe-top))] sm:px-8">
         <div className="w-full max-w-sm">{children}</div>
       </div>
     </div>

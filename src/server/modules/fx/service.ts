@@ -84,16 +84,18 @@ export async function refreshFxRates(opts: { now?: Date; fetchImpl?: FetchLike }
   return { fetched, errors };
 }
 
-/** Preenche o valor em reais de receitas/despesas em moeda estrangeira lançadas sem cotação. */
+/** Preenche o valor em reais dos lançamentos em moeda estrangeira gravados sem cotação. */
 export async function backfillBrlAmounts(): Promise<number> {
   const missing = await prisma.transaction.findMany({
-    where: { currency: { not: "BRL" }, amountBrlCents: null, type: { in: ["INCOME", "EXPENSE", "ADJUSTMENT"] } },
-    select: { id: true, amountCents: true, currency: true, date: true },
+    where: { currency: { not: "BRL" }, amountBrlCents: null, type: { in: ["INCOME", "EXPENSE", "ADJUSTMENT", "TRANSFER"] } },
+    select: { id: true, amountCents: true, currency: true, date: true, type: true, destinationAmountCents: true, destinationAccount: { select: { currency: true } } },
     take: 2000,
   });
   let filled = 0;
   for (const t of missing) {
-    const brl = await toBrlCents(t.amountCents, t.currency, dateToISO(t.date));
+    // Transferência para conta em reais: vale o que efetivamente chegou.
+    const effective = t.type === "TRANSFER" && t.destinationAccount?.currency === "BRL" ? t.destinationAmountCents : null;
+    const brl = effective ?? (await toBrlCents(t.amountCents, t.currency, dateToISO(t.date)));
     if (brl === null) continue;
     await prisma.transaction.update({ where: { id: t.id }, data: { amountBrlCents: brl } });
     filled++;

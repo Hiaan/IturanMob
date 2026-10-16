@@ -15,6 +15,7 @@ import { formatDateBR, formatDayMonthBR, formatMonthBR, todayISO } from "@/lib/d
 import { cn } from "@/lib/utils";
 import { useMe } from "@/features/me/use-me";
 import type { AccountDTO } from "@/features/finance/types";
+import { isForeignCurrency } from "./currency";
 import { supportsYield, useAccountYield, useRefreshYield, type AccountYield, type YieldRefreshResult, type YieldStatus } from "./yield";
 
 const STATUS: Record<YieldStatus, { label: string; variant: "positive" | "warning" | "info"; icon: typeof CircleCheck; hint?: string }> = {
@@ -114,7 +115,8 @@ function Months({ data, today }: { data: Extract<AccountYield, { configured: tru
 export function AccountYieldPanel({ account, canWrite, onConfigure, onAdjustBank }: { account: AccountDTO; canWrite: boolean; onConfigure: () => void; onAdjustBank: () => void }) {
   const me = useMe();
   const today = todayISO(me.data?.household.timezone);
-  const eligible = supportsYield(account.type) && !account.archivedAt;
+  // Rendimento automático (CDI, Selic…) só em conta em reais.
+  const eligible = supportsYield(account.type) && !account.archivedAt && !isForeignCurrency(account.currency);
   const q = useAccountYield(account.id, eligible);
   const refresh = useRefreshYield(account.id);
   const [result, setResult] = useState<{ text: string; tone: "ok" | "info" | "error" } | null>(null);

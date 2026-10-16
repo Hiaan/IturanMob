@@ -14,11 +14,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatBRL } from "@/lib/money";
+import { formatAmount, formatBRL, formatMoney } from "@/lib/money";
 import { TRANSACTION_SOURCE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { CategoryIcon } from "@/features/categories/category-icon";
 import type { TransactionDTO } from "@/features/finance/types";
+import { useAccountCurrencies } from "@/features/accounts/currency";
 
 export const SOURCE_ICONS: Record<string, LucideIcon> = {
   MANUAL: PenLine,
@@ -83,12 +84,44 @@ export function amountDirection(tx: Pick<TransactionDTO, "type" | "account" | "d
   }
 }
 
-export function AmountText({ tx, accountId, className }: { tx: Pick<TransactionDTO, "type" | "amountCents" | "account" | "destinationAccount">; accountId?: string; className?: string }) {
+type AmountTx = Pick<TransactionDTO, "type" | "amountCents" | "account" | "destinationAccount"> & Partial<Pick<TransactionDTO, "currency" | "destinationAmountCents" | "amountBrlCents">>;
+
+const moneyOrPlain = (cents: number, currency: string | null) => (currency ? formatMoney(cents, currency) : formatAmount(cents));
+
+/**
+ * Valor principal (na moeda do lado que interessa) e a linha secundária: "≈ R$ X" em receita/despesa
+ * em moeda estrangeira; o valor do outro lado numa transferência entre moedas.
+ */
+export function amountParts(tx: AmountTx, accountId: string | undefined, destinationCurrency: string | null | undefined): { text: string; secondary: string | null } {
+  const currency = tx.currency ?? "BRL";
+  if (tx.type === "TRANSFER" && tx.destinationAmountCents != null) {
+    const dst = destinationCurrency ?? (currency === "BRL" ? null : "BRL");
+    if (accountId && tx.destinationAccount?.id === accountId) {
+      return { text: moneyOrPlain(tx.destinationAmountCents, dst), secondary: `${formatMoney(tx.amountCents, currency)} na origem` };
+    }
+    return { text: formatMoney(tx.amountCents, currency), secondary: `${moneyOrPlain(tx.destinationAmountCents, dst)} no destino` };
+  }
+  if (currency !== "BRL" && tx.type !== "TRANSFER" && tx.amountBrlCents != null) {
+    return { text: formatMoney(tx.amountCents, currency), secondary: `≈ ${formatBRL(tx.amountBrlCents)}` };
+  }
+  return { text: formatMoney(tx.amountCents, currency), secondary: null };
+}
+
+export function AmountText({ tx, accountId, className, secondary = true }: { tx: AmountTx; accountId?: string; className?: string; secondary?: boolean }) {
+  const currencies = useAccountCurrencies();
   const dir = amountDirection(tx, accountId);
-  return (
+  const parts = amountParts(tx, accountId, tx.destinationAccount ? currencies.get(tx.destinationAccount.id) : null);
+  const main = (
     <span className={cn("whitespace-nowrap font-semibold tabular", dir > 0 && "text-positive", className)}>
       {dir < 0 ? "−" : dir > 0 ? "+" : ""}
-      {formatBRL(tx.amountCents)}
+      {parts.text}
+    </span>
+  );
+  if (!secondary || !parts.secondary) return main;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      {main}
+      <span className="whitespace-nowrap text-[11px] font-normal text-muted-foreground tabular">{parts.secondary}</span>
     </span>
   );
 }

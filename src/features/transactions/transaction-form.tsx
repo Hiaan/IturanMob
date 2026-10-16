@@ -8,8 +8,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Split, TrendingDown, TrendingUp, ArrowLeftRight } from "lucide-react";
 import { api, ApiError, errorMessage } from "@/lib/client/api";
-import { todayISO } from "@/lib/dates";
-import { formatBRL } from "@/lib/money";
+import { formatDayMonthBR, todayISO } from "@/lib/dates";
+import { formatBRL, formatMoney } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,8 @@ import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/shared/money-input";
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import { useMe } from "@/features/me/use-me";
-import type { TransactionDTO } from "@/features/finance/types";
+import type { AccountDTO, TransactionDTO } from "@/features/finance/types";
+import { describeExchange, formatRate, isForeignCurrency } from "@/features/accounts/currency";
 
 const NONE = "__none__";
 
@@ -35,6 +36,8 @@ const formSchema = z
     paymentMethod: z.string().optional(),
     accountId: z.string().optional(),
     destinationAccountId: z.string().optional(),
+    /** Transferência entre moedas: valor creditado no destino (0 = não informado). */
+    destinationAmountCents: z.number().int().min(0),
     creditCardId: z.string().optional(),
     installmentCount: z.number().int().min(1).max(72),
     payerMemberId: z.string().optional(),
@@ -73,6 +76,7 @@ function toFormValues(tx: TransactionDTO | null | undefined, defaults: Partial<F
       paymentMethod: NONE,
       accountId: NONE,
       destinationAccountId: NONE,
+      destinationAmountCents: 0,
       creditCardId: NONE,
       installmentCount: 1,
       payerMemberId: NONE,
@@ -94,6 +98,7 @@ function toFormValues(tx: TransactionDTO | null | undefined, defaults: Partial<F
     paymentMethod: tx.paymentMethod ?? NONE,
     accountId: tx.account?.id ?? NONE,
     destinationAccountId: tx.destinationAccount?.id ?? NONE,
+    destinationAmountCents: tx.destinationAmountCents ?? 0,
     creditCardId: tx.creditCard?.id ?? NONE,
     installmentCount: tx.installmentCount,
     payerMemberId: tx.payer?.id ?? NONE,
@@ -107,6 +112,16 @@ function toFormValues(tx: TransactionDTO | null | undefined, defaults: Partial<F
 }
 
 const val = (v: string | undefined) => (v && v !== NONE ? v : null);
+
+/** Nome da conta com a moeda quando não é real ("Wise · USD"). */
+function AccountOption({ account }: { account: AccountDTO }) {
+  return (
+    <>
+      {account.name}
+      {isForeignCurrency(account.currency) && <span className="text-muted-foreground"> · {account.currency}</span>}
+    </>
+  );
+}
 
 export function TransactionForm({
   transaction,
@@ -140,12 +155,27 @@ export function TransactionForm({
   const amountCents = useWatch({ control, name: "amountCents" });
   const allocations = useWatch({ control, name: "allocations" });
   const installmentCount = useWatch({ control, name: "installmentCount" });
+  const accountId = useWatch({ control, name: "accountId" });
+  const destinationAccountId = useWatch({ control, name: "destinationAccountId" });
+  const destinationAmountCents = useWatch({ control, name: "destinationAmountCents" });
 
   useEffect(() => {
     if (!editing && me.data && form.getValues("payerMemberId") === NONE) setValue("payerMemberId", me.data.member.id);
   }, [me.data, editing, form, setValue]);
 
   const isCredit = type === "EXPENSE" && paymentMethod === "CREDIT_CARD";
+  // Moeda: a da conta (cartão é em reais). Na edição, conta fora da lista (arquivada) mantém a moeda do lançamento.
+  const accountById = (id: string | undefined) => (accounts.data ?? []).find((a) => a.id === id) ?? null;
+  const currencyOf = (id: string | undefined, fallback: string | null): string | null => {
+    if (!val(id)) return null;
+    return accountById(id)?.currency ?? fallback;
+  };
+  const sourceAccount = accountById(accountId);
+  const currency = isCredit ? "BRL" : (currencyOf(accountId, transaction && accountId === transaction.account?.id ? transaction.currency : "BRL") ?? "BRL");
+  const destinationCurrency = type === "TRANSFER" ? currencyOf(destinationAccountId, "BRL") : null;
+  const crossCurrency = type === "TRANSFER" && Boolean(val(accountId)) && Boolean(destinationCurrency) && destinationCurrency !== currency;
+  const money = (cents: number) => formatMoney(cents, currency);
+  const foreignAccount = crossCurrency ? (isForeignCurrency(currency) ? sourceAccount : accountById(destinationAccountId)) : null;
   const kind = type === "INCOME" ? "INCOME" : "EXPENSE";
   const categoryOptions = useMemo(() => (categories.data ?? []).filter((c) => c.kind === kind && !c.archivedAt), [categories.data, kind]);
   const activeMembers = (members.data ?? []).filter((m) => m.isActive);
@@ -165,7 +195,12 @@ export function TransactionForm({
         payerMemberId: val(v.payerMemberId),
       };
       if (v.type === "TRANSFER") {
-        Object.assign(body, { accountId: val(v.accountId), destinationAccountId: val(v.destinationAccountId), paymentMethod: val(v.paymentMethod) });
+        Object.assign(body, {
+          accountId: val(v.accountId),
+          destinationAccountId: val(v.destinationAccountId),
+          paymentMethod: val(v.paymentMethod),
+          destinationAmountCents: crossCurrency ? v.destinationAmountCents : null,
+        });
       } else {
         const credit = v.type === "EXPENSE" && v.paymentMethod === "CREDIT_CARD";
         Object.assign(body, {
@@ -185,7 +220,7 @@ export function TransactionForm({
       return res.transaction;
     },
     onSuccess: (tx) => {
-      toast.success(editing ? "Lançamento atualizado" : "Lançamento registrado", { description: `${tx.description} · ${formatBRL(tx.amountCents)}` });
+      toast.success(editing ? "Lançamento atualizado" : "Lançamento registrado", { description: `${tx.description} · ${formatMoney(tx.amountCents, tx.currency)}` });
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["cards"] });
@@ -204,7 +239,18 @@ export function TransactionForm({
   const e = formState.errors;
 
   return (
-    <form onSubmit={handleSubmit((v) => { setServerError(null); mutation.mutate(v); })} className="grid gap-4" noValidate>
+    <form
+      onSubmit={handleSubmit((v) => {
+        setServerError(null);
+        if (crossCurrency && !v.destinationAmountCents) {
+          form.setError("destinationAmountCents", { message: `Informe quanto chegou em ${destinationCurrency}` });
+          return;
+        }
+        mutation.mutate(v);
+      })}
+      className="grid gap-4"
+      noValidate
+    >
       <Controller
         control={control}
         name="type"
@@ -240,11 +286,21 @@ export function TransactionForm({
         )}
       />
 
-      <Field label="Valor" htmlFor="amount" error={e.amountCents?.message} required>
+      <Field
+        label={crossCurrency ? `Valor enviado (${currency})` : isForeignCurrency(currency) ? `Valor (${currency})` : "Valor"}
+        htmlFor="amount"
+        error={e.amountCents?.message}
+        required
+        hint={
+          isForeignCurrency(currency) && type !== "TRANSFER" && sourceAccount?.fx && amountCents > 0
+            ? `≈ ${formatBRL(Math.round(amountCents * sourceAccount.fx.rate))} pela PTAX de ${formatDayMonthBR(sourceAccount.fx.date)}. Nos relatórios, entra em reais pela PTAX da data.`
+            : undefined
+        }
+      >
         <Controller
           control={control}
           name="amountCents"
-          render={({ field }) => <MoneyInput id="amount" size="lg" value={field.value} onChange={field.onChange} autoFocus={!editing} aria-invalid={Boolean(e.amountCents)} />}
+          render={({ field }) => <MoneyInput id="amount" size="lg" currency={currency} value={field.value} onChange={field.onChange} autoFocus={!editing} aria-invalid={Boolean(e.amountCents)} />}
         />
       </Field>
 
@@ -312,7 +368,7 @@ export function TransactionForm({
                     <SelectItem value={NONE}>Selecione…</SelectItem>
                     {(accounts.data ?? []).map((a) => (
                       <SelectItem key={a.id} value={a.id}>
-                        {a.name}
+                        <AccountOption account={a} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -333,7 +389,7 @@ export function TransactionForm({
                     <SelectItem value={NONE}>Selecione…</SelectItem>
                     {(accounts.data ?? []).map((a) => (
                       <SelectItem key={a.id} value={a.id}>
-                        {a.name}
+                        <AccountOption account={a} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -341,7 +397,52 @@ export function TransactionForm({
               )}
             />
           </Field>
-          <p className="text-xs text-muted-foreground sm:col-span-2">Transferências entre contas próprias não contam como receita nem despesa.</p>
+          {crossCurrency && destinationCurrency && (
+            <Field
+              label={`Valor recebido (${destinationCurrency})`}
+              htmlFor="destination-amount"
+              error={e.destinationAmountCents?.message}
+              required
+              className="sm:col-span-2"
+              hint={
+                <>
+                  {describeExchange({ cents: amountCents, currency }, { cents: destinationAmountCents, currency: destinationCurrency }) ? (
+                    <>
+                      Câmbio efetivo: <strong className="font-medium text-foreground tabular">{describeExchange({ cents: amountCents, currency }, { cents: destinationAmountCents, currency: destinationCurrency })}</strong>
+                    </>
+                  ) : (
+                    "Quanto chegou na conta de destino, já descontadas as tarifas."
+                  )}
+                  {foreignAccount?.fx && (
+                    <span className="block">
+                      Referência: PTAX de {formatDayMonthBR(foreignAccount.fx.date)}, 1 {foreignAccount.currency} = {formatRate(foreignAccount.fx.rate)}.
+                    </span>
+                  )}
+                </>
+              }
+            >
+              <Controller
+                control={control}
+                name="destinationAmountCents"
+                render={({ field }) => (
+                  <MoneyInput
+                    id="destination-amount"
+                    currency={destinationCurrency}
+                    value={field.value}
+                    onChange={(n) => {
+                      field.onChange(n);
+                      if (n) form.clearErrors("destinationAmountCents");
+                    }}
+                    aria-invalid={Boolean(e.destinationAmountCents)}
+                  />
+                )}
+              />
+            </Field>
+          )}
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Transferências entre contas próprias não contam como receita nem despesa.
+            {crossCurrency && " Entre moedas diferentes, a diferença de cotação aparece como variação cambial na conta em moeda estrangeira."}
+          </p>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
@@ -404,7 +505,7 @@ export function TransactionForm({
                       <SelectItem value={NONE}>Sem conta</SelectItem>
                       {(accounts.data ?? []).map((a) => (
                         <SelectItem key={a.id} value={a.id}>
-                          {a.name}
+                          <AccountOption account={a} />
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -496,13 +597,13 @@ export function TransactionForm({
                       <Controller
                         control={control}
                         name={`allocations.${m.id}` as const}
-                        render={({ field }) => <MoneyInput className="flex-1" value={field.value ?? 0} onChange={field.onChange} />}
+                        render={({ field }) => <MoneyInput className="flex-1" currency={currency} value={field.value ?? 0} onChange={field.onChange} />}
                       />
                     </div>
                   ))}
                   <div className="flex items-center justify-between text-xs">
                     <span className={cn(allocationSum === amountCents ? "text-positive" : "text-muted-foreground")}>
-                      Rateado: {formatBRL(allocationSum)} de {formatBRL(amountCents)}
+                      Rateado: {money(allocationSum)} de {money(amountCents)}
                     </span>
                     <button
                       type="button"
@@ -516,7 +617,11 @@ export function TransactionForm({
                       Dividir igualmente
                     </button>
                   </div>
-                  {e.allocations && <p className="text-xs font-medium text-destructive">{(e.allocations as { message?: string }).message}</p>}
+                  {e.allocations && (
+                    <p role="alert" className="text-xs font-medium text-destructive">
+                      O rateio soma {money(allocationSum)}; deve somar {money(amountCents)}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

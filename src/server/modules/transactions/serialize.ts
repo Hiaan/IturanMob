@@ -6,7 +6,7 @@ export const transactionInclude = {
   subcategory: { select: { id: true, name: true } },
   merchant: { select: { id: true, name: true } },
   account: { select: { id: true, name: true, color: true, icon: true } },
-  destinationAccount: { select: { id: true, name: true, color: true, icon: true } },
+  destinationAccount: { select: { id: true, name: true, color: true, icon: true, currency: true } },
   creditCard: { select: { id: true, name: true, color: true } },
   statement: { select: { id: true, referenceMonth: true } },
   payer: { select: { id: true, displayName: true, color: true } },
@@ -48,7 +48,7 @@ export interface TransactionDTO {
   subcategory: { id: string; name: string } | null;
   merchant: { id: string; name: string } | null;
   account: { id: string; name: string; color: string; icon: string } | null;
-  destinationAccount: { id: string; name: string; color: string; icon: string } | null;
+  destinationAccount: { id: string; name: string; color: string; icon: string; currency: string } | null;
   creditCard: { id: string; name: string; color: string } | null;
   statement: { id: string; referenceMonth: string } | null;
   payer: { id: string; displayName: string; color: string } | null;

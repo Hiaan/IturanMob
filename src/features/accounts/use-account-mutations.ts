@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/client/api";
-import { formatBRL } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import type { AccountDTO } from "@/features/finance/types";
 import { invalidateFinance } from "@/features/transactions/invalidate";
 
@@ -18,6 +18,8 @@ export interface AccountInput {
   color: string;
   icon: string;
   includeInTotals: boolean;
+  /** BRL, USD, EUR ou GBP (padrão: BRL). Não muda depois que a conta tem lançamentos. */
+  currency?: string;
   yieldIndex?: "CDI" | "SELIC" | "IPCA" | "PREFIXED" | null;
   yieldRateBps?: number | null;
   yieldStartDate?: string | null;
@@ -36,7 +38,7 @@ export function useAccountMutations() {
     onSuccess: (acc, vars) => {
       const yieldChanged = YIELD_KEYS.some((k) => k in vars.input);
       const yieldNote = !yieldChanged ? "" : !acc.yieldIndex ? " · rendimento automático desligado" : vars.id ? " · rendimento recalculado" : " · rendimento automático ligado";
-      toast.success(vars.id ? "Conta atualizada" : "Conta criada", { description: `${acc.name} · saldo ${formatBRL(acc.balanceCents)}${yieldNote}` });
+      toast.success(vars.id ? "Conta atualizada" : "Conta criada", { description: `${acc.name} · saldo ${formatMoney(acc.balanceCents, acc.currency)}${yieldNote}` });
       refresh();
     },
   });
@@ -64,7 +66,7 @@ export function useAccountMutations() {
     mutationFn: ({ id, ...body }: { id: string; targetBalanceCents: number; date?: string; note?: string }) =>
       api.post<{ adjusted: boolean; account: AccountDTO }>(`/api/v1/accounts/${id}/adjust`, body),
     onSuccess: (res) => {
-      if (res.adjusted) toast.success("Saldo ajustado", { description: `${res.account.name} · novo saldo ${formatBRL(res.account.balanceCents)}` });
+      if (res.adjusted) toast.success("Saldo ajustado", { description: `${res.account.name} · novo saldo ${formatMoney(res.account.balanceCents, res.account.currency)}` });
       else toast.info("O saldo já estava correto", { description: "Nenhum ajuste foi necessário." });
       refresh();
     },

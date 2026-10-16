@@ -1153,8 +1153,10 @@ const rowInclude = {
 
 type RowWithMatch = Prisma.ImportRowGetPayload<{ include: typeof rowInclude }>;
 
-function rowDTO(r: RowWithMatch, accountNames: Map<string, string> = new Map()) {
+function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency: string }> = new Map(), scopeCurrency = "BRL") {
   const raw = readRaw(r.rawData);
+  const other = raw.transferAccountId ? accounts.get(raw.transferAccountId) : undefined;
+  const crossCurrency = Boolean(other && other.currency !== scopeCurrency);
   return {
     id: r.id,
     /** Transferência entre contas próprias (aplicação/resgate): a conta do outro lado e o sentido. */
@@ -1162,9 +1164,13 @@ function rowDTO(r: RowWithMatch, accountNames: Map<string, string> = new Map()) 
       raw.kind === "TRANSFER"
         ? {
             accountId: raw.transferAccountId ?? null,
-            accountName: raw.transferAccountId ? accountNames.get(raw.transferAccountId) ?? null : null,
+            accountName: other?.name ?? null,
+            accountCurrency: other?.currency ?? null,
             direction: (r.amountCents ?? 0) < 0 ? ("OUT" as const) : ("IN" as const),
             reason: raw.transferReason ?? null,
+            /** Moedas diferentes: valor do outro lado (na moeda da outra conta), informado pela pessoa. */
+            counterpartAmountCents: crossCurrency ? raw.counterpartAmountCents ?? null : null,
+            needsCounterpartAmount: crossCurrency && !raw.counterpartAmountCents,
           }
         : null,
     rowIndex: r.rowIndex,
@@ -1228,13 +1234,16 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
   await loadBatch(ctx, batchId);
   const batch = await prisma.importBatch.findUniqueOrThrow({
     where: { id: batchId },
-    include: { account: { select: { id: true, name: true, institution: true } }, creditCard: { select: { id: true, name: true } } },
+    include: { account: { select: { id: true, name: true, institution: true, currency: true } }, creditCard: { select: { id: true, name: true } } },
   });
   const rows = await prisma.importRow.findMany({ where: { batchId }, orderBy: { rowIndex: "asc" }, include: rowInclude });
   const meta = readMeta(batch.mapping);
   const transferIds = [...new Set(rows.map((r) => readRaw(r.rawData).transferAccountId).filter(Boolean) as string[])];
-  const accountNames = new Map(
-    (transferIds.length ? await prisma.account.findMany({ where: { id: { in: transferIds }, householdId: ctx.householdId }, select: { id: true, name: true } }) : []).map((a) => [a.id, a.name]),
+  const transferAccounts = new Map(
+    (transferIds.length
+      ? await prisma.account.findMany({ where: { id: { in: transferIds }, householdId: ctx.householdId }, select: { id: true, name: true, currency: true } })
+      : []
+    ).map((a) => [a.id, { name: a.name, currency: a.currency }]),
   );
   const counts: Record<ImportRowStatus, number> = { NEW: 0, DUPLICATE: 0, MATCHED: 0, DIVERGENT: 0, SKIPPED: 0, IMPORTED: 0, ERROR: 0 };
   let selected = 0;
@@ -1255,7 +1264,7 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
     headerRowIndex: meta.headerRowIndex,
     invertSigns: meta.invertSigns,
     cardPurchasesPositive: meta.cardPurchasesPositive,
-    rows: rows.map((r) => rowDTO(r, accountNames)),
+    rows: rows.map((r) => rowDTO(r, transferAccounts, batch.account?.currency ?? "BRL")),
   };
 }
 

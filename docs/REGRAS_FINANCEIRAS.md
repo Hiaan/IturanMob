@@ -195,7 +195,9 @@ prefixado), taxa (ex.: 101,5% do CDI) e data de início.
   lançamento. Sem cotação ainda (BCB fora), fica de fora dos totais até a cotação chegar — nunca é
   somada como se fosse real.
 - Transferência entre contas de moedas diferentes (ex.: Wise USD → C6 BRL) tem valor de origem e de
-  destino; o câmbio efetivo é a razão entre eles. Não é receita nem despesa.
+  destino; o câmbio efetivo é a razão entre eles. Não é receita nem despesa. No total de
+  transferências em reais, a saída de conta estrangeira para conta em reais vale o que efetivamente
+  chegou; entre duas moedas estrangeiras, a PTAX da data.
 - **Variação cambial**: valor da conta hoje em reais menos o custo em reais dos movimentos (cada um
   pela PTAX da data; transferências com conta em reais pelo valor efetivamente pago/recebido). Aparece
   separada e não entra como receita nem despesa do mês.

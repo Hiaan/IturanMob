@@ -61,6 +61,15 @@
   --chart-axis: #8291a7;
 
   --shadow-card: 0 1px 2px rgba(11, 27, 51, 0.04), 0 4px 16px -8px rgba(11, 27, 51, 0.08);
+
+  /* App instalado no iPhone (viewport-fit=cover): áreas do entalhe, da barra de status e do
+     indicador de início. Fora do app/sem entalhe valem 0. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* Faixa atrás da barra de status (texto branco no modo "black-translucent"). */
+  --status-bar: #0a1f3c;
 }
 
 .dark {
@@ -111,6 +120,8 @@
   --chart-axis: #7486a3;
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+
+  --status-bar: #060d1a;
 }
 
 @theme inline {
@@ -172,10 +183,37 @@
   }
   html {
     -webkit-text-size-adjust: 100%;
+    /* Sem "flash" branco: o fundo do app aparece já no primeiro quadro e na rolagem elástica. */
+    background-color: var(--background);
+    color-scheme: light;
+    /* Sem puxar-para-atualizar/efeito elástico vertical da página inteira (áreas internas seguem
+       rolando; o gesto horizontal de voltar do navegador no computador continua). */
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.dark {
+    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv11", "ss01";
+    overscroll-behavior-y: none;
+  }
+  /* Toque imediato (sem espera de duplo toque para zoom) em tudo que é interativo. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="menuitem"],
+  [role="option"] {
+    touch-action: manipulation;
   }
   .tabular {
     font-variant-numeric: tabular-nums;
@@ -187,7 +225,47 @@
     scrollbar-width: thin;
   }
   .safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--safe-bottom);
+  }
+}
+
+/* Áreas seguras (iPhone com entalhe/Dynamic Island e indicador de início). */
+@utility pt-safe {
+  padding-top: var(--safe-top);
+}
+@utility pb-safe {
+  padding-bottom: var(--safe-bottom);
+}
+@utility px-safe {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* Antes do script de tema rodar, respeita o tema escuro do sistema (evita clarão ao abrir o app). */
+@media (prefers-color-scheme: dark) {
+  html:not(.light):not(.dark) {
+    background-color: #060d1a;
+    color-scheme: dark;
+  }
+}
+
+/* Faixa sólida atrás da barra de status do app instalado no iPhone: com "black-translucent" o
+   relógio e a bateria são brancos e ficariam ilegíveis sobre o tema claro. Sem entalhe, altura 0. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--safe-top);
+  background: var(--status-bar);
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* Safari (iPhone) dá zoom ao focar campos com fonte menor que 16px: nos aparelhos de toque e
+   telas pequenas os campos usam 16px; no desktop o desenho original (14px) continua. */
+@media (max-width: 767px), (pointer: coarse) {
+  :is(input, select, textarea):not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [class*="text-base"], [class*="text-lg"], [class*="text-xl"], [class*="text-2xl"], [class*="text-3xl"], [class*="text-4xl"]) {
+    font-size: 16px;
   }
 }
 

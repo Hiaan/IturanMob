@@ -42,7 +42,8 @@ export interface InterpretResponse {
   requiresConfirmation: boolean;
 }
 
-export function NaturalLanguageEntry({ onDone }: { onDone: () => void }) {
+/** `autoFocus` só no diálogo: no dashboard, focar ao carregar rolaria a página até o campo (e abriria o teclado). */
+export function NaturalLanguageEntry({ onDone, autoFocus = true }: { onDone: () => void; autoFocus?: boolean }) {
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const [result, setResult] = useState<InterpretResponse | null>(null);
@@ -82,7 +83,8 @@ export function NaturalLanguageEntry({ onDone }: { onDone: () => void }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) interpret.mutate(text.trim());
           }}
-          autoFocus
+          autoFocus={autoFocus}
+          aria-label="Lançamento em linguagem natural"
         />
         <div className="flex justify-end">
           <Button type="button" variant="secondary" onClick={() => interpret.mutate(text.trim())} disabled={!text.trim()} loading={interpret.isPending}>

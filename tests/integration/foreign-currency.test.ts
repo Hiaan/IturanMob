@@ -62,7 +62,13 @@ describe("Contas em moeda estrangeira", () => {
     const { fam, c6, wise } = await setup();
     await expect(createTransaction(fam.ctx, { type: "TRANSFER", amountCents: 50_000, description: "Wise → C6", date: "2026-10-02", accountId: wise.id, destinationAccountId: c6.id })).rejects.toThrow(/moedas diferentes/);
     const t = await createTransaction(fam.ctx, { type: "TRANSFER", amountCents: 50_000, destinationAmountCents: 270_000, description: "Wise → C6", date: "2026-10-02", accountId: wise.id, destinationAccountId: c6.id });
-    expect(t.transaction).toMatchObject({ currency: "USD", amountCents: 50_000, destinationAmountCents: 270_000 });
+    // Em reais, vale o que efetivamente chegou no C6 (entra no total de transferências da lista).
+    expect(t.transaction).toMatchObject({ currency: "USD", amountCents: 50_000, destinationAmountCents: 270_000, amountBrlCents: 270_000 });
+    expect(t.transaction.destinationAccount).toMatchObject({ id: c6.id, currency: "BRL" });
+    expect((await listTransactions(fam.ctx, { start: "2026-10-01", end: "2026-10-31" })).totals.transferCents).toBe(270_000);
+    await prisma.transaction.update({ where: { id: t.transaction.id }, data: { amountBrlCents: null } });
+    expect(await backfillBrlAmounts()).toBe(1);
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: t.transaction.id } })).amountBrlCents).toBe(270_000);
     expect((await getAccount(fam.ctx, wise.id)).balanceCents).toBe(50_000);
     expect((await getAccount(fam.ctx, c6.id)).balanceCents).toBe(100_000 + 270_000);
     // Não é receita nem despesa.
@@ -84,11 +90,15 @@ describe("Contas em moeda estrangeira", () => {
     const csv = Buffer.from(["Data;Descrição;Valor", "02/10/2026;REMITLY CORRETORA DE CAMBIO;2700,00", "03/10/2026;MERCADO;-50,00"].join("\n"));
     const preview = await createImportPreviewFromBuffer(fam.ctx, { fileName: "c6.csv", accountId: c6.id, content: csv });
     const row = preview.rows.find((r) => r.description?.startsWith("REMITLY"))!;
-    expect(row).toMatchObject({ kind: "TRANSFER", selected: false, transfer: { accountId: wise.id, direction: "IN" } });
+    expect(row).toMatchObject({
+      kind: "TRANSFER",
+      selected: false,
+      transfer: { accountId: wise.id, accountCurrency: "USD", direction: "IN", needsCounterpartAmount: true, counterpartAmountCents: null },
+    });
     expect(row.message).toContain("informe quanto saiu em USD");
     expect(row.message).toContain("PTAX");
     const updated = await setImportRowsTransfer(fam.ctx, preview.batch.id, { rowIds: [row.id], transferAccountId: wise.id, counterpartAmountCents: 50_000 });
-    expect(updated.rows.find((r) => r.id === row.id)).toMatchObject({ selected: true });
+    expect(updated.rows.find((r) => r.id === row.id)).toMatchObject({ selected: true, transfer: { needsCounterpartAmount: false, counterpartAmountCents: 50_000 } });
     await commitImport(fam.ctx, preview.batch.id);
     const t = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, type: "TRANSFER" } });
     expect(t).toMatchObject({ accountId: wise.id, amountCents: 50_000, currency: "USD", destinationAccountId: c6.id, destinationAmountCents: 270_000 });

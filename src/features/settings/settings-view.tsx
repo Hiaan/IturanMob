@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCan, useMe } from "@/features/me/use-me";
 import { NotificationPreferencesForm } from "@/features/notifications/preferences-form";
+import { PushNotificationsCard } from "@/features/notifications/push-card";
+import { InstallAppCard } from "@/components/pwa/install-instructions";
 import { HouseholdSection } from "./household-section";
 import { MembersSection } from "./members-section";
 import { PreferencesSection } from "./preferences-section";
@@ -66,7 +68,13 @@ export function SettingsView() {
           <PrivacyAiSection />
         </TabsContent>
         <TabsContent value="notificacoes">
-          <NotificationPreferencesForm />
+          <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+              <PushNotificationsCard />
+              <InstallAppCard />
+            </div>
+            <NotificationPreferencesForm />
+          </div>
         </TabsContent>
         <TabsContent value="seguranca">
           <SecuritySection />

@@ -158,6 +158,14 @@ export async function sendTestPush(ctx: ServiceContext) {
   if (!ctx.memberId) throw new ValidationError("Somente membros recebem notificações.");
   if (!pushConfig().enabled && !senderOverride) throw new ValidationError(pushConfig().reason!);
   const res = await sendPushToMember(ctx.memberId, { title: "Finanças", body: "Notificações ativadas neste aparelho. ✅", type: "TEST" });
-  if (!res.sent) throw new ValidationError(res.removed ? "A inscrição deste aparelho expirou. Ative as notificações de novo." : "Nenhum aparelho com notificações ativadas.");
+  if (!res.sent) {
+    throw new ValidationError(
+      res.failed
+        ? "O serviço de push não aceitou o envio agora. Tente de novo em alguns minutos; se continuar, desative e ative as notificações neste aparelho."
+        : res.removed
+          ? "A inscrição deste aparelho expirou. Ative as notificações de novo."
+          : "Nenhum aparelho com notificações ativadas.",
+    );
+  }
   return res;
 }

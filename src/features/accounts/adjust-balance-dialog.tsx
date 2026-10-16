@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/shared/money-input";
 import { errorMessage } from "@/lib/client/api";
 import { isISODate, todayISO } from "@/lib/dates";
-import { formatBRL } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/features/me/use-me";
 import type { AccountDTO } from "@/features/finance/types";
@@ -52,6 +52,7 @@ export function AdjustBalanceDialog({
 
   if (!account) return null;
   const diff = target - account.balanceCents;
+  const money = (cents: number) => formatMoney(cents, account.currency);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -59,7 +60,7 @@ export function AdjustBalanceDialog({
         <DialogHeader>
           <DialogTitle>{bank ? "Ajustar ao saldo do banco" : "Ajustar saldo"}</DialogTitle>
           <DialogDescription>
-            {account.name} · saldo no sistema <span className="font-medium text-foreground tabular">{formatBRL(account.balanceCents)}</span>
+            {account.name} · saldo no sistema <span className="font-medium text-foreground tabular">{money(account.balanceCents)}</span>
           </DialogDescription>
         </DialogHeader>
         <form
@@ -80,7 +81,7 @@ export function AdjustBalanceDialog({
             htmlFor="adj-target"
             hint={bank ? "O saldo bruto que aparece no aplicativo ou extrato do banco hoje." : "Confira no aplicativo do banco. Use a tecla − para saldo negativo."}
           >
-            <MoneyInput id="adj-target" size="lg" allowNegative value={target} onChange={setTarget} autoFocus />
+            <MoneyInput id="adj-target" size="lg" allowNegative currency={account.currency} value={target} onChange={setTarget} autoFocus />
           </Field>
           <div
             className={cn(
@@ -96,9 +97,9 @@ export function AdjustBalanceDialog({
                 Será lançado um ajuste de{" "}
                 <strong className={cn("tabular", diff > 0 ? "text-positive" : "text-negative")}>
                   {diff > 0 ? "+" : "−"}
-                  {formatBRL(Math.abs(diff))}
+                  {money(Math.abs(diff))}
                 </strong>{" "}
-                ({diff > 0 ? "entrada" : "saída"}) para que o saldo fique em <strong className="tabular">{formatBRL(target)}</strong>.
+                ({diff > 0 ? "entrada" : "saída"}) para que o saldo fique em <strong className="tabular">{money(target)}</strong>.
               </>
             )}
           </div>

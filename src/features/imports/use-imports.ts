@@ -132,8 +132,8 @@ export function useUpdateRows(batchId: string) {
 export function useSetRowsTransfer(batchId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ rowIds, transferAccountId, applyToSimilar, remember }: RowsTransferInput & { accountName?: string | null }) =>
-      api.post<RowsTransferResult>(`/api/v1/imports/${batchId}/transfer`, { rowIds, transferAccountId, applyToSimilar, remember }),
+    mutationFn: ({ rowIds, transferAccountId, applyToSimilar, remember, counterpartAmountCents }: RowsTransferInput & { accountName?: string | null }) =>
+      api.post<RowsTransferResult>(`/api/v1/imports/${batchId}/transfer`, { rowIds, transferAccountId, applyToSimilar, remember, ...(counterpartAmountCents ? { counterpartAmountCents } : {}) }),
     onSuccess: (data, vars) => {
       const { updatedRows, ruleCreated, ...preview } = data;
       qc.setQueryData(qk.imports({ batch: batchId }), preview);

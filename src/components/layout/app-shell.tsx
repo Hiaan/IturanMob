@@ -12,6 +12,7 @@ import { MobileNav } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
+import { InstallHint } from "@/components/pwa/install-hint";
 
 export interface ShellUser {
   name: string;
@@ -67,10 +68,10 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   };
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="flex min-h-dvh px-safe">
       <Sidebar collapsed={collapsed} onToggle={toggle} pendingCount={pendingCount} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6">
+        <header className="pt-safe sticky top-0 z-30 flex h-[calc(4rem+var(--safe-top))] items-center gap-3 border-b bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:px-6">
           <div className="min-w-0 flex-1 lg:hidden">
             <p className="truncate text-sm font-semibold">{user.householdName}</p>
           </div>
@@ -103,7 +104,10 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
             <UserMenu {...user} />
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-[calc(7rem+var(--safe-bottom))] pt-6 sm:px-6 lg:px-8 lg:pb-10">
+          <InstallHint />
+          {children}
+        </main>
       </div>
       <MobileNav onQuickAdd={() => setQuickAddOpen(true)} pendingCount={pendingCount} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />

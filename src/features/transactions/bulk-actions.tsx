@@ -41,7 +41,7 @@ export function BulkBar({
   const pending = items.filter((t) => t.status === "PENDING").length;
   const convertible = items.filter(canConvertToTransfer).length;
   return (
-    <div role="toolbar" aria-label="Ações em lote" className="fixed inset-x-3 bottom-20 z-40 mx-auto flex max-w-3xl items-center gap-1.5 rounded-2xl border bg-popover p-2 shadow-2xl sm:gap-2 lg:bottom-6">
+    <div role="toolbar" aria-label="Ações em lote" className="fixed left-[calc(0.75rem+var(--safe-left))] right-[calc(0.75rem+var(--safe-right))] bottom-[calc(5rem+var(--safe-bottom))] z-40 mx-auto flex max-w-3xl items-center gap-1.5 rounded-2xl border bg-popover p-2 shadow-2xl sm:gap-2 lg:bottom-6">
       <Button size="icon-sm" variant="ghost" onClick={onClear} aria-label="Limpar seleção">
         <X />
       </Button>

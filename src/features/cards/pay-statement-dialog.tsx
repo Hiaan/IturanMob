@@ -89,7 +89,8 @@ export function PayStatementDialog({ target, onOpenChange }: { target: PayTarget
                     <SelectValue placeholder="Selecione a conta" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(accounts.data ?? []).map((a) => (
+                    {/* A fatura é paga em reais: contas em moeda estrangeira ficam de fora. */}
+                    {(accounts.data ?? []).filter((a) => (a.currency ?? "BRL") === "BRL" || a.id === accountId).map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.name}
                       </SelectItem>

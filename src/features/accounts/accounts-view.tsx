@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Archive, ArchiveRestore, Eye, EyeOff, Landmark, Lock, MoreHorizontal, PencilLine, Plus, Scale, ShieldCheck, Trash2, TrendingUp, Users, Wallet } from "lucide-react";
+import { Archive, ArchiveRestore, Eye, EyeOff, Globe, Landmark, Lock, MoreHorizontal, PencilLine, Plus, Scale, ShieldCheck, Trash2, TrendingUp, Users, Wallet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { errorMessage } from "@/lib/client/api";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatMoney } from "@/lib/money";
+import { formatDayMonthBR } from "@/lib/dates";
 import { ACCOUNT_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useAccounts } from "@/features/finance/hooks";
@@ -27,10 +28,28 @@ import { AccountDetailSheet } from "./account-detail-sheet";
 import { useAccountMutations } from "./use-account-mutations";
 import { LedgerIntegrityDialog } from "./ledger-integrity-dialog";
 import { describeYield } from "./yield";
+import { brlEquivalent, foreignSummary, isForeignCurrency } from "./currency";
 
 const SHOW_ARCHIVED_KEY = "fa:accounts:show-archived";
 
-function SummaryTile({ label, value, hint, icon: Icon, emphasis, className }: { label: string; value: number; hint: string; icon: typeof Wallet; emphasis?: boolean; className?: string }) {
+function SummaryTile({
+  label,
+  value,
+  hint,
+  note,
+  icon: Icon,
+  emphasis,
+  className,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  /** Linha extra (ex.: conversão das contas em moeda estrangeira). */
+  note?: string | null;
+  icon: typeof Wallet;
+  emphasis?: boolean;
+  className?: string;
+}) {
   return (
     <Card className={cn("p-4 sm:p-5", className, emphasis && "border-transparent bg-gradient-to-br from-[#0b2545] to-[#0e3a5c] text-white dark:from-[#0d2a4a] dark:to-[#0b3b37]")}>
       <div className="flex items-start justify-between gap-2">
@@ -41,6 +60,7 @@ function SummaryTile({ label, value, hint, icon: Icon, emphasis, className }: { 
       </div>
       <p className={cn("mt-3 font-semibold leading-none tracking-tight tabular", emphasis ? "text-[26px]" : "text-xl sm:text-[26px]", value < 0 && !emphasis && "text-negative")}>{formatBRL(value)}</p>
       <p className={cn("mt-2 text-xs", emphasis ? "text-white/70" : "text-muted-foreground")}>{hint}</p>
+      {note && <p className={cn("mt-1 text-xs", emphasis ? "text-white/70" : "text-muted-foreground")}>{note}</p>}
     </Card>
   );
 }
@@ -63,6 +83,7 @@ function AccountCard({
   onDelete: () => void;
 }) {
   const archived = Boolean(account.archivedAt);
+  const foreign = isForeignCurrency(account.currency);
   return (
     <Card className={cn("group relative flex flex-col overflow-hidden p-5 transition hover:border-ring/40", archived && "opacity-75")}>
       <span className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: account.color }} aria-hidden />
@@ -108,9 +129,15 @@ function AccountCard({
       </div>
       <div className="mt-5">
         <p className="text-xs text-muted-foreground">Saldo atual</p>
-        <p className={cn("text-2xl font-semibold tracking-tight tabular", account.balanceCents < 0 && "text-negative")}>{formatBRL(account.balanceCents)}</p>
+        <p className={cn("text-2xl font-semibold tracking-tight tabular", account.balanceCents < 0 && "text-negative")}>{formatMoney(account.balanceCents, account.currency)}</p>
+        {foreign && <p className="mt-0.5 text-xs text-muted-foreground tabular">{brlEquivalent(account)}</p>}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {foreign && (
+          <Badge variant="info" title="Conta em moeda estrangeira: os totais em reais usam a PTAX do Banco Central">
+            <Globe aria-hidden /> {account.currency}
+          </Badge>
+        )}
         {account.visibility === "PRIVATE" ? (
           <Badge variant="muted" title="Somente o titular (e quem tem permissão) vê esta conta">
             <Lock aria-hidden /> Privada
@@ -171,10 +198,18 @@ export function AccountsView() {
   const archivedCount = all.length - active.length;
   const shown = showArchived ? all : active;
   const inTotals = active.filter((a) => a.includeInTotals);
-  const totalCents = inTotals.reduce((s, a) => s + a.balanceCents, 0);
-  const investCents = inTotals.filter((a) => a.type === "INVESTMENT").reduce((s, a) => s + a.balanceCents, 0);
+  // Totais em reais: contas em moeda estrangeira entram pela PTAX; sem cotação ainda, ficam de fora.
+  const brl = (a: AccountDTO) => a.balanceBrlCents ?? 0;
+  const totalCents = inTotals.reduce((s, a) => s + brl(a), 0);
+  const investCents = inTotals.filter((a) => a.type === "INVESTMENT").reduce((s, a) => s + brl(a), 0);
   const outside = active.filter((a) => !a.includeInTotals);
-  const outsideCents = outside.reduce((s, a) => s + a.balanceCents, 0);
+  const outsideCents = outside.reduce((s, a) => s + brl(a), 0);
+  const fx = foreignSummary(inTotals);
+  const fxNote = !fx.foreign.length
+    ? null
+    : fx.unrated.length
+      ? `${fx.unrated.map((a) => a.name).join(", ")}: sem cotação ainda, fora da soma`
+      : `${fx.foreign.length === 1 ? "Conta em moeda estrangeira convertida" : "Contas em moeda estrangeira convertidas"} pela PTAX de ${formatDayMonthBR(fx.rateDate!)}`;
 
   // ?id= abre o detalhe da conta.
   const detailId = searchParams.get("id");
@@ -258,7 +293,15 @@ export function AccountsView() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <SummaryTile emphasis className="col-span-2 sm:col-span-1" label="Saldo total" value={totalCents} icon={Wallet} hint={`${inTotals.length} ${inTotals.length === 1 ? "conta incluída" : "contas incluídas"} nos totais`} />
+            <SummaryTile
+              emphasis
+              className="col-span-2 sm:col-span-1"
+              label="Saldo total"
+              value={totalCents}
+              icon={Wallet}
+              hint={`${inTotals.length} ${inTotals.length === 1 ? "conta incluída" : "contas incluídas"} nos totais`}
+              note={fxNote}
+            />
             <SummaryTile label="Disponível (sem investimentos)" value={totalCents - investCents} icon={Landmark} hint="Contas correntes, digitais, poupança e carteiras" />
             {outside.length > 0 ? (
               <SummaryTile label="Fora dos totais" value={outsideCents} icon={EyeOff} hint={`${outside.length} ${outside.length === 1 ? "conta acompanhada" : "contas acompanhadas"} separadamente`} />

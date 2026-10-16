@@ -79,7 +79,13 @@ function Kpi({
   );
 }
 
-export function KpiGrid({ data, isLoading }: { data?: DashboardSummary; isLoading: boolean }) {
+/** Nota sobre contas em moeda estrangeira nos totais: `available` (sem investimentos) e `all` (patrimônio). */
+export interface KpiFxNotes {
+  available: string | null;
+  all: string | null;
+}
+
+export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLoading: boolean; fx?: KpiFxNotes }) {
   if (isLoading || !data) {
     return (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -97,9 +103,14 @@ export function KpiGrid({ data, isLoading }: { data?: DashboardSummary; isLoadin
         label="Saldo disponível"
         value={data.availableBalanceCents}
         icon={Wallet}
-        hint="Soma dos saldos das contas incluídas nos totais (exceto investimentos). Compras no cartão não reduzem o saldo até o pagamento da fatura."
+        hint={`Soma dos saldos das contas incluídas nos totais (exceto investimentos). Compras no cartão não reduzem o saldo até o pagamento da fatura.${fx?.available ? ` ${fx.available}.` : ""}`}
         href="/contas"
-        footer={<span className="text-xs">em contas e carteiras</span>}
+        footer={
+          <span className="text-xs">
+            em contas e carteiras
+            {fx?.available && <span className="block">{fx.available}</span>}
+          </span>
+        }
       />
       <Kpi label="Receitas do período" value={data.incomeCents} icon={TrendingUp} hint="Receitas confirmadas no período, conforme o regime selecionado." href="/transacoes?type=INCOME" footer={<Delta pct={data.comparison.incomeChangePct} />} />
       <Kpi
@@ -151,7 +162,7 @@ export function KpiGrid({ data, isLoading }: { data?: DashboardSummary; isLoadin
         label="Patrimônio financeiro"
         value={data.netWorth.netWorthCents}
         icon={Landmark}
-        hint="Saldo de todas as contas (inclui investimentos) menos o saldo devedor dos cartões. Não confundir com renda."
+        hint={`Saldo de todas as contas (inclui investimentos) menos o saldo devedor dos cartões. Não confundir com renda.${fx?.all ? ` ${fx.all}.` : ""}`}
         footer={<span className="text-xs text-muted-foreground">Ativos {formatBRL(data.netWorth.assetsCents, { compact: true })} · Cartões {formatBRL(data.netWorth.cardDebtCents, { compact: true })}</span>}
       />
     </div>

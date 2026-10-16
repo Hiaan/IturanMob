@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { errorMessage } from "@/lib/client/api";
-import { formatBRL } from "@/lib/money";
+import { formatMoney } from "@/lib/money";
 import { formatDateBR } from "@/lib/dates";
 import { TRANSACTION_SOURCE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ import { CategoryPicker } from "@/features/categories/category-picker";
 import { useAccounts } from "@/features/finance/hooks";
 import { isInvestmentAccount } from "@/features/accounts/transfer-account-field";
 import { ROW_STATUS, ROW_STATUS_ORDER, RowStatusBadge } from "./status";
-import { canMarkTransfer, isUnresolvedTransfer, transferTotals } from "./helpers";
+import { canMarkTransfer, isUnresolvedTransfer, needsCounterpartAmount, transferTotals } from "./helpers";
 import { TransferTag } from "./transfer-tag";
 import { TransferRowsDialog } from "./transfer-rows-dialog";
 import { useCommitImport, useSetRowsTransfer, useUpdateRows } from "./use-imports";
@@ -28,13 +28,13 @@ import type { ImportPreview, ImportRowDTO, ImportRowStatus } from "./types";
 const PAGE_SIZE = 50;
 const SELECTABLE: ImportRowStatus[] = ["NEW", "MATCHED", "DIVERGENT"];
 
-function Amount({ cents, transfer, className }: { cents: number | null; transfer?: boolean; className?: string }) {
+function Amount({ cents, transfer, currency = "BRL", className }: { cents: number | null; transfer?: boolean; currency?: string; className?: string }) {
   if (cents === null) return <span className={cn("text-muted-foreground", className)}>—</span>;
   const inflow = cents > 0;
   return (
     <span className={cn("font-medium tabular", inflow && !transfer && "text-positive", className)}>
       <span className="sr-only">{transfer ? (inflow ? "Transferência (entrada) de " : "Transferência (saída) de ") : inflow ? "Entrada de " : "Saída de "}</span>
-      {formatBRL(cents, { signed: true })}
+      {formatMoney(cents, currency, { signed: true })}
     </span>
   );
 }
@@ -51,13 +51,13 @@ function KindTag({ row }: { row: ImportRowDTO }) {
   return null;
 }
 
-function MatchInfo({ row }: { row: ImportRowDTO }) {
+function MatchInfo({ row, currency }: { row: ImportRowDTO; currency: string }) {
   const tx = row.matchedTransaction;
   if (!tx || row.status !== "MATCHED") return null;
   return (
     <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
       <Link2 className="size-3" aria-hidden /> No app: <span className="font-medium text-foreground">{tx.description}</span> · {formatDateBR(tx.date)} ·{" "}
-      <span className="tabular">{formatBRL(tx.amountCents)}</span> · {labelOf(TRANSACTION_SOURCE_LABELS, tx.source)}
+      <span className="tabular">{formatMoney(tx.amountCents, currency)}</span> · {labelOf(TRANSACTION_SOURCE_LABELS, tx.source)}
     </p>
   );
 }
@@ -90,6 +90,7 @@ function RowActions({
   onTransfer,
   onRevertTransfer,
   disabled,
+  counterpartCurrency,
 }: {
   row: ImportRowDTO;
   onForceNew: () => void;
@@ -97,9 +98,12 @@ function RowActions({
   onTransfer: () => void;
   onRevertTransfer: () => void;
   disabled: boolean;
+  /** Moeda da conta do outro lado, quando a linha espera o valor nela. */
+  counterpartCurrency?: string | null;
 }) {
   const forceNew = ["DUPLICATE", "MATCHED", "DIVERGENT"].includes(row.status);
   const unresolved = isUnresolvedTransfer(row);
+  const awaitingAmount = needsCounterpartAmount(row);
   if (!forceNew && !transferable) return null;
   const label = row.description ?? "linha";
   return (
@@ -107,6 +111,11 @@ function RowActions({
       {transferable && unresolved && (
         <Button variant="outline" size="sm" className="border-warning/50 text-foreground" onClick={onTransfer} disabled={disabled}>
           <ArrowLeftRight /> Escolher a conta
+        </Button>
+      )}
+      {transferable && awaitingAmount && (
+        <Button variant="outline" size="sm" className="border-warning/50 text-foreground" onClick={onTransfer} disabled={disabled}>
+          <ArrowLeftRight /> Informar valor{counterpartCurrency ? ` em ${counterpartCurrency}` : ""}
         </Button>
       )}
       {forceNew && (
@@ -174,6 +183,12 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const transferable = (r: ImportRowDTO) => canMarkTransfer(preview, r);
   const transferRowsAll = rows.filter((r) => r.kind === "TRANSFER" && (r.status === "NEW" || r.status === "MATCHED"));
   const unresolved = rows.filter((r) => r.status === "NEW" && isUnresolvedTransfer(r));
+  const awaitingAmount = rows.filter(needsCounterpartAmount);
+  const currencyOf = (id: string | null | undefined) => (id ? (accounts.data?.find((a) => a.id === id)?.currency ?? null) : null);
+  const statementCurrency = currencyOf(preview.batch.account?.id) ?? "BRL";
+  const money = (cents: number) => formatMoney(cents, statementCurrency);
+  // Linha nova que não pode entrar ainda: sem a conta do outro lado ou sem o valor na outra moeda.
+  const blocked = (r: ImportRowDTO) => r.status === "NEW" && (isUnresolvedTransfer(r) || needsCounterpartAmount(r));
   const noInvestmentAccount = Boolean(accounts.data) && !accounts.data!.some((a) => isInvestmentAccount(a) && !a.archivedAt);
 
   const filtered = useMemo(() => {
@@ -199,15 +214,15 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const bulkTargets = filtered.filter((r) => r.selected && transferable(r));
 
   const setNewSelection = (value: boolean) => {
-    const changes = rows.filter((r) => r.status === "NEW" && r.selected !== value && !(value && isUnresolvedTransfer(r))).map((r) => ({ rowId: r.id, selected: value }));
+    const changes = rows.filter((r) => r.status === "NEW" && r.selected !== value && !(value && blocked(r))).map((r) => ({ rowId: r.id, selected: value }));
     if (changes.length) update.mutate(changes);
   };
 
   const revertTransfer = (r: ImportRowDTO) =>
     setTransfer.mutate({ rowIds: [r.id], transferAccountId: null }, { onError: (e) => toast.error(errorMessage(e)) });
 
-  // Linha nova sem a conta do outro lado não entra (viraria erro na confirmação).
-  const isSelectable = (r: ImportRowDTO) => SELECTABLE.includes(r.status) && !(r.status === "NEW" && isUnresolvedTransfer(r));
+  // Linha nova sem a conta do outro lado (ou sem o valor na outra moeda) não entra: viraria erro na confirmação.
+  const isSelectable = (r: ImportRowDTO) => SELECTABLE.includes(r.status) && !blocked(r);
   const pageCheckState = visible.filter(isSelectable);
   const allPageChecked = pageCheckState.length > 0 && pageCheckState.every((r) => r.selected);
 
@@ -224,6 +239,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
       onTransfer={() => openTransfer([r])}
       onRevertTransfer={() => revertTransfer(r)}
       disabled={busy}
+      counterpartCurrency={currencyOf(r.transfer?.accountId)}
     />
   );
 
@@ -280,6 +296,21 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
           </div>
           <Button variant="outline" size="sm" className="shrink-0 border-warning/50" onClick={() => openTransfer(unresolved)} disabled={busy}>
             <ArrowLeftRight /> Escolher a conta{unresolved.length > 1 ? ` (${unresolved.length})` : ""}
+          </Button>
+        </div>
+      )}
+
+      {awaitingAmount.length > 0 && (
+        <div role="note" className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div className="flex min-w-0 items-start gap-2 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <p className="min-w-0 break-words">
+              <strong>{awaitingAmount.length}</strong> {awaitingAmount.length === 1 ? "remessa/câmbio entre contas próprias fica" : "remessas/câmbios entre contas próprias ficam"}{" "}
+              <strong>fora da importação</strong> até você informar o valor na outra moeda (ele não está neste extrato). Informe linha a linha.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="shrink-0 border-warning/50" onClick={() => openTransfer([awaitingAmount[0]!])} disabled={busy}>
+            <ArrowLeftRight /> Informar valor{awaitingAmount.length > 1 ? ` (1 de ${awaitingAmount.length})` : ""}
           </Button>
         </div>
       )}
@@ -364,7 +395,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                 <tbody>
                   {visible.map((r) => {
                     const selectable = SELECTABLE.includes(r.status);
-                    const pendingAccount = isUnresolvedTransfer(r) && r.status === "NEW";
+                    const pendingAccount = blocked(r);
                     return (
                       <tr
                         key={r.id}
@@ -381,7 +412,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                             disabled={!isSelectable(r) || busy}
                             onCheckedChange={(v) => update.mutate([{ rowId: r.id, selected: v === true }])}
                             aria-label={`Selecionar ${r.description ?? "linha"}`}
-                            title={pendingAccount ? "Escolha a conta do outro lado para importar esta linha" : undefined}
+                            title={pendingAccount ? (needsCounterpartAmount(r) ? "Informe o valor na outra moeda para importar esta linha" : "Escolha a conta do outro lado para importar esta linha") : undefined}
                           />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 tabular">{r.date ? formatDateBR(r.date) : "—"}</td>
@@ -391,10 +422,10 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                             <KindTag row={r} />
                           </div>
                           {showMessage(r) && <p className="mt-1 text-xs text-muted-foreground">{r.message}</p>}
-                          <MatchInfo row={r} />
+                          <MatchInfo row={r} currency={statementCurrency} />
                         </td>
                         <td className="whitespace-nowrap px-2 py-3 text-right">
-                          <Amount cents={r.amountCents} transfer={r.kind === "TRANSFER"} />
+                          <Amount cents={r.amountCents} transfer={r.kind === "TRANSFER"} currency={statementCurrency} />
                         </td>
                         <td className="px-2 py-3">
                           <RowStatusBadge status={r.status} />
@@ -414,7 +445,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
             <ul className="divide-y lg:hidden">
               {visible.map((r) => {
                 const selectable = SELECTABLE.includes(r.status);
-                const pendingAccount = isUnresolvedTransfer(r) && r.status === "NEW";
+                const pendingAccount = blocked(r);
                 const categoryEditable = ["NEW", "DIVERGENT"].includes(r.status) && r.kind !== "CARD_PAYMENT";
                 const hasActions = ["DUPLICATE", "MATCHED", "DIVERGENT"].includes(r.status) || transferable(r);
                 return (
@@ -430,7 +461,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <p className="min-w-0 break-words font-medium">{r.description ?? "—"}</p>
-                          <Amount cents={r.amountCents} transfer={r.kind === "TRANSFER"} className="shrink-0 text-sm" />
+                          <Amount cents={r.amountCents} transfer={r.kind === "TRANSFER"} currency={statementCurrency} className="shrink-0 text-sm" />
                         </div>
                         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="tabular">{r.date ? formatDateBR(r.date) : "Sem data"}</span>
@@ -438,7 +469,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                           <KindTag row={r} />
                         </div>
                         {showMessage(r) && <p className="mt-1 text-xs text-muted-foreground">{r.message}</p>}
-                        <MatchInfo row={r} />
+                        <MatchInfo row={r} currency={statementCurrency} />
                         {categoryEditable || hasActions ? (
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             {categoryEditable && (
@@ -486,7 +517,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
             {toCreate.length > 0 && (
               <span className="hidden font-normal text-muted-foreground sm:inline">
                 {" "}
-                · receitas <span className="tabular">{formatBRL(inflow)}</span> · despesas <span className="tabular">{formatBRL(Math.abs(outflow))}</span>
+                · receitas <span className="tabular">{money(inflow)}</span> · despesas <span className="tabular">{money(Math.abs(outflow))}</span>
                 {transfers.count > 0 && (
                   <>
                     {" "}
@@ -494,14 +525,14 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                     {transfers.inflowCents > 0 && (
                       <>
                         {" "}
-                        <span className="tabular">{formatBRL(transfers.inflowCents)}</span> entrando
+                        <span className="tabular">{money(transfers.inflowCents)}</span> entrando
                       </>
                     )}
                     {transfers.inflowCents > 0 && transfers.outflowCents > 0 && " e"}
                     {transfers.outflowCents > 0 && (
                       <>
                         {" "}
-                        <span className="tabular">{formatBRL(transfers.outflowCents)}</span> saindo
+                        <span className="tabular">{money(transfers.outflowCents)}</span> saindo
                       </>
                     )}
                   </>

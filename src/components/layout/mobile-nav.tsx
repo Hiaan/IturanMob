@@ -21,7 +21,7 @@ export function MobileNav({ onQuickAdd, pendingCount }: { onQuickAdd: () => void
     );
   };
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur lg:hidden" aria-label="Navegação">
+    <nav className="safe-bottom px-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur lg:hidden" aria-label="Navegação">
       <div className="mx-auto flex max-w-lg items-stretch px-2">
         {item("/", "Início", LayoutDashboard)}
         {item("/transacoes", "Transações", ArrowLeftRight)}
@@ -44,11 +44,11 @@ export function MobileNav({ onQuickAdd, pendingCount }: { onQuickAdd: () => void
               {pendingCount > 0 && <span className="absolute right-4 top-1.5 size-2 rounded-full bg-brand" aria-label={`${pendingCount} pendências`} />}
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="pb-8">
+          <SheetContent side="bottom">
             <SheetHeader>
               <SheetTitle>Menu</SheetTitle>
             </SheetHeader>
-            <div className="grid max-h-[70dvh] gap-4 overflow-y-auto px-5">
+            <div className="grid max-h-[70dvh] gap-4 overflow-y-auto overscroll-contain px-5">
               {NAV_GROUPS.map((group) => (
                 <div key={group.label}>
                   <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{group.label}</p>

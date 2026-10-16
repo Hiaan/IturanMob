@@ -6,12 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { PageHeader } from "@/components/shared/page-header";
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import { describePeriod } from "@/lib/dates";
+import { describePeriod, formatDayMonthBR } from "@/lib/dates";
 import { NaturalLanguageEntry } from "@/features/transactions/quick-add-dialog";
 import { useMe } from "@/features/me/use-me";
+import { useAccounts } from "@/features/finance/hooks";
+import type { AccountDTO } from "@/features/finance/types";
+import { foreignSummary } from "@/features/accounts/currency";
 import { FiltersBar } from "./filters-bar";
 import { filtersToParams, usePersistentFilters } from "./use-filters";
-import { KpiGrid, type DashboardSummary } from "./kpi-grid";
+import { KpiGrid, type DashboardSummary, type KpiFxNotes } from "./kpi-grid";
 import { OnboardingChecklist } from "./onboarding";
 import {
   BalanceEvolution,
@@ -26,6 +29,14 @@ import {
   TopExpensesList,
 } from "./dashboard-charts";
 
+/** Os totais do servidor já vêm em reais; a nota só explica a conversão das contas em moeda estrangeira. */
+function fxNote(accounts: AccountDTO[]): string | null {
+  const fx = foreignSummary(accounts);
+  if (!fx.foreign.length) return null;
+  if (fx.unrated.length) return `${fx.unrated.map((a) => a.name).join(", ")} sem cotação ainda: fora do total`;
+  return `${fx.foreign.length === 1 ? "Conta em moeda estrangeira convertida" : "Contas em moeda estrangeira convertidas"} pela PTAX de ${formatDayMonthBR(fx.rateDate!)}`;
+}
+
 function greeting() {
   const h = new Date().getHours();
   return h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
@@ -34,6 +45,9 @@ function greeting() {
 export function DashboardView() {
   const me = useMe();
   const { filters, update, reset } = usePersistentFilters("dashboard");
+  const accounts = useAccounts();
+  const included = (accounts.data ?? []).filter((a) => a.includeInTotals);
+  const fx: KpiFxNotes = { available: fxNote(included.filter((a) => a.type !== "INVESTMENT")), all: fxNote(included) };
   const params = filtersToParams(filters);
   const summary = useQuery({
     queryKey: qk.analytics("summary", params),
@@ -50,7 +64,7 @@ export function DashboardView() {
       <FiltersBar filters={filters} onChange={update} onReset={reset} />
       <OnboardingChecklist />
       <div className={summary.isFetching && !summary.isLoading ? "opacity-70 transition-opacity" : "transition-opacity"}>
-        <KpiGrid data={summary.data} isLoading={summary.isLoading} />
+        <KpiGrid data={summary.data} isLoading={summary.isLoading} fx={fx} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -65,7 +79,7 @@ export function DashboardView() {
             <CardDescription>Escreva como no WhatsApp — revise antes de confirmar.</CardDescription>
           </CardHeader>
           <CardContent>
-            <NaturalLanguageEntry onDone={() => undefined} />
+            <NaturalLanguageEntry onDone={() => undefined} autoFocus={false} />
           </CardContent>
         </Card>
       </div>

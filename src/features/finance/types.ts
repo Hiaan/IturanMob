@@ -18,6 +18,12 @@ export interface AccountDTO {
   yieldIndex: "CDI" | "SELIC" | "IPCA" | "PREFIXED" | null;
   yieldRateBps: number | null;
   yieldStartDate: string | null;
+  /** Moeda da conta: saldo, saldo inicial e lançamentos ficam nela. */
+  currency: string;
+  /** Saldo em reais (moeda estrangeira: pela última PTAX; null enquanto não há cotação). */
+  balanceBrlCents: number | null;
+  /** Cotação usada (reais por 1 unidade) e a data dela; só em contas em moeda estrangeira. */
+  fx: { rate: number; date: string } | null;
 }
 
 export interface StatementDTO {
@@ -98,6 +104,12 @@ export interface TransactionDTO {
   type: "EXPENSE" | "INCOME" | "TRANSFER" | "CARD_PAYMENT" | "ADJUSTMENT";
   status: "CONFIRMED" | "PENDING";
   amountCents: number;
+  /** Moeda de amountCents (a da conta de origem; cartão é sempre BRL). */
+  currency: string;
+  /** Transferência entre moedas: valor creditado no destino, na moeda dele. */
+  destinationAmountCents: number | null;
+  /** Receita/despesa em moeda estrangeira: valor em reais pela PTAX da data (null = sem cotação ainda). */
+  amountBrlCents: number | null;
   description: string;
   notes: string | null;
   date: string;
@@ -117,7 +129,7 @@ export interface TransactionDTO {
   subcategory: { id: string; name: string } | null;
   merchant: { id: string; name: string } | null;
   account: { id: string; name: string; color: string; icon: string } | null;
-  destinationAccount: { id: string; name: string; color: string; icon: string } | null;
+  destinationAccount: { id: string; name: string; color: string; icon: string; currency: string } | null;
   creditCard: { id: string; name: string; color: string } | null;
   statement: { id: string; referenceMonth: string } | null;
   payer: { id: string; displayName: string; color: string } | null;

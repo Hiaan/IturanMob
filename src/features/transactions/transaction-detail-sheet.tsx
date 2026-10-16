@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { ErrorState } from "@/components/shared/error-state";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatMoney } from "@/lib/money";
 import { formatDateBR, formatDateTimeBR, formatMonthBR } from "@/lib/dates";
 import { OWNERSHIP_LABELS, PAYMENT_METHOD_LABELS, TRANSACTION_SOURCE_LABELS, TRANSACTION_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ import { TransactionHistory } from "./transaction-history";
 import { AmountText, PendingBadge, SourceTag, TransactionIcon, categoryLabel } from "./transaction-visuals";
 import { useTransactionActions, useTransactionDetail, type TransactionDetail } from "./use-transaction-actions";
 import { DeleteTransactionsDialog, PurgeTransactionsDialog } from "./confirm-dialogs";
+import { describeExchange, isForeignCurrency, useAccountCurrencies } from "@/features/accounts/currency";
 
 const EDITABLE_TYPES = new Set(["EXPENSE", "INCOME", "TRANSFER"]);
 
@@ -93,6 +94,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
   const canWrite = useCan("transactions:write");
   const canDelete = useCan("transactions:delete");
   const actions = useTransactionActions();
+  const currencies = useAccountCurrencies();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmPurge, setConfirmPurge] = useState(false);
@@ -104,6 +106,12 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
 
   const deleted = Boolean(tx?.deletedAt);
   const editable = tx && EDITABLE_TYPES.has(tx.type) && !deleted && canWrite;
+  const currency = tx?.currency ?? "BRL";
+  // Transferência entre moedas: valor que saiu (origem) e o creditado no destino.
+  const crossTransfer = tx?.type === "TRANSFER" && tx.destinationAmountCents != null;
+  const destinationCurrency = (tx?.destinationAccount && currencies.get(tx.destinationAccount.id)) ?? (isForeignCurrency(currency) ? "BRL" : null);
+  const exchange =
+    crossTransfer && tx && destinationCurrency ? describeExchange({ cents: tx.amountCents, currency }, { cents: tx.destinationAmountCents, currency: destinationCurrency }) : null;
 
   return (
     <Sheet open={Boolean(id)} onOpenChange={(o) => !o && onClose()}>
@@ -156,7 +164,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <AmountText tx={tx} className="text-2xl tracking-tight" />
+                <AmountText tx={tx} className="text-2xl tracking-tight" secondary={false} />
                 {tx.status === "PENDING" && <PendingBadge />}
                 {deleted && (
                   <Badge variant="negative">
@@ -164,6 +172,22 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                   </Badge>
                 )}
               </div>
+              {isForeignCurrency(currency) && (tx.type === "EXPENSE" || tx.type === "INCOME" || tx.type === "ADJUSTMENT") && (
+                <p className="text-xs text-muted-foreground">
+                  {tx.amountBrlCents != null ? (
+                    <>
+                      <span className="font-medium text-foreground tabular">≈ {formatBRL(tx.amountBrlCents)}</span> pela PTAX da data: é esse valor que entra nos relatórios.
+                    </>
+                  ) : (
+                    "Ainda sem cotação PTAX para a data: o valor em reais entra nos relatórios quando a cotação chegar."
+                  )}
+                </p>
+              )}
+              {crossTransfer && destinationCurrency && (
+                <p className="text-xs text-muted-foreground">
+                  Creditado em {tx.destinationAccount?.name ?? "destino"}: <span className="font-medium text-foreground tabular">{formatMoney(tx.destinationAmountCents!, destinationCurrency)}</span>
+                </p>
+              )}
             </SheetHeader>
 
             <div className="flex flex-wrap gap-2 border-b px-5 pb-4">
@@ -223,6 +247,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                     <>
                       <Row label="De">{tx.account?.name ?? "—"}</Row>
                       <Row label="Para">{tx.destinationAccount?.name ?? "—"}</Row>
+                      {exchange && <Row label="Câmbio efetivo">{exchange}</Row>}
                     </>
                   ) : tx.type === "CARD_PAYMENT" ? (
                     <>
@@ -262,7 +287,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                             {tx.allocations.map((a) => (
                               <li key={a.memberId} className="flex justify-between gap-2">
                                 <span>{a.displayName}</span>
-                                <span className="whitespace-nowrap tabular">{formatBRL(a.amountCents)}</span>
+                                <span className="whitespace-nowrap tabular">{formatMoney(a.amountCents, currency)}</span>
                               </li>
                             ))}
                           </ul>
@@ -331,7 +356,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
               open={confirmDelete}
               onOpenChange={setConfirmDelete}
               count={1}
-              description={`${tx.description} (${formatBRL(tx.amountCents)})`}
+              description={`${tx.description} (${formatMoney(tx.amountCents, currency)})`}
               loading={actions.remove.isPending}
               onConfirm={() =>
                 actions.remove.mutate(tx.id, {

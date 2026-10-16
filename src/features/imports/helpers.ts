@@ -73,6 +73,11 @@ export function isUnresolvedTransfer(row: Pick<ImportRowDTO, "kind" | "transfer"
   return row.kind === "TRANSFER" && !row.transfer?.accountId;
 }
 
+/** Transferência entre moedas (remessa/câmbio) que ainda espera o valor na outra moeda: a linha fica fora da importação. */
+export function needsCounterpartAmount(row: Pick<ImportRowDTO, "kind" | "transfer" | "status">): boolean {
+  return row.kind === "TRANSFER" && Boolean(row.transfer?.accountId) && row.status === "NEW" && Boolean(row.transfer?.needsCounterpartAmount);
+}
+
 /** Transferência só vale em extrato de conta, para lançamentos novos ou já registrados (fora pagamento de fatura). */
 export function canMarkTransfer(preview: Pick<ImportPreview, "batch">, row: ImportRowDTO): boolean {
   return (

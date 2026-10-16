@@ -194,7 +194,10 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
     data.destinationAmountCents = null;
   }
   if (data.type === "CARD_PAYMENT" && data.currency !== "BRL") throw new ValidationError("A fatura do cartão é paga em reais: escolha uma conta em reais.", { field: "accountId" });
-  if (data.currency !== "BRL" && (data.type === "INCOME" || data.type === "EXPENSE" || data.type === "ADJUSTMENT")) {
+  if (data.currency !== "BRL" && data.type === "TRANSFER" && dstCurrency === "BRL" && data.destinationAmountCents) {
+    // Saída de conta estrangeira para conta em reais: o valor em reais é o que efetivamente chegou.
+    data.amountBrlCents = data.destinationAmountCents;
+  } else if (data.currency !== "BRL" && (data.type === "INCOME" || data.type === "EXPENSE" || data.type === "ADJUSTMENT" || data.type === "TRANSFER")) {
     const { toBrlCents } = await import("../fx/service");
     data.amountBrlCents = await toBrlCents(data.amountCents, data.currency, data.date, db);
   }

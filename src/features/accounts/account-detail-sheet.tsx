@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Archive, ArrowRight, EyeOff, Lock, PencilLine, Scale, Users } from "lucide-react";
+import { Archive, ArrowRight, EyeOff, Globe, Lock, PencilLine, Scale, Users } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import { ChartTooltip, axisTick, compactBRL } from "@/components/charts/chart-to
 import { ErrorState } from "@/components/shared/error-state";
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import { formatBRL } from "@/lib/money";
+import { formatBRL, formatMoney } from "@/lib/money";
 import { formatDateBR, formatDayMonthBR, todayISO } from "@/lib/dates";
 import { useMe } from "@/features/me/use-me";
 import { ACCOUNT_TYPE_LABELS, labelOf } from "@/lib/labels";
@@ -24,6 +24,8 @@ import type { AccountDTO, TransactionList } from "@/features/finance/types";
 import { AmountText, TransactionIcon, categoryLabel } from "@/features/transactions/transaction-visuals";
 import { AccountIcon } from "./account-icon";
 import { AccountYieldPanel } from "./account-yield-panel";
+import { AccountFxPanel } from "./account-fx-panel";
+import { brlEquivalent, isForeignCurrency } from "./currency";
 
 const RANGES = [
   ["last30", "30 dias"],
@@ -48,6 +50,7 @@ function BalanceChart({ account }: { account: AccountDTO }) {
   const step = Math.max(1, Math.ceil(points.length / 120));
   const data = points.filter((_, i) => i % step === 0 || i === points.length - 1).map((p) => ({ ...p, label: formatDayMonthBR(p.date) }));
   const unsupported = !account.includeInTotals || Boolean(account.archivedAt);
+  const foreign = isForeignCurrency(account.currency);
   const gradientId = `acc-fill-${account.id}`;
 
   const selector = (
@@ -71,7 +74,7 @@ function BalanceChart({ account }: { account: AccountDTO }) {
       {!unsupported && selector}
     <ChartCard
       title="Evolução do saldo"
-      description="Saldo ao fim de cada dia"
+      description={foreign ? "Saldo em reais ao fim de cada dia, pela PTAX de cada dia" : "Saldo ao fim de cada dia"}
       isLoading={!unsupported && q.isLoading}
       isFetching={q.isFetching}
       error={unsupported ? undefined : q.error}
@@ -88,7 +91,7 @@ function BalanceChart({ account }: { account: AccountDTO }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Data</TableHead>
-                <TableHead className="text-right">Saldo</TableHead>
+                <TableHead className="text-right">{foreign ? "Saldo em reais" : "Saldo"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -206,11 +209,17 @@ export function AccountDetailSheet({
                   </SheetDescription>
                 </div>
               </div>
-              <p className={cn("mt-3 text-3xl font-semibold tracking-tight tabular", account.balanceCents < 0 && "text-negative")}>{formatBRL(account.balanceCents)}</p>
+              <p className={cn("mt-3 text-3xl font-semibold tracking-tight tabular", account.balanceCents < 0 && "text-negative")}>{formatMoney(account.balanceCents, account.currency)}</p>
+              {isForeignCurrency(account.currency) && <p className="text-sm text-muted-foreground tabular">{brlEquivalent(account)}</p>}
               <p className="text-xs text-muted-foreground">
-                Saldo atual · saldo inicial {formatBRL(account.initialBalanceCents)} em {formatDateBR(account.initialBalanceDate)}
+                Saldo atual · saldo inicial {formatMoney(account.initialBalanceCents, account.currency)} em {formatDateBR(account.initialBalanceDate)}
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
+                {isForeignCurrency(account.currency) && (
+                  <Badge variant="info">
+                    <Globe aria-hidden /> {account.currency}
+                  </Badge>
+                )}
                 {account.visibility === "PRIVATE" ? (
                   <Badge variant="muted">
                     <Lock aria-hidden /> Privada
@@ -245,6 +254,7 @@ export function AccountDetailSheet({
               </div>
             )}
             <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+              <AccountFxPanel key={`fx-${account.id}`} account={account} />
               <AccountYieldPanel key={account.id} account={account} canWrite={canWrite} onConfigure={onConfigureYield} onAdjustBank={onAdjustBank} />
               <BalanceChart account={account} />
               <RecentTransactions account={account} />
