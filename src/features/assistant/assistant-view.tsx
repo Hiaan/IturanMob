@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RichText } from "@/components/shared/rich-text";
 import { api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
@@ -114,6 +115,24 @@ export function AssistantView() {
   return (
     <div className="space-y-4">
       <PageHeader title="Assistente financeiro" description="Pergunte em português sobre as finanças da família. As respostas usam apenas os dados registrados." />
+      {/* No celular a lista lateral fica oculta: as conversas anteriores ficam neste seletor. */}
+      {Boolean(conversations.data?.length) && (
+        <div className="lg:hidden">
+          <Select value={conversationId ?? "nova"} onValueChange={(v) => setConversationId(v === "nova" ? null : v)}>
+            <SelectTrigger className="w-full" aria-label="Conversa">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="nova">Nova conversa</SelectItem>
+              {(conversations.data ?? []).map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
         <Card className="hidden h-[calc(100dvh-12rem)] flex-col overflow-hidden lg:flex">
           <div className="border-b p-3">
