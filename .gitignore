@@ -17,3 +17,6 @@ blob-report/
 *.tsbuildinfo
 .vercel
 /storage-test/
+
+# Snapshot do Redis local (dados de filas — nunca versionar)
+dump.rdb
