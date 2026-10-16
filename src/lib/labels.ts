@@ -101,6 +101,7 @@ export const PENDING_TYPE_LABELS = {
   IMPORT_DIVERGENCE: "Divergência de importação",
   INSTALLMENT_INCONSISTENT: "Parcelamento inconsistente",
   CLARIFICATION: "Aguardando esclarecimento",
+  NATURE_REVIEW: "Escolher natureza",
 } as const;
 
 export const NOTIFICATION_TYPE_LABELS = {

@@ -4,7 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate, RowsTransferInput, RowsTransferResult } from "./types";
+import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate, RowsNatureInput, RowsNatureResult, RowsTransferInput, RowsTransferResult } from "./types";
 
 /** Espelha IMPORT_MAX_BYTES do servidor (15 MB por arquivo). */
 export const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
@@ -150,6 +150,28 @@ export function useSetRowsTransfer(batchId: string) {
             : "Não contam como receita nem despesa.",
       });
     },
+  });
+}
+
+const NATURE_NAMES = { PERSONAL: "Pessoal", BUSINESS: "Empresa", PASSTHROUGH: "Repasse" } as const;
+
+/** Natureza das linhas da prévia (vale sobre as regras ao importar; saldo e fatura não mudam). */
+export function useSetRowsNature(batchId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RowsNatureInput) => api.post<RowsNatureResult>(`/api/v1/imports/${batchId}/nature`, body),
+    onSuccess: (data, vars) => {
+      const { updatedRows, ...preview } = data;
+      qc.setQueryData(qk.imports({ batch: batchId }), preview);
+      const n = updatedRows;
+      const rows = `${n} ${n === 1 ? "linha" : "linhas"}`;
+      if (vars.nature === null) toast.success(`${rows}: natureza volta para a sugestão das regras`);
+      else
+        toast.success(`${rows} como ${NATURE_NAMES[vars.nature]}`, {
+          description: `${vars.applyToSimilar && n > vars.rowIds.length ? "Inclui as parecidas deste arquivo. " : ""}Vale ao importar. Saldo e fatura não mudam.`,
+        });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
   });
 }
 

@@ -28,6 +28,10 @@ export interface TxFilters {
   maxAmountCents?: number;
   /** Desconsiderados nos relatórios: ocultar ou só eles (ausente = mostrar junto, o padrão). */
   excluded?: "hide" | "only";
+  /** Natureza Pessoal ou Empresa (os repasses ficam de fora: são a natureza Repasse). */
+  scope?: "PERSONAL" | "BUSINESS";
+  /** Só os que uma regra pediu para escolher a natureza. */
+  natureReview?: boolean;
   sort: TxSort;
 }
 
@@ -58,10 +62,12 @@ export function countAdvanced(f: TxFilters): number {
     f.sources?.length,
     f.minAmountCents != null || f.maxAmountCents != null,
     f.excluded,
+    f.scope,
+    f.natureReview,
   ].filter(Boolean).length;
 }
 
-export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "start", "end", "period"] as const;
+export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "scope", "natureReview", "start", "end", "period"] as const;
 
 /** Converte parâmetros da URL (links do dashboard, busca global, contas, cartões) em filtros. */
 export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
@@ -85,6 +91,10 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   // Desconsiderados nos relatórios (?excluded=hide|only) e período (?start=&end= ou ?period=all).
   const excluded = sp.get("excluded");
   if (excluded === "hide" || excluded === "only") patch.excluded = excluded;
+  // Natureza (?scope=PERSONAL|BUSINESS) e "pedem natureza" (?natureReview=1).
+  const scope = sp.get("scope");
+  if ((scope === "PERSONAL" || scope === "BUSINESS") && patch.excluded !== "only") patch.scope = scope;
+  if (sp.get("natureReview") === "1" || sp.get("natureReview") === "true") patch.natureReview = true;
   const start = sp.get("start");
   const end = sp.get("end");
   if (isISODate(start) && isISODate(end) && start <= end) Object.assign(patch, { preset: "custom", start, end });
@@ -151,6 +161,11 @@ export function effectivePeriod(f: TxFilters, today: string): { start: string; e
   return resolvePeriod(f.preset, today, { start: f.start, end: f.end });
 }
 
+function natureTypes(types: string[] | undefined): string[] {
+  const kept = (types ?? []).filter((t) => t === "EXPENSE" || t === "INCOME");
+  return kept.length ? kept : ["EXPENSE", "INCOME"];
+}
+
 /** Monta os parâmetros da API de listagem a partir dos filtros + interpretação da busca. */
 export function buildListParams(f: TxFilters, today: string, smart: { search: string; patch: SmartPatch }, page: number, pageSize: number) {
   const period = effectivePeriod(f, today);
@@ -158,7 +173,8 @@ export function buildListParams(f: TxFilters, today: string, smart: { search: st
   const params: Record<string, unknown> = {
     start: p.start ?? period?.start,
     end: p.end ?? period?.end,
-    types: p.types ?? f.types,
+    // Só receitas e despesas têm natureza: com Pessoal/Empresa, transferências e pagamentos de fatura saem.
+    types: f.scope ? natureTypes(p.types ?? f.types) : (p.types ?? f.types),
     status: p.status ?? f.status,
     categoryIds: p.subcategoryId ? undefined : p.categoryIds ?? f.categoryIds,
     subcategoryId: p.subcategoryId ?? f.subcategoryId,
@@ -172,7 +188,10 @@ export function buildListParams(f: TxFilters, today: string, smart: { search: st
     sources: p.sources ?? f.sources,
     minAmountCents: p.minAmountCents ?? f.minAmountCents,
     maxAmountCents: p.maxAmountCents ?? f.maxAmountCents,
-    excluded: f.excluded,
+    // Natureza Pessoal/Empresa não inclui os repasses (desconsiderados): eles são a natureza Repasse.
+    excluded: f.scope ? "hide" : f.excluded,
+    scope: f.scope,
+    natureReview: f.natureReview || undefined,
     search: smart.search || undefined,
     sort: f.sort,
     page,

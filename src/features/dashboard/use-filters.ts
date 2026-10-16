@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { PeriodPreset } from "@/lib/dates";
+import type { ReportScope } from "@/features/finance/types";
 
 export interface DashboardFilters {
   preset: PeriodPreset;
@@ -12,6 +13,8 @@ export interface DashboardFilters {
   accountId?: string;
   creditCardId?: string;
   categoryIds?: string[];
+  /** Recorte Pessoal | Empresa | Tudo. Ausente = padrão da família (definido em Configurações). */
+  scope?: ReportScope;
 }
 
 const DEFAULTS: DashboardFilters = { preset: "thisMonth" };
@@ -68,5 +71,6 @@ export function filtersToParams(f: DashboardFilters): Record<string, unknown> {
     accountId: f.accountId,
     creditCardId: f.creditCardId,
     categoryIds: f.categoryIds,
+    scope: f.scope,
   };
 }

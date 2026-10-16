@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CreditCard, Landmark, MoreHorizontal, Pencil, Plus, Repeat, Trash2, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { BusinessBadge } from "@/features/transactions/nature-control";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -61,6 +62,7 @@ function Tags({ r }: { r: RecurringDTO }) {
           {r.subcategory ? `${r.category.name} › ${r.subcategory.name}` : r.category.name}
         </span>
       )}
+      {r.scope === "BUSINESS" && <BusinessBadge title="Natureza Empresa: os lançamentos gerados entram no recorte Empresa dos relatórios. Saldo e contas a pagar não mudam." />}
       {r.autoPost && (
         <Badge variant="info">
           <Zap aria-hidden /> automático

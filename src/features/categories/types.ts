@@ -20,6 +20,10 @@ export interface RuleDTO {
   setExcludeFromReports: boolean;
   setExclusionReason: "CLIENT_PASSTHROUGH" | "REIMBURSEMENT" | "OTHER" | null;
   setExclusionParty: string | null;
+  /** Natureza definida pela regra (Pessoal/Empresa); null = não altera. */
+  setScope: "PERSONAL" | "BUSINESS" | null;
+  /** Pedir para escolher a natureza (Pessoal, Empresa ou Repasse): marca o lançamento e abre uma pendência. */
+  askNature: boolean;
   /** Condições opcionais: só lançamentos desta conta / deste cartão (no máximo uma das duas). */
   matchAccountId: string | null;
   matchCreditCardId: string | null;

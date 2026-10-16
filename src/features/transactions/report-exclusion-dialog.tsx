@@ -163,7 +163,7 @@ export function ReportExclusionDialog({ open, onOpenChange, items, onDone }: { o
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <EyeOff className="size-5 text-brand" aria-hidden /> {editing ? "Editar desconsideração" : "Desconsiderar nos relatórios"}
+            <EyeOff className="size-5 text-brand" aria-hidden /> {editing ? "Editar repasse" : "Repasse: desconsiderar nos relatórios"}
           </DialogTitle>
           <DialogDescription>
             {single
@@ -269,7 +269,7 @@ export function ReportExclusionDialog({ open, onOpenChange, items, onDone }: { o
             Cancelar
           </Button>
           <Button type="submit" form="report-exclusion-form" variant="brand" loading={busy} disabled={!eligible.length}>
-            <EyeOff /> {editing ? "Salvar" : eligible.length > 1 ? `Desconsiderar ${eligible.length}` : "Desconsiderar"}
+            <EyeOff /> {editing ? "Salvar" : eligible.length > 1 ? `Marcar ${eligible.length} como Repasse` : "Marcar como Repasse"}
           </Button>
         </DialogFooter>
       </DialogContent>

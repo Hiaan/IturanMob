@@ -66,6 +66,8 @@ interface ReportBase {
   timezone: string;
   generatedAt: string;
   totals: { incomeCents: number; expenseCents: number; resultCents: number };
+  /** Recorte de natureza dos totais (Pessoal, Empresa ou Tudo). Opcional em relatórios antigos. */
+  natureScope?: "PERSONAL" | "BUSINESS" | "ALL";
   topCategories: ReportCategoryItem[];
   topExpenses: ReportTopExpense[];
   recognizedTransactions: number;
@@ -81,8 +83,6 @@ export interface WeeklyReportData extends ReportBase {
 export interface MonthlyReportData extends ReportBase {
   type: "MONTHLY";
   month: string;
-  /** Recorte de natureza dos totais (Pessoal, Empresa ou Tudo). Opcional em relatórios antigos. */
-  natureScope?: "PERSONAL" | "BUSINESS" | "ALL";
   /** Resultado da empresa no mês (natureza Empresa), quando houver lançamentos. */
   business?: { incomeCents: number; expenseCents: number; resultCents: number } | null;
   incomeCategories: ReportCategoryItem[];

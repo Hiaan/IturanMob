@@ -70,6 +70,14 @@ describe("Natureza do lançamento (Pessoal / Empresa / Repasse)", () => {
     expect((await budgetOverview(s.fam.ctx, "2026-10", "ACCRUAL")).totalSpentCents).toBe(10_000);
     expect((await expensesByCategory(s.fam.ctx, { period: OCT, regime: "ACCRUAL" })).totalCents).toBe(10_000);
 
+    // Relatório e orçamento com o recorte escolhido.
+    const { generateReport } = await import("@/server/modules/reports/service");
+    const rep = await generateReport(s.fam.ctx, { type: "MONTHLY", month: "2026-10", natureScope: "BUSINESS", regime: "ACCRUAL" });
+    expect(rep.data).toMatchObject({ natureScope: "BUSINESS", totals: { incomeCents: 200_000, expenseCents: 105_000 } });
+    const repDefault = await generateReport(s.fam.ctx, { type: "MONTHLY", month: "2026-10", regime: "ACCRUAL" });
+    expect(repDefault.data).toMatchObject({ natureScope: "PERSONAL", totals: { expenseCents: 10_000 }, business: { resultCents: 95_000 } });
+    expect((await budgetOverview(s.fam.ctx, "2026-10", "ACCRUAL", "ALL")).totalSpentCents).toBe(10_000 + 30_000);
+
     // Padrão da família "Tudo": o painel volta a somar tudo.
     await updateSettings(s.fam.ctx, { defaultReportScope: "ALL" });
     const allDefault = await dashboardSummary(s.fam.ctx, { period: OCT, regime: "ACCRUAL" });

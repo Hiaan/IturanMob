@@ -1,23 +1,31 @@
 "use client";
 
 import { useMemo } from "react";
-import { CheckCircle2, Eye, EyeOff, MoreHorizontal, Paperclip, RotateCcw, Trash2, Undo2, Users } from "lucide-react";
+import { Check, CheckCircle2, Eye, MoreHorizontal, Paperclip, RotateCcw, Trash2, Users } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBRL, formatMoney } from "@/lib/money";
 import { WEEKDAY_NAMES, formatDateBR, formatDateTimeBR, formatLongDateBR, weekday } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { capitalize, cn } from "@/lib/utils";
-import type { CardDTO, TransactionDTO } from "@/features/finance/types";
+import type { CardDTO, TransactionDTO, TransactionNature } from "@/features/finance/types";
 import { AmountText, ExcludedBadge, PendingBadge, SourceTag, TransactionIcon, categoryLabel, personLabel, whereLabel } from "./transaction-visuals";
 import { currentInstallmentLabel } from "./installments";
 import { canExcludeFromReports } from "./report-exclusion";
+import { NATURES, NATURE_LABELS, natureOf } from "./nature";
+import { NATURE_ICONS, NatureBadge, NatureQuickMenu, NatureReviewBadge } from "./nature-control";
 
-/** exclude: desconsiderar nos relatórios (ou editar); include: voltar a considerar. */
-export type RowAction = "open" | "confirm" | "delete" | "restore" | "purge" | "exclude" | "include";
+/**
+ * Natureza: personal/business (marca na hora) e exclude (Repasse: abre o diálogo de motivo/cliente,
+ * também para editar); include: voltar a considerar.
+ */
+export type RowAction = "open" | "confirm" | "delete" | "restore" | "purge" | "exclude" | "include" | "personal" | "business";
+
+/** Ação da linha para cada natureza (Repasse abre o diálogo). */
+export const NATURE_ROW_ACTION: Record<TransactionNature, RowAction> = { PERSONAL: "personal", BUSINESS: "business", PASSTHROUGH: "exclude" };
 
 /** Valor de lançamento desconsiderado: mais apagado, mas legível (continua no saldo). */
 const excludedAmount = (tx: TransactionDTO) => (tx.excludedFromReports ? "text-muted-foreground" : undefined);
@@ -89,14 +97,24 @@ function RowMenu({ tx, trash, onAction, canWrite, canDelete }: { tx: Transaction
         )}
         {!trash && canWrite && canExcludeFromReports(tx) && (
           <>
-            <DropdownMenuItem onSelect={() => onAction("exclude", tx)}>
-              <EyeOff /> {tx.excludedFromReports ? "Editar desconsideração…" : "Desconsiderar nos relatórios…"}
-            </DropdownMenuItem>
-            {tx.excludedFromReports && (
-              <DropdownMenuItem onSelect={() => onAction("include", tx)}>
-                <Undo2 /> Voltar a considerar
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{tx.natureReview ? "Escolher natureza (saldo e fatura não mudam)" : "Natureza (saldo e fatura não mudam)"}</DropdownMenuLabel>
+            {NATURES.map((n) => {
+              const Icon = NATURE_ICONS[n];
+              const current = natureOf(tx) === n && !tx.natureReview;
+              return (
+                <DropdownMenuItem key={n} disabled={current && n !== "PASSTHROUGH"} onSelect={() => onAction(NATURE_ROW_ACTION[n], tx)}>
+                  <Icon />
+                  {n === "PASSTHROUGH" ? (tx.excludedFromReports ? "Editar repasse…" : "Marcar como Repasse…") : `Marcar como ${NATURE_LABELS[n]}`}
+                  {current && (
+                    <>
+                      <Check className="ml-auto" aria-hidden />
+                      <span className="sr-only"> (atual)</span>
+                    </>
+                  )}
+                </DropdownMenuItem>
+              );
+            })}
           </>
         )}
         {trash && canDelete && (
@@ -117,11 +135,15 @@ function RowMenu({ tx, trash, onAction, canWrite, canDelete }: { tx: Transaction
   );
 }
 
-function MetaBadges({ tx, cardsById }: { tx: TransactionDTO; cardsById: Map<string, CardDTO> }) {
+/** `onNature`: o selo "Escolher natureza" vira um menu rápido (só onde não está dentro de outro botão). */
+function MetaBadges({ tx, cardsById, onNature }: { tx: TransactionDTO; cardsById: Map<string, CardDTO>; onNature?: (n: TransactionNature) => void }) {
   const inst = currentInstallmentLabel(tx, tx.creditCard ? cardsById.get(tx.creditCard.id) : undefined);
+  const review = tx.natureReview && !tx.deletedAt;
   return (
     <>
       {tx.status === "PENDING" && <PendingBadge />}
+      {review && (onNature ? <NatureQuickMenu onPick={onNature} /> : <NatureReviewBadge />)}
+      <NatureBadge tx={tx} />
       <ExcludedBadge tx={tx} />
       {inst && (
         <Badge variant="info" title={inst.title}>
@@ -230,7 +252,7 @@ export function TransactionList({
                               >
                                 {tx.description}
                               </button>
-                              <MetaBadges tx={tx} cardsById={cardsById} />
+                              <MetaBadges tx={tx} cardsById={cardsById} onNature={canWrite && !trash ? (n) => onAction(NATURE_ROW_ACTION[n], tx) : undefined} />
                             </div>
                             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                               <span className="truncate">
@@ -291,26 +313,29 @@ export function TransactionList({
                   {selectable && (
                     <Checkbox className="mt-2.5" checked={selected.has(tx.id)} onCheckedChange={() => onToggle(tx.id)} aria-label={`Selecionar ${tx.description}`} />
                   )}
-                  <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg" onClick={() => onAction("open", tx)}>
-                    <TransactionIcon tx={tx} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-start justify-between gap-2">
-                        <span className="truncate text-sm font-medium">{tx.description}</span>
-                        <AmountText tx={tx} accountId={accountId} className={cn("text-sm", excludedAmount(tx))} />
+                  <div className="min-w-0 flex-1">
+                    <button type="button" className="flex w-full min-w-0 items-start gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg" onClick={() => onAction("open", tx)}>
+                      <TransactionIcon tx={tx} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{tx.description}</span>
+                          <AmountText tx={tx} accountId={accountId} className={cn("text-sm", excludedAmount(tx))} />
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {categoryLabel(tx)}
+                          {whereLabel(tx) && ` · ${whereLabel(tx)}`}
+                          {!grouped && ` · ${formatDateBR(tx.date)}`}
+                        </span>
+                        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <MetaBadges tx={tx} cardsById={cardsById} />
+                          <SourceTag source={tx.source} />
+                          <span className="text-xs text-muted-foreground">· {personLabel(tx).responsible}</span>
+                        </span>
+                        {trash && tx.deletedAt && <span className="mt-1 block text-xs text-muted-foreground">Excluída em {formatDateTimeBR(tx.deletedAt)}</span>}
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {categoryLabel(tx)}
-                        {whereLabel(tx) && ` · ${whereLabel(tx)}`}
-                        {!grouped && ` · ${formatDateBR(tx.date)}`}
-                      </span>
-                      <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <MetaBadges tx={tx} cardsById={cardsById} />
-                        <SourceTag source={tx.source} />
-                        <span className="text-xs text-muted-foreground">· {personLabel(tx).responsible}</span>
-                      </span>
-                      {trash && tx.deletedAt && <span className="mt-1 block text-xs text-muted-foreground">Excluída em {formatDateTimeBR(tx.deletedAt)}</span>}
-                    </span>
-                  </button>
+                    </button>
+                    {tx.natureReview && !tx.deletedAt && canWrite && !trash && <NatureQuickChoices tx={tx} onAction={onAction} />}
+                  </div>
                 </div>
               ))}
             </Card>
@@ -318,6 +343,29 @@ export function TransactionList({
         ))}
       </div>
     </>
+  );
+}
+
+/** Celular: escolha da natureza fora do botão da linha (botões não podem ficar um dentro do outro). */
+function NatureQuickChoices({ tx, onAction }: { tx: TransactionDTO; onAction: (a: RowAction, tx: TransactionDTO) => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:pl-12" role="group" aria-label={`Escolher natureza de ${tx.description}`}>
+      <span className="text-xs text-muted-foreground">É:</span>
+      {NATURES.map((n) => {
+        const Icon = NATURE_ICONS[n];
+        return (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onAction(NATURE_ROW_ACTION[n], tx)}
+            className="inline-flex h-7 items-center gap-1 rounded-full border bg-card px-2.5 text-xs font-medium outline-none transition hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          >
+            <Icon className={cn("size-3.5", n === "BUSINESS" ? "text-series-7" : "text-muted-foreground")} aria-hidden />
+            {n === "PASSTHROUGH" ? "Repasse…" : NATURE_LABELS[n]}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

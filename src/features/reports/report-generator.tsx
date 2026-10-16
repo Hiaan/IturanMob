@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,6 +11,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { addDays, formatDateBR, formatDayMonthBR, monthKey, startOfWeek, todayISO } from "@/lib/dates";
 import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { MonthSwitcher } from "@/features/budgets/month-switcher";
+import { useCan } from "@/features/me/use-me";
+import { useHousehold } from "@/features/settings/use-household";
+import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { useGenerateReport } from "./use-reports";
 import type { GenerateReportInput, ReportKind, ReportView } from "./types";
 
@@ -45,6 +49,9 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
   const [scope, setScope] = useState<"AUTO" | "FAMILY" | "PERSONAL">("AUTO");
   const [regime, setRegime] = useState<"DEFAULT" | "ACCRUAL" | "CASH">("DEFAULT");
   const generate = useGenerateReport(onGenerated);
+  const household = useHousehold();
+  const canManage = useCan("settings:manage");
+  const natureScope = household.data?.settings.defaultReportScope;
 
   const submit = () => {
     const input: GenerateReportInput = type === "MONTHLY" ? { type, month } : { type, periodStart: weekStart };
@@ -112,6 +119,19 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
               : "Automático: relatório da família; se você tiver contas privadas, ele será pessoal (visível só para você)."}{" "}
           {regime === "DEFAULT" ? "Regime: o configurado para a família." : REGIME_DESCRIPTIONS[regime]}
         </p>
+        {natureScope && (
+          <p className="-mt-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">Recorte: {REPORT_SCOPE_LABELS[natureScope]}</span> (padrão da família) — {REPORT_SCOPE_HINTS[natureScope].toLowerCase()} No relatório mensal, o
+            resultado da empresa aparece à parte. Repasses de clientes ficam sempre de fora.{" "}
+            {canManage ? (
+              <Link href="/configuracoes?tab=familia" className="font-medium text-brand hover:underline">
+                Alterar o recorte padrão
+              </Link>
+            ) : (
+              "Quem administra a família pode alterar em Configurações."
+            )}
+          </p>
+        )}
       </div>
     </Card>
   );

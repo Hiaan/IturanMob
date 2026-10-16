@@ -161,15 +161,39 @@ export function FiltersSheet({
           </fieldset>
 
           <fieldset className="grid gap-2">
-            <legend className="mb-2 text-[13px] font-medium">Desconsiderados nos relatórios</legend>
+            <legend className="mb-2 text-[13px] font-medium">Natureza</legend>
             <div className="flex flex-wrap gap-2">
-              <ToggleChip pressed={!filters.excluded} onClick={() => onChange({ excluded: undefined })}>
+              <ToggleChip pressed={!filters.scope} onClick={() => onChange({ scope: undefined })}>
+                Todas
+              </ToggleChip>
+              <ToggleChip pressed={filters.scope === "PERSONAL"} onClick={() => onChange({ scope: "PERSONAL", excluded: filters.excluded === "only" ? undefined : filters.excluded })}>
+                Pessoal
+              </ToggleChip>
+              <ToggleChip pressed={filters.scope === "BUSINESS"} onClick={() => onChange({ scope: "BUSINESS", excluded: filters.excluded === "only" ? undefined : filters.excluded })}>
+                Empresa
+              </ToggleChip>
+            </div>
+            <label className="mt-1 flex items-center justify-between gap-3 text-sm">
+              <span>
+                Só os que pedem natureza
+                <span className="block text-xs text-muted-foreground">Uma regra pediu para escolher entre Pessoal, Empresa ou Repasse.</span>
+              </span>
+              <Switch checked={Boolean(filters.natureReview)} onCheckedChange={(v) => onChange({ natureReview: v || undefined })} aria-label="Só os que pedem natureza" />
+            </label>
+            <p className="text-xs text-muted-foreground">Pessoal e Empresa mostram só receitas e despesas, sem os repasses (veja “Desconsiderados” abaixo). A natureza só muda relatórios: saldo e fatura não mudam.</p>
+          </fieldset>
+
+          <fieldset className="grid gap-2">
+            <legend className="mb-2 text-[13px] font-medium">Desconsiderados nos relatórios (Repasse)</legend>
+            <div className="flex flex-wrap gap-2">
+              {/* Com natureza Pessoal/Empresa os repasses já ficam ocultos: "Mostrar"/"Somente" tiram a natureza. */}
+              <ToggleChip pressed={!filters.excluded && !filters.scope} onClick={() => onChange({ excluded: undefined, scope: undefined })}>
                 Mostrar (padrão)
               </ToggleChip>
-              <ToggleChip pressed={filters.excluded === "hide"} onClick={() => onChange({ excluded: "hide" })}>
+              <ToggleChip pressed={filters.excluded === "hide" || Boolean(filters.scope)} onClick={() => onChange({ excluded: "hide" })}>
                 Ocultar
               </ToggleChip>
-              <ToggleChip pressed={filters.excluded === "only"} onClick={() => onChange({ excluded: "only" })}>
+              <ToggleChip pressed={filters.excluded === "only" && !filters.scope} onClick={() => onChange({ excluded: "only", scope: undefined })}>
                 Somente
               </ToggleChip>
             </div>
@@ -375,7 +399,10 @@ export function ActiveFilterChips({
     chips.push({ key: "sub", label: `Categoria: ${cat ? `${cat.name} › ${sub?.name}` : "Subcategoria"}`, clear: () => onChange({ subcategoryId: undefined }) });
   }
   if (filters.uncategorized) chips.push({ key: "unc", label: "Sem categoria", clear: () => onChange({ uncategorized: undefined }) });
-  if (filters.excluded) chips.push({ key: "excl", label: filters.excluded === "only" ? "Só desconsiderados" : "Sem os desconsiderados", clear: () => onChange({ excluded: undefined }) });
+  if (filters.scope) chips.push({ key: "scope", label: `Natureza: ${filters.scope === "BUSINESS" ? "Empresa" : "Pessoal"}`, clear: () => onChange({ scope: undefined }) });
+  if (filters.natureReview) chips.push({ key: "natrev", label: "Pedem natureza", clear: () => onChange({ natureReview: undefined }) });
+  if (filters.excluded && !(filters.scope && filters.excluded === "hide"))
+    chips.push({ key: "excl", label: filters.excluded === "only" ? "Só desconsiderados" : "Sem os desconsiderados", clear: () => onChange({ excluded: undefined }) });
   if (filters.accountId) chips.push({ key: "acc", label: `Conta: ${accounts.data?.find((a) => a.id === filters.accountId)?.name ?? "…"}`, clear: () => onChange({ accountId: undefined }) });
   if (filters.creditCardId) chips.push({ key: "card", label: `Cartão: ${cards.data?.find((c) => c.id === filters.creditCardId)?.name ?? "…"}`, clear: () => onChange({ creditCardId: undefined }) });
   if (filters.memberId) {

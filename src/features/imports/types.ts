@@ -66,6 +66,14 @@ export interface ImportRowTransfer {
   needsCounterpartAmount: boolean;
 }
 
+/** Natureza que vai valer na importação (receitas e despesas). `ask`: uma regra pede para escolher. */
+export interface ImportRowNature {
+  value: "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
+  /** MANUAL: escolhida na prévia; RULE: sugerida por regra; DEFAULT: Pessoal. */
+  source: "MANUAL" | "RULE" | "DEFAULT";
+  ask: boolean;
+}
+
 export interface ImportRowDTO {
   id: string;
   /** Só em linhas TRANSFER; accountId null = falta escolher a conta do outro lado (a linha vem desmarcada). */
@@ -80,6 +88,8 @@ export interface ImportRowDTO {
   selected: boolean;
   categoryId: string | null;
   kind: "EXPENSE" | "INCOME" | "CARD_PAYMENT" | "TRANSFER";
+  /** null em linhas que não são receita nem despesa. */
+  nature: ImportRowNature | null;
   categoryName: string | null;
   installment: { number: number; total: number } | null;
   cells: Record<string, string>;
@@ -124,6 +134,15 @@ export interface RowsTransferInput {
 }
 
 export type RowsTransferResult = ImportPreview & { updatedRows: number; ruleCreated: boolean };
+
+/** Corpo de POST /api/v1/imports/:id/nature (nature null volta para o que as regras sugerem). */
+export interface RowsNatureInput {
+  rowIds: string[];
+  nature: ImportRowNature["value"] | null;
+  applyToSimilar?: boolean;
+}
+
+export type RowsNatureResult = ImportPreview & { updatedRows: number };
 
 export interface RowUpdate {
   rowId: string;

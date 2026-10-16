@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   AlertTriangle,
+  Briefcase,
   CheckCheck,
   CheckCircle2,
   Copy,
@@ -39,8 +40,12 @@ import { formatDateBR, formatDateTimeBR } from "@/lib/dates";
 import { PENDING_TYPE_LABELS, TRANSACTION_SOURCE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useCategories } from "@/features/finance/hooks";
-import type { TransactionDTO } from "@/features/finance/types";
+import type { TransactionDTO, TransactionNature } from "@/features/finance/types";
 import { TransactionForm } from "@/features/transactions/transaction-form";
+import { useCan } from "@/features/me/use-me";
+import { NATURES, NATURE_KEEPS_BALANCE, NATURE_LABELS, useSetNature } from "@/features/transactions/nature";
+import { NATURE_ICONS } from "@/features/transactions/nature-control";
+import { ReportExclusionDialog } from "@/features/transactions/report-exclusion-dialog";
 
 interface PendingTx {
   id: string;
@@ -83,13 +88,20 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   IMPORT_DIVERGENCE: Upload,
   INSTALLMENT_INCONSISTENT: CreditCard,
   CLARIFICATION: MessageCircleQuestion,
+  NATURE_REVIEW: Briefcase,
 };
 
-const ORDER = ["CONFIRMATION", "POSSIBLE_DUPLICATE", "CLARIFICATION", "PROCESSING_FAILED", "UNREADABLE_RECEIPT", "MISSING_PAYMENT_METHOD", "UNCATEGORIZED", "IMPORT_DIVERGENCE", "INSTALLMENT_INCONSISTENT"];
+const ORDER = ["CONFIRMATION", "POSSIBLE_DUPLICATE", "CLARIFICATION", "NATURE_REVIEW", "PROCESSING_FAILED", "UNREADABLE_RECEIPT", "MISSING_PAYMENT_METHOD", "UNCATEGORIZED", "IMPORT_DIVERGENCE", "INSTALLMENT_INCONSISTENT"];
+
+/** Tipos que a rota GET /pending ainda não filtra (validação do parâmetro `type`): filtrados no cliente. */
+const CLIENT_FILTERED_TYPES = new Set<string>(["NATURE_REVIEW"]);
+
+/** Pendência "Escolher natureza" com o lançamento ainda ativo. */
+const isNatureItem = (i: PendingItemDTO) => i.type === "NATURE_REVIEW" && Boolean(i.transaction) && !i.transaction!.deletedAt;
 
 function useInvalidate() {
   const qc = useQueryClient();
-  return () => ["pending", "transactions", "accounts", "cards", "analytics", "me", "budgets"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  return () => ["pending", "transactions", "accounts", "cards", "analytics", "me", "budgets", "reports"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 }
 
 function CategoryPicker({ tx, onDone }: { tx: PendingTx; onDone: () => void }) {
@@ -130,7 +142,45 @@ function CategoryPicker({ tx, onDone }: { tx: PendingTx; onDone: () => void }) {
   );
 }
 
-function PendingCard({ item, selected, onSelect, onEdit }: { item: PendingItemDTO; selected: boolean; onSelect: (v: boolean) => void; onEdit: (txId: string | null) => void }) {
+/** Pessoal / Empresa (na hora) / Repasse… (abre o diálogo de motivo e cliente). */
+function NatureButtons({ txId, onPassthrough }: { txId: string; onPassthrough: (ids: string[]) => void }) {
+  const setNature = useSetNature();
+  const canWrite = useCan("transactions:write");
+  if (!canWrite) return <p className="text-xs text-muted-foreground">Quem pode editar lançamentos escolhe a natureza.</p>;
+  return (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Escolher natureza">
+      {NATURES.map((n) => {
+        const Icon = NATURE_ICONS[n];
+        return (
+          <Button
+            key={n}
+            size="sm"
+            variant="outline"
+            loading={setNature.isPending && setNature.variables?.nature === n}
+            disabled={setNature.isPending}
+            onClick={() => (n === "PASSTHROUGH" ? onPassthrough([txId]) : setNature.mutate({ transactionIds: [txId], nature: n as TransactionNature }))}
+          >
+            <Icon className={n === "BUSINESS" ? "text-series-7" : undefined} /> {n === "PASSTHROUGH" ? "Repasse…" : NATURE_LABELS[n]}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PendingCard({
+  item,
+  selected,
+  onSelect,
+  onEdit,
+  onPassthrough,
+}: {
+  item: PendingItemDTO;
+  selected: boolean;
+  onSelect: (v: boolean) => void;
+  onEdit: (txId: string | null) => void;
+  onPassthrough: (txIds: string[]) => void;
+}) {
   const invalidate = useInvalidate();
   const Icon = TYPE_ICONS[item.type] ?? HelpCircle;
   const tx = item.transaction;
@@ -231,6 +281,12 @@ function PendingCard({ item, selected, onSelect, onEdit }: { item: PendingItemDT
                 </Button>
               </>
             )}
+            {item.type === "NATURE_REVIEW" && tx && !tx.deletedAt && (
+              <div className="grid gap-1.5">
+                <NatureButtons txId={tx.id} onPassthrough={onPassthrough} />
+                <p className="text-xs text-muted-foreground">{NATURE_KEEPS_BALANCE}</p>
+              </div>
+            )}
             {item.type === "UNCATEGORIZED" && tx && <CategoryPicker tx={tx} onDone={() => undefined} />}
             {(item.type === "MISSING_PAYMENT_METHOD" || item.type === "INSTALLMENT_INCONSISTENT") && tx && (
               <Button size="sm" variant="outline" onClick={() => onEdit(tx.id)}>
@@ -256,7 +312,7 @@ function PendingCard({ item, selected, onSelect, onEdit }: { item: PendingItemDT
                 </Link>
               </Button>
             )}
-            {item.type !== "CONFIRMATION" && item.type !== "POSSIBLE_DUPLICATE" && (
+            {item.type !== "CONFIRMATION" && item.type !== "POSSIBLE_DUPLICATE" && !(item.type === "NATURE_REVIEW" && tx && !tx.deletedAt) && (
               <Button size="sm" variant="ghost" onClick={() => run.mutate(item.type === "UNCATEGORIZED" || item.type === "MISSING_PAYMENT_METHOD" ? "dismiss" : "resolve")}>
                 <CheckCheck /> {item.type === "UNCATEGORIZED" || item.type === "MISSING_PAYMENT_METHOD" ? "Ignorar" : "Marcar como resolvida"}
               </Button>
@@ -272,11 +328,29 @@ export function PendingView() {
   const [type, setType] = useState<string | "ALL">("ALL");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<{ txId: string | null } | null>(null);
+  /** Lançamentos no diálogo de Repasse (motivo, cliente, observação). */
+  const [repasse, setRepasse] = useState<TransactionDTO[]>([]);
+  const [repasseOpen, setRepasseOpen] = useState(false);
+  const qc = useQueryClient();
+  const setNature = useSetNature();
   const invalidate = useInvalidate();
+  const openPassthrough = async (txIds: string[]) => {
+    try {
+      const list = await Promise.all(
+        txIds.map((id) => qc.fetchQuery({ queryKey: qk.transaction(id), queryFn: () => api.get<TransactionDTO>(`/api/v1/transactions/${id}`), staleTime: 10_000 })),
+      );
+      setRepasse(list);
+      setRepasseOpen(true);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const counts = useQuery({ queryKey: qk.pendingCounts, queryFn: () => api.get<{ total: number; byType: Record<string, number> }>("/api/v1/pending/counts") });
+  // O filtro por tipo da API ainda não aceita NATURE_REVIEW: busca todas e filtra aqui.
+  const serverType = type === "ALL" || CLIENT_FILTERED_TYPES.has(type) ? null : type;
   const list = useQuery({
     queryKey: qk.pending({ type }),
-    queryFn: () => api.get<{ items: PendingItemDTO[] }>("/api/v1/pending", type === "ALL" ? { limit: 200 } : { type, limit: 200 }),
+    queryFn: () => api.get<{ items: PendingItemDTO[] }>("/api/v1/pending", serverType ? { type: serverType, limit: 200 } : { limit: 200 }),
   });
   const editTx = useQuery({
     queryKey: qk.transaction(editing?.txId ?? "none"),
@@ -284,20 +358,31 @@ export function PendingView() {
     enabled: Boolean(editing?.txId),
   });
 
-  const items = useMemo(() => [...(list.data?.items ?? [])].sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type)), [list.data]);
+  const items = useMemo(
+    () => [...(list.data?.items ?? [])].filter((i) => type === "ALL" || i.type === type).sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type)),
+    [list.data, type],
+  );
   const selectedItems = items.filter((i) => selected.has(i.id));
   const confirmable = selectedItems.filter((i) => (i.type === "CONFIRMATION" || i.type === "POSSIBLE_DUPLICATE") && i.transaction && !i.transaction.deletedAt);
+  const natureSelected = selectedItems.filter(isNatureItem);
+  const canWriteTx = useCan("transactions:write");
 
   const bulk = useMutation({
     mutationFn: async (action: "confirm" | "dismiss") => {
       if (action === "confirm") {
         await api.post("/api/v1/transactions/bulk", { action: "confirm", ids: confirmable.map((i) => i.transaction!.id) });
       } else {
-        for (const i of selectedItems) await api.patch(`/api/v1/pending/${i.id}`, { status: "DISMISSED" });
+        // "Escolher natureza" descartada = fica como Pessoal (tira a marca do lançamento e resolve a pendência).
+        const natureIds = selectedItems.filter(isNatureItem).map((i) => i.transaction!.id);
+        if (natureIds.length) await api.post("/api/v1/transactions/nature", { transactionIds: natureIds, nature: "PERSONAL" });
+        for (const i of selectedItems) if (!isNatureItem(i)) await api.patch(`/api/v1/pending/${i.id}`, { status: "DISMISSED" });
       }
     },
     onSuccess: (_d, action) => {
-      toast.success(action === "confirm" ? `${confirmable.length} lançamento(s) confirmado(s)` : `${selectedItems.length} pendência(s) descartada(s)`);
+      const kept = selectedItems.filter(isNatureItem).length;
+      toast.success(action === "confirm" ? `${confirmable.length} lançamento(s) confirmado(s)` : `${selectedItems.length} pendência(s) descartada(s)`, {
+        description: action === "dismiss" && kept ? `${kept} “Escolher natureza” ficaram como Pessoal.` : undefined,
+      });
       setSelected(new Set());
       invalidate();
     },
@@ -321,6 +406,26 @@ export function PendingView() {
                   <CheckCheck /> Confirmar {confirmable.length}
                 </Button>
               )}
+              {natureSelected.length > 0 &&
+                canWriteTx &&
+                NATURES.map((n) => {
+                  const Icon = NATURE_ICONS[n];
+                  const ids = natureSelected.map((i) => i.transaction!.id);
+                  return (
+                    <Button
+                      key={n}
+                      variant="outline"
+                      size="sm"
+                      disabled={setNature.isPending}
+                      loading={setNature.isPending && setNature.variables?.nature === n}
+                      onClick={() =>
+                        n === "PASSTHROUGH" ? openPassthrough(ids) : setNature.mutate({ transactionIds: ids, nature: n }, { onSuccess: () => setSelected(new Set()) })
+                      }
+                    >
+                      <Icon /> {n === "PASSTHROUGH" ? "Repasse…" : NATURE_LABELS[n]} ({ids.length})
+                    </Button>
+                  );
+                })}
               <Button variant="outline" size="sm" onClick={() => bulk.mutate("dismiss")} loading={bulk.isPending && bulk.variables === "dismiss"}>
                 Descartar pendências
               </Button>
@@ -389,11 +494,13 @@ export function PendingView() {
                 })
               }
               onEdit={(txId) => setEditing({ txId })}
+              onPassthrough={openPassthrough}
             />
           ))}
         </div>
       )}
 
+      <ReportExclusionDialog open={repasseOpen} onOpenChange={setRepasseOpen} items={repasse} onDone={() => setSelected(new Set())} />
       <Dialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

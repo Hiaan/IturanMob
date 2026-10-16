@@ -18,6 +18,8 @@ import { useCan, useMe } from "@/features/me/use-me";
 import { AddBudgetDialog, BulkBudgetDialog } from "./budget-dialogs";
 import { BudgetHistoryChart } from "./budget-history-chart";
 import { BudgetRow } from "./budget-row";
+import { useHousehold } from "@/features/settings/use-household";
+import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { MonthSwitcher } from "./month-switcher";
 import { useBudgetMutations, useBudgets } from "./use-budgets";
 import { SummaryTile } from "./summary-tile";
@@ -91,6 +93,9 @@ export function BudgetsView() {
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const data = q.data;
+  // Orçamentos seguem o recorte padrão da família (Pessoal, Empresa ou Tudo); repasses nunca entram.
+  const household = useHousehold();
+  const natureScope = household.data?.settings.defaultReportScope;
   const isCurrentMonth = month === current;
   const isPastMonth = month < current;
   const openAdd = (categoryId: string | null = null) => {
@@ -116,7 +121,11 @@ export function BudgetsView() {
     <div className="space-y-6">
       <PageHeader
         title="Orçamentos"
-        description={data ? `Limites por categoria · regime de ${REGIME_LABELS[data.regime].toLowerCase()}` : "Limites de gastos por categoria"}
+        description={
+          data
+            ? `Limites por categoria · regime de ${REGIME_LABELS[data.regime].toLowerCase()}${natureScope ? ` · recorte ${REPORT_SCOPE_LABELS[natureScope]} (padrão da família; repasses não entram)` : ""}`
+            : "Limites de gastos por categoria"
+        }
         actions={
           <>
             <MonthSwitcher month={month} onChange={setMonth} timezone={tz} />

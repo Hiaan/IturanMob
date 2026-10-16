@@ -13,6 +13,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { useCan } from "@/features/me/use-me";
+import { NATURE_KEEPS_BALANCE, REPORT_SCOPES, REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS, REPORT_SCOPE_PASSTHROUGH_NOTE } from "@/features/transactions/nature";
 import { useHousehold, useUpdateSettings } from "./use-household";
 
 const TIMEZONES = [
@@ -123,6 +124,38 @@ export function HouseholdSection() {
               </span>
             </label>
           ))}
+        </CardContent>
+      </Card>
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle>Recorte padrão dos relatórios</CardTitle>
+          <CardDescription>
+            O que o painel, os relatórios (inclusive os agendados), os orçamentos e o assistente consideram quando ninguém escolhe outro recorte. No painel dá para alternar a qualquer momento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-3 md:grid-cols-3" role="radiogroup" aria-label="Recorte padrão dos relatórios">
+            {REPORT_SCOPES.map((v) => (
+              <label key={v} className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition ${s.defaultReportScope === v ? "border-brand/50 bg-accent/50" : "hover:bg-muted/50"}`}>
+                <input
+                  type="radio"
+                  name="report-scope"
+                  className="mt-1 accent-[var(--brand)]"
+                  checked={s.defaultReportScope === v}
+                  disabled={!canManage || updateSettings.isPending}
+                  onChange={() => updateSettings.mutate({ defaultReportScope: v })}
+                />
+                <span>
+                  <span className="block font-medium">{REPORT_SCOPE_LABELS[v]}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">{REPORT_SCOPE_HINTS[v]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Cada receita ou despesa tem uma natureza: Pessoal (padrão), Empresa ou Repasse. {REPORT_SCOPE_PASSTHROUGH_NOTE} <strong className="font-medium text-foreground/80">{NATURE_KEEPS_BALANCE}</strong>
+          </p>
+          {!canManage && <p className="text-xs text-muted-foreground">Só quem administra a família pode mudar o recorte padrão.</p>}
         </CardContent>
       </Card>
     </div>

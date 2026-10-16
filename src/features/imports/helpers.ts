@@ -68,6 +68,24 @@ export function isTransferWarning(w: string): boolean {
   return /parecem aplicação\/resgate/i.test(w);
 }
 
+/**
+ * Aviso "N lançamento(s) pedem a natureza…": gravado na criação da prévia e desatualizado depois das
+ * escolhas — as telas mostram o número calculado das linhas.
+ */
+export function isNatureWarning(w: string): boolean {
+  return /pedem a natureza/i.test(w);
+}
+
+/** Linha em que dá para escolher a natureza na prévia (receita/despesa nova ou já registrada). */
+export function canSetNature(preview: Pick<ImportPreview, "batch">, row: ImportRowDTO): boolean {
+  return preview.batch.status === "PREVIEW" && Boolean(row.nature) && (row.status === "NEW" || row.status === "MATCHED");
+}
+
+/** Linha nova em que uma regra pede a natureza e ninguém escolheu ainda (sem escolha, vira pendência ao importar). */
+export function asksNature(row: Pick<ImportRowDTO, "nature" | "status">): boolean {
+  return Boolean(row.nature?.ask) && row.status === "NEW";
+}
+
 /** Linha que parece aplicação/resgate ou transferência entre contas próprias, mas sem a conta do outro lado. */
 export function isUnresolvedTransfer(row: Pick<ImportRowDTO, "kind" | "transfer">): boolean {
   return row.kind === "TRANSFER" && !row.transfer?.accountId;

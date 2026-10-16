@@ -402,7 +402,7 @@ export async function topExpenses(ctx: ServiceContext, params: { period: Period;
 // Orçamento
 // -----------------------------------------------------------------------------
 
-export async function budgetOverview(ctx: ServiceContext, month: string, regime?: AccountingRegime) {
+export async function budgetOverview(ctx: ServiceContext, month: string, regime?: AccountingRegime, natureScope?: ReportScopeValue | null) {
   const reg = await resolveRegime(ctx, regime);
   const range = monthRange(month);
   const budgets = await prisma.budget.findMany({
@@ -411,7 +411,7 @@ export async function budgetOverview(ctx: ServiceContext, month: string, regime?
     orderBy: { category: { sortOrder: "asc" } },
   });
   if (!budgets.length) return { month, regime: reg, items: [], totalLimitCents: 0, totalSpentCents: 0, totalAvailableCents: 0 };
-  const rows = (await recognizedRows(ctx, range, reg)).filter((r) => r.type === "EXPENSE");
+  const rows = (await recognizedRows(ctx, range, reg, { scope: natureScope ?? null })).filter((r) => r.type === "EXPENSE");
   const spentByCat = new Map<string, number>();
   for (const r of rows) if (r.categoryId) spentByCat.set(r.categoryId, (spentByCat.get(r.categoryId) ?? 0) + r.amountCents);
 
@@ -537,12 +537,12 @@ export async function cashflowProjection(ctx: ServiceContext, days = 90) {
 }
 
 /** Comparativo entre dois períodos por categoria, com a origem do cálculo. */
-export async function compareCategories(ctx: ServiceContext, params: { current: Period; previous?: Period; regime?: AccountingRegime }) {
+export async function compareCategories(ctx: ServiceContext, params: { current: Period; previous?: Period; regime?: AccountingRegime; scope?: ReportScopeValue | null }) {
   const regime = await resolveRegime(ctx, params.regime);
   const prev = params.previous ?? previousPeriod(params.current);
   const [cur, old] = await Promise.all([
-    expensesByCategory(ctx, { period: params.current, regime }),
-    expensesByCategory(ctx, { period: prev, regime }),
+    expensesByCategory(ctx, { period: params.current, regime, filters: { scope: params.scope ?? null } }),
+    expensesByCategory(ctx, { period: prev, regime, filters: { scope: params.scope ?? null } }),
   ]);
   const keys = new Set([...cur.items.map((i) => i.categoryId ?? "none"), ...old.items.map((i) => i.categoryId ?? "none")]);
   const items = [...keys].map((k) => {
@@ -574,10 +574,11 @@ export async function compareCategories(ctx: ServiceContext, params: { current: 
 }
 
 /** Gastos atípicos: transações muito acima da média da categoria nos últimos meses. */
-export async function unusualExpenses(ctx: ServiceContext, params: { period: Period; minHistoryMonths?: number }) {
+export async function unusualExpenses(ctx: ServiceContext, params: { period: Period; minHistoryMonths?: number; scope?: ReportScopeValue | null }) {
   const historyStart = addMonthsToKey(monthKey(params.period.start), -6);
-  const history = await recognizedRows(ctx, { start: `${historyStart}-01`, end: addDays(params.period.start, -1) }, "ACCRUAL");
-  const current = (await recognizedRows(ctx, params.period, "ACCRUAL")).filter((r) => r.type === "EXPENSE");
+  const filters = { scope: params.scope ?? null };
+  const history = await recognizedRows(ctx, { start: `${historyStart}-01`, end: addDays(params.period.start, -1) }, "ACCRUAL", filters);
+  const current = (await recognizedRows(ctx, params.period, "ACCRUAL", filters)).filter((r) => r.type === "EXPENSE");
   const stats = new Map<string, number[]>();
   for (const r of history) {
     if (r.type !== "EXPENSE" || !r.categoryId) continue;

@@ -7,6 +7,7 @@ import { OWNERSHIP_LABELS, PAYMENT_METHOD_LABELS, TRANSACTION_SOURCE_LABELS, TRA
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import type { AuditEntry } from "./use-transaction-actions";
 import { EXCLUSION_REASON_LABELS } from "./report-exclusion";
+import { NATURE_LABELS } from "./nature";
 
 const ACTIONS: Record<string, { label: string; icon: LucideIcon; tone: string }> = {
   CREATE: { label: "Criado", icon: CirclePlus, tone: "text-brand" },
@@ -54,6 +55,7 @@ const FIELD_LABELS: Record<string, string> = {
   exclusionReason: "Motivo",
   exclusionParty: "Cliente/pessoa",
   exclusionNote: "Observação (desconsiderado)",
+  nature: "Natureza",
 };
 
 export function TransactionHistory({ history, timezone }: { history: AuditEntry[]; timezone?: string }) {
@@ -99,6 +101,8 @@ export function TransactionHistory({ history, timezone }: { history: AuditEntry[
         return v === true ? "Desconsiderado (saldo e fatura não mudam)" : "Considerado";
       case "exclusionReason":
         return labelOf(EXCLUSION_REASON_LABELS, String(v));
+      case "nature":
+        return labelOf(NATURE_LABELS, String(v));
       case "merchantId":
       case "statementId":
       case "goalId":

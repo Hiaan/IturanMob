@@ -153,25 +153,38 @@ export function useRuleMutations() {
   });
 
   /**
-   * Regra que desconsidera nos relatórios: marca receitas/despesas anteriores que atendem à regra (saldo e
-   * fatura não mudam). Se a regra também define categoria, os sem categoria são classificados.
+   * Regra de natureza aplicada aos lançamentos anteriores que a atendem: Repasse (desconsiderar), Pessoal/
+   * Empresa ou "perguntar" (marca para escolher, com pendência). Saldo e fatura nunca mudam. Se a regra também
+   * define categoria, os sem categoria são classificados; o servidor devolve a soma das alterações.
    */
-  const applyExclusion = useMutation({
+  const applyNature = useMutation({
     mutationFn: (rule: RuleDTO) => api.post<{ applied: number }>(`/api/v1/rules/${rule.id}/apply`, { onlyUncategorized: true }),
     onSuccess: ({ applied }, rule) => {
-      if (rule.setCategoryId) {
-        // O servidor devolve só quantos foram classificados; os desconsiderados aparecem na lista.
-        toast.success("Regra aplicada aos lançamentos anteriores", {
-          description: `Os que atendem à regra foram desconsiderados nos relatórios${applied ? `; ${plural(applied, "sem categoria foi classificado", "sem categoria foram classificados")}` : ""}. O saldo e a fatura não mudam.`,
+      const scopeLabel = rule.setScope === "BUSINESS" ? "Empresa" : "Pessoal";
+      if (!applied) {
+        toast.info("Nenhum lançamento anterior alterado", {
+          description: rule.askNature
+            ? "Só entram os que atendem à regra e ainda estão como Pessoal, sem escolha pendente."
+            : rule.setScope
+              ? `Nenhuma receita ou despesa que atende à regra estava fora de ${scopeLabel}.`
+              : "Nenhuma receita ou despesa ainda considerada atende à regra.",
         });
-      } else if (applied) {
+      } else if (rule.setCategoryId) {
+        toast.success(`${plural(applied, "alteração feita", "alterações feitas")} pela regra`, {
+          description: `${rule.setExcludeFromReports ? "Repasse" : rule.askNature ? "Pedido de natureza" : `Natureza ${scopeLabel}`} e categoria (nos sem categoria). O saldo e a fatura não mudam.`,
+        });
+      } else if (rule.setExcludeFromReports) {
         toast.success(`${plural(applied, "lançamento desconsiderado", "lançamentos desconsiderados")} nos relatórios`, { description: "O saldo da conta e a fatura do cartão não mudam." });
-      } else toast.info("Nenhum lançamento anterior para desconsiderar", { description: "Nenhuma receita ou despesa ainda considerada atende à regra." });
+      } else if (rule.askNature) {
+        toast.success(`${plural(applied, "lançamento aguarda", "lançamentos aguardam")} a escolha da natureza`, { description: "Escolha em Lançamentos (“Pedem natureza”) ou em Pendências. Saldo e fatura não mudam." });
+      } else {
+        toast.success(`${plural(applied, "lançamento marcado", "lançamentos marcados")} como ${scopeLabel}`, { description: "Só os relatórios mudam: saldo e fatura continuam iguais." });
+      }
       invalidateFinance(qc, ["categories", "reports"]);
       refresh();
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
 
-  return { save, remove, apply, applyTransfer, applyExclusion };
+  return { save, remove, apply, applyTransfer, applyNature };
 }

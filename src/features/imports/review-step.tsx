@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, CheckCheck, CircleSlash, CreditCard, Link2, MoreHorizontal, Search, Sparkles, TriangleAlert, Undo2, Upload } from "lucide-react";
+import { ArrowLeftRight, Briefcase, CheckCheck, ChevronDown, CircleSlash, CreditCard, HelpCircle, Link2, MoreHorizontal, Search, Sparkles, TriangleAlert, Undo2, Upload, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { errorMessage } from "@/lib/client/api";
 import { formatMoney } from "@/lib/money";
@@ -19,11 +20,13 @@ import { CategoryPicker } from "@/features/categories/category-picker";
 import { useAccounts } from "@/features/finance/hooks";
 import { isInvestmentAccount } from "@/features/accounts/transfer-account-field";
 import { ROW_STATUS, ROW_STATUS_ORDER, RowStatusBadge } from "./status";
-import { canMarkTransfer, isUnresolvedTransfer, needsCounterpartAmount, transferTotals } from "./helpers";
+import { NATURES, NATURE_LABELS } from "@/features/transactions/nature";
+import { NATURE_ICONS } from "@/features/transactions/nature-control";
+import { asksNature, canMarkTransfer, canSetNature, isUnresolvedTransfer, needsCounterpartAmount, transferTotals } from "./helpers";
 import { TransferTag } from "./transfer-tag";
 import { TransferRowsDialog } from "./transfer-rows-dialog";
-import { useCommitImport, useSetRowsTransfer, useUpdateRows } from "./use-imports";
-import type { ImportPreview, ImportRowDTO, ImportRowStatus } from "./types";
+import { useCommitImport, useSetRowsNature, useSetRowsTransfer, useUpdateRows } from "./use-imports";
+import type { ImportPreview, ImportRowDTO, ImportRowNature, ImportRowStatus } from "./types";
 
 const PAGE_SIZE = 50;
 const SELECTABLE: ImportRowStatus[] = ["NEW", "MATCHED", "DIVERGENT"];
@@ -80,6 +83,59 @@ function RowCategory({ row, onChange, disabled }: { row: ImportRowDTO; onChange:
         className="h-8 w-full min-w-40 text-xs"
       />
     </div>
+  );
+}
+
+const AUTO = "__auto__";
+
+/** Texto do que vale quando ninguém escolheu (regra, pedido de escolha ou o padrão Pessoal). */
+function autoNatureLabel(n: ImportRowNature): string {
+  if (n.ask) return "Decidir depois (Pendências)";
+  if (n.source === "RULE") return `${NATURE_LABELS[n.value]} (regra)`;
+  return "Pessoal (padrão)";
+}
+
+/** Natureza da linha: Pessoal, Empresa ou Repasse (receitas e despesas). Destaca as que pedem escolha. */
+function RowNature({ row, editable, onChange, disabled }: { row: ImportRowDTO; editable: boolean; onChange: (nature: ImportRowNature["value"] | null) => void; disabled: boolean }) {
+  const n = row.nature;
+  if (!n) return <span className="text-xs text-muted-foreground">—</span>;
+  const manual = n.source === "MANUAL";
+  const label = n.ask ? "Escolher…" : manual ? NATURE_LABELS[n.value] : autoNatureLabel(n);
+  const Icon = n.ask ? HelpCircle : NATURE_ICONS[n.value];
+  if (!editable) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Icon className="size-3.5" aria-hidden /> {n.ask ? "Pede natureza" : manual ? NATURE_LABELS[n.value] : autoNatureLabel(n)}
+      </span>
+    );
+  }
+  return (
+    <Select value={manual ? n.value : AUTO} onValueChange={(v) => onChange(v === AUTO ? null : (v as ImportRowNature["value"]))} disabled={disabled}>
+      <SelectTrigger
+        className={cn("h-8 w-full min-w-36 text-xs", n.ask && "border-warning/60 bg-warning/10 font-medium text-foreground", !n.ask && n.value === "BUSINESS" && "text-series-7")}
+        aria-label={`Natureza de ${row.description ?? "linha"}: ${n.ask ? "pede para escolher" : label}`}
+      >
+        <SelectValue>
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <Icon className={cn("size-3.5 shrink-0", n.ask ? "text-warning" : "text-muted-foreground", !n.ask && n.value === "BUSINESS" && "text-series-7")} aria-hidden />
+            <span className="truncate">{label}</span>
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {NATURES.map((v) => {
+          const ItemIcon = NATURE_ICONS[v];
+          return (
+            <SelectItem key={v} value={v}>
+              <ItemIcon className="size-3.5" aria-hidden /> {v === "PASSTHROUGH" ? "Repasse de cliente" : NATURE_LABELS[v]}
+            </SelectItem>
+          );
+        })}
+        <SelectItem value={AUTO}>
+          <Wand2 className="size-3.5" aria-hidden /> {autoNatureLabel(n)}
+        </SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -163,16 +219,21 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const [filter, setFilter] = useState<ImportRowStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [transfersOnly, setTransfersOnly] = useState(false);
+  /** Só as linhas em que uma regra pede a natureza. */
+  const [natureOnly, setNatureOnly] = useState(false);
+  /** Escolha de natureza vale também para as linhas parecidas ("FACEBK *AAA" ~ "FACEBK *BBB"). */
+  const [applySimilar, setApplySimilar] = useState(true);
   const [page, setPage] = useState(1);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferRows, setTransferRows] = useState<ImportRowDTO[]>([]);
   const update = useUpdateRows(preview.batch.id);
   const setTransfer = useSetRowsTransfer(preview.batch.id);
+  const setNature = useSetRowsNature(preview.batch.id);
   const commit = useCommitImport(preview.batch.id, onCommitted);
   const accounts = useAccounts();
   const rows = preview.rows;
-  const busy = update.isPending || setTransfer.isPending;
+  const busy = update.isPending || setTransfer.isPending || setNature.isPending;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -184,6 +245,9 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const transferRowsAll = rows.filter((r) => r.kind === "TRANSFER" && (r.status === "NEW" || r.status === "MATCHED"));
   const unresolved = rows.filter((r) => r.status === "NEW" && isUnresolvedTransfer(r));
   const awaitingAmount = rows.filter(needsCounterpartAmount);
+  const natureAsks = rows.filter(asksNature);
+  const natureEditable = (r: ImportRowDTO) => canSetNature(preview, r);
+  const changeNature = (rowIds: string[], nature: ImportRowNature["value"] | null) => setNature.mutate({ rowIds, nature, applyToSimilar: applySimilar });
   const currencyOf = (id: string | null | undefined) => (id ? (accounts.data?.find((a) => a.id === id)?.currency ?? null) : null);
   const statementCurrency = currencyOf(preview.batch.account?.id) ?? "BRL";
   const money = (cents: number) => formatMoney(cents, statementCurrency);
@@ -194,9 +258,13 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter(
-      (r) => (filter === "ALL" || r.status === filter) && (!transfersOnly || r.kind === "TRANSFER") && (!term || (r.description ?? "").toLowerCase().includes(term)),
+      (r) =>
+        (filter === "ALL" || r.status === filter) &&
+        (!transfersOnly || r.kind === "TRANSFER") &&
+        (!natureOnly || asksNature(r)) &&
+        (!term || (r.description ?? "").toLowerCase().includes(term)),
     );
-  }, [rows, filter, search, transfersOnly]);
+  }, [rows, filter, search, transfersOnly, natureOnly]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pages);
   const visible = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
@@ -212,6 +280,19 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
   const toConvert = toLink.filter((r) => r.kind === "TRANSFER" && r.transfer?.accountId && (r.matchedTransaction?.type === "INCOME" || r.matchedTransaction?.type === "EXPENSE"));
   // Ação em lote: linhas selecionadas do filtro/busca atual que podem virar transferência.
   const bulkTargets = filtered.filter((r) => r.selected && transferable(r));
+  // Natureza em lote: linhas selecionadas do filtro/busca atual que são receita/despesa.
+  const natureTargets = filtered.filter((r) => r.selected && natureEditable(r));
+  // Resumo das naturezas do que entra (novas selecionadas).
+  const natureCounts = toCreate.reduce(
+    (acc, r) => {
+      if (!r.nature) return acc;
+      if (r.nature.ask) acc.ask++;
+      else if (r.nature.value === "BUSINESS") acc.business++;
+      else if (r.nature.value === "PASSTHROUGH") acc.passthrough++;
+      return acc;
+    },
+    { business: 0, passthrough: 0, ask: 0 },
+  );
 
   const setNewSelection = (value: boolean) => {
     const changes = rows.filter((r) => r.status === "NEW" && r.selected !== value && !(value && blocked(r))).map((r) => ({ rowId: r.id, selected: value }));
@@ -315,9 +396,33 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
         </div>
       )}
 
+      {natureAsks.length > 0 && preview.batch.status === "PREVIEW" && (
+        <div role="note" className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/5 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div className="flex min-w-0 items-start gap-2 text-sm">
+            <HelpCircle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <p className="min-w-0 break-words">
+              <strong>{natureAsks.length}</strong> {natureAsks.length === 1 ? "lançamento pede" : "lançamentos pedem"} a natureza: Pessoal, Empresa ou Repasse de cliente. Escolha na coluna “Natureza” (com
+              “Aplicar às parecidas”, uma escolha vale para todas as “FACEBK *…”, por exemplo). Sem escolha, entram como Pessoal e ficam em Pendências. Saldo e fatura não mudam.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 border-warning/50"
+            aria-pressed={natureOnly}
+            onClick={() => {
+              setNatureOnly((v) => !v);
+              setPage(1);
+            }}
+          >
+            <HelpCircle /> {natureOnly ? "Mostrar todas" : `Ver só elas (${natureAsks.length})`}
+          </Button>
+        </div>
+      )}
+
       <Card className="p-0">
-        <div className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div className="relative w-full sm:max-w-xs">
+        <div className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-start sm:justify-between sm:p-4">
+          <div className="relative w-full sm:w-60 sm:shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               value={search}
@@ -330,7 +435,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
               aria-label="Buscar linhas pela descrição"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:justify-end">
             {transferRowsAll.length > 0 && (
               <Button
                 variant="outline"
@@ -344,6 +449,59 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
               >
                 <ArrowLeftRight /> Só transferências ({transferRowsAll.length})
               </Button>
+            )}
+            {(natureAsks.length > 0 || natureOnly) && (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-pressed={natureOnly}
+                className={cn(natureOnly && "border-brand bg-accent/60")}
+                onClick={() => {
+                  setNatureOnly((v) => !v);
+                  setPage(1);
+                }}
+              >
+                <HelpCircle /> Pedem natureza ({natureAsks.length})
+              </Button>
+            )}
+            {preview.batch.status === "PREVIEW" && rows.some((r) => r.nature) && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border px-2 py-1">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2"
+                      disabled={busy || !natureTargets.length}
+                      title="Define a natureza das linhas selecionadas (neste filtro e busca)"
+                    >
+                      <Briefcase /> Natureza{natureTargets.length ? ` (${natureTargets.length})` : ""}
+                      <ChevronDown className="size-3.5 opacity-70" aria-hidden />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {natureTargets.length} {natureTargets.length === 1 ? "linha selecionada" : "linhas selecionadas"} · saldo e fatura não mudam
+                    </DropdownMenuLabel>
+                    {NATURES.map((v) => {
+                      const Icon = NATURE_ICONS[v];
+                      return (
+                        <DropdownMenuItem key={v} onSelect={() => changeNature(natureTargets.map((r) => r.id), v)}>
+                          <Icon /> {v === "PASSTHROUGH" ? "Repasse de cliente" : NATURE_LABELS[v]}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => changeNature(natureTargets.map((r) => r.id), null)}>
+                      <Wand2 /> Voltar à sugestão das regras
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Checkbox checked={applySimilar} onCheckedChange={(v) => setApplySimilar(v === true)} aria-label="Aplicar a natureza às linhas parecidas" />
+                  Aplicar às parecidas
+                </label>
+              </div>
             )}
             <Button variant="outline" size="sm" onClick={() => setNewSelection(true)} disabled={busy}>
               <CheckCheck /> Selecionar novos
@@ -387,6 +545,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                     <th className="px-2 py-2.5 text-right font-medium">Valor</th>
                     <th className="px-2 py-2.5 font-medium">Situação</th>
                     <th className="px-2 py-2.5 font-medium">Categoria</th>
+                    <th className="px-2 py-2.5 font-medium">Natureza</th>
                     <th className="px-4 py-2.5">
                       <span className="sr-only">Ações</span>
                     </th>
@@ -403,7 +562,7 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                           "border-b align-top last:border-0",
                           !r.selected && selectable && "bg-muted/30",
                           !selectable && "text-muted-foreground",
-                          pendingAccount && "bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]",
+                          (pendingAccount || asksNature(r)) && "bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]",
                         )}
                       >
                         <td className="px-4 py-3">
@@ -433,6 +592,9 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                         <td className="w-52 px-2 py-3">
                           <RowCategory row={r} onChange={(categoryId) => update.mutate([{ rowId: r.id, categoryId }])} disabled={busy} />
                         </td>
+                        <td className="w-44 px-2 py-3">
+                          <RowNature row={r} editable={natureEditable(r)} onChange={(nature) => changeNature([r.id], nature)} disabled={busy} />
+                        </td>
                         <td className="px-4 py-2 text-right">{rowActions(r)}</td>
                       </tr>
                     );
@@ -448,8 +610,9 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                 const pendingAccount = blocked(r);
                 const categoryEditable = ["NEW", "DIVERGENT"].includes(r.status) && r.kind !== "CARD_PAYMENT";
                 const hasActions = ["DUPLICATE", "MATCHED", "DIVERGENT"].includes(r.status) || transferable(r);
+                const natureShown = Boolean(r.nature) && (natureEditable(r) || asksNature(r));
                 return (
-                  <li key={r.id} className={cn("p-3 sm:p-4", !r.selected && selectable && "bg-muted/30", pendingAccount && "bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]")}>
+                  <li key={r.id} className={cn("p-3 sm:p-4", !r.selected && selectable && "bg-muted/30", (pendingAccount || asksNature(r)) && "bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]")}>
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={r.selected}
@@ -470,11 +633,16 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                         </div>
                         {showMessage(r) && <p className="mt-1 text-xs text-muted-foreground">{r.message}</p>}
                         <MatchInfo row={r} currency={statementCurrency} />
-                        {categoryEditable || hasActions ? (
+                        {categoryEditable || hasActions || natureShown ? (
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             {categoryEditable && (
                               <div className={cn("min-w-0", r.kind === "TRANSFER" ? "flex-1" : "flex-1 sm:w-56 sm:flex-none")}>
                                 <RowCategory row={r} onChange={(categoryId) => update.mutate([{ rowId: r.id, categoryId }])} disabled={busy} />
+                              </div>
+                            )}
+                            {natureShown && (
+                              <div className="min-w-0 flex-1 sm:w-48 sm:flex-none">
+                                <RowNature row={r} editable={natureEditable(r)} onChange={(nature) => changeNature([r.id], nature)} disabled={busy} />
                               </div>
                             )}
                             <div className="ml-auto">{rowActions(r)}</div>
@@ -542,7 +710,10 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
           </p>
           <p className="hidden text-xs text-muted-foreground sm:block">
             {toLink.length} correspondência(s) serão vinculadas sem duplicar · {toReview.length} divergência(s) viram pendências · duplicados e ignorados não entram
-            {transfers.count || toConvert.length ? " · transferências entre contas próprias não contam como receita nem despesa" : ""}.
+            {transfers.count || toConvert.length ? " · transferências entre contas próprias não contam como receita nem despesa" : ""}
+            {natureCounts.business ? ` · ${natureCounts.business} como Empresa` : ""}
+            {natureCounts.passthrough ? ` · ${natureCounts.passthrough} como Repasse` : ""}
+            {natureCounts.ask ? ` · ${natureCounts.ask} pedem natureza` : ""}.
           </p>
         </div>
         <Button variant="brand" onClick={() => setConfirmOpen(true)} disabled={!selected.length} loading={commit.isPending} className="shrink-0">
@@ -575,6 +746,19 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
                       </>
                     )}
                     Transferências não contam como receita nem despesa.
+                  </p>
+                )}
+                {(natureCounts.business > 0 || natureCounts.passthrough > 0 || natureCounts.ask > 0) && (
+                  <p>
+                    Natureza:{" "}
+                    {[
+                      natureCounts.business ? `${natureCounts.business} como Empresa` : null,
+                      natureCounts.passthrough ? `${natureCounts.passthrough} como Repasse (fora dos relatórios)` : null,
+                      natureCounts.ask ? `${natureCounts.ask} sem escolha: entram como Pessoal e ficam em Pendências para você escolher` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    . Saldo e fatura não mudam.
                   </p>
                 )}
                 <p>Você poderá desfazer a importação depois: os lançamentos criados vão para a lixeira e os saldos voltam ao que eram.</p>

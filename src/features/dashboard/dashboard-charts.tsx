@@ -17,7 +17,9 @@ import { formatBRL } from "@/lib/money";
 import { formatDateBR, formatDayMonthBR, formatMonthBR } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
-import type { TransactionList } from "@/features/finance/types";
+import type { ReportScope, TransactionList } from "@/features/finance/types";
+import { BusinessBadge } from "@/features/transactions/nature-control";
+import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { filtersToParams, type DashboardFilters } from "./use-filters";
 
 const SERIES = {
@@ -42,7 +44,7 @@ interface ByCategory {
   items: Array<{ categoryId: string | null; name: string; color: string; amountCents: number; percent: number }>;
 }
 
-export function CategoryBreakdown({ filters, period }: { filters: DashboardFilters; period?: { start: string; end: string } }) {
+export function CategoryBreakdown({ filters, period, scope }: { filters: DashboardFilters; period?: { start: string; end: string }; scope?: ReportScope }) {
   const params = filtersToParams(filters);
   const q = useAnalytics<ByCategory>("by-category", "/api/v1/analytics/by-category", params);
   const [selected, setSelected] = useState<{ id: string | null; name: string } | null>(null);
@@ -112,7 +114,7 @@ export function CategoryBreakdown({ filters, period }: { filters: DashboardFilte
           )}
         </ul>
       </ChartCard>
-      <CategoryTransactionsSheet category={selected} onClose={() => setSelected(null)} period={period} filters={filters} />
+      <CategoryTransactionsSheet category={selected} onClose={() => setSelected(null)} period={period} filters={filters} scope={scope ?? filters.scope} />
     </>
   );
 }
@@ -122,11 +124,14 @@ function CategoryTransactionsSheet({
   onClose,
   period,
   filters,
+  scope,
 }: {
   category: { id: string | null; name: string } | null;
   onClose: () => void;
   period?: { start: string; end: string };
   filters: DashboardFilters;
+  /** Recorte aplicado no painel: a lista mostra o mesmo (repasses nunca entram). */
+  scope?: ReportScope;
 }) {
   const params = {
     start: period?.start,
@@ -138,6 +143,8 @@ function CategoryTransactionsSheet({
     memberId: filters.memberId,
     accountId: filters.accountId,
     creditCardId: filters.creditCardId,
+    excluded: "hide",
+    scope: scope && scope !== "ALL" ? scope : undefined,
     sort: "amount_desc",
     pageSize: 100,
   };
@@ -149,6 +156,7 @@ function CategoryTransactionsSheet({
           <SheetTitle>{category?.name}</SheetTitle>
           <SheetDescription>
             {period ? `${formatDateBR(period.start)} a ${formatDateBR(period.end)}` : ""}
+            {scope && ` · recorte ${REPORT_SCOPE_LABELS[scope]}`}
             {filters.regime === "CASH" && " · compras no cartão listadas pela data da compra"}
           </SheetDescription>
         </SheetHeader>
@@ -174,7 +182,10 @@ function CategoryTransactionsSheet({
               ))}
             </ul>
           )}
-          <Link href={`/transacoes${category?.id ? `?categoryId=${category.id}` : ""}`} className="mt-4 inline-block text-sm font-medium text-brand hover:underline">
+          <Link
+            href={`/transacoes?${new URLSearchParams({ ...(category?.id ? { categoryId: category.id } : { uncategorized: "1" }), ...(scope && scope !== "ALL" ? { scope } : {}), ...(period ? { start: period.start, end: period.end } : {}) }).toString()}`}
+            className="mt-4 inline-block text-sm font-medium text-brand hover:underline"
+          >
             Abrir em Transações
           </Link>
         </div>
@@ -291,14 +302,16 @@ interface BudgetOverview {
   totalSpentCents: number;
 }
 
-export function BudgetVsActual({ filters }: { filters: DashboardFilters }) {
+export function BudgetVsActual({ filters, scope, defaultScope }: { filters: DashboardFilters; scope?: ReportScope; defaultScope?: ReportScope | null }) {
+  // O orçamento segue o recorte padrão da família (a API de orçamento não recebe o recorte).
   const params = { regime: filters.regime };
   const q = useAnalytics<BudgetOverview>("budget", "/api/v1/analytics/budget", params);
   const items = q.data?.items ?? [];
+  const scopeNote = defaultScope && scope && scope !== defaultScope ? ` · segue o recorte padrão (${REPORT_SCOPE_LABELS[defaultScope]})` : "";
   return (
     <ChartCard
       title="Orçamento x realizado"
-      description={q.data ? `${formatMonthBR(q.data.month, { capitalize: true })} · projeção até o fim do mês é estimada` : undefined}
+      description={q.data ? `${formatMonthBR(q.data.month, { capitalize: true })} · projeção até o fim do mês é estimada${scopeNote}` : undefined}
       isLoading={q.isLoading}
       isFetching={q.isFetching}
       error={q.error}
@@ -566,7 +579,8 @@ export function FutureBillsProjection() {
 // -----------------------------------------------------------------------------
 
 export function BalanceEvolution({ filters }: { filters: DashboardFilters }) {
-  const params = { ...filtersToParams(filters), preset: filters.preset === "today" || filters.preset === "yesterday" ? "last30" : filters.preset };
+  // Saldo não muda com o recorte (natureza só afeta relatórios): o recorte não vai na consulta.
+  const params = { ...filtersToParams(filters), scope: undefined, preset: filters.preset === "today" || filters.preset === "yesterday" ? "last30" : filters.preset };
   const q = useAnalytics<{ points: Array<{ date: string; balanceCents: number }> }>("balance-history", "/api/v1/accounts/balance-history", params);
   const points = q.data?.points ?? [];
   const step = Math.max(1, Math.ceil(points.length / 120));
@@ -633,6 +647,7 @@ interface RecurringItem {
   nextDueDate?: string | null;
   monthlyEquivalentCents?: number;
   category?: { name: string; color: string } | null;
+  scope?: "PERSONAL" | "BUSINESS";
 }
 
 export function RecurringExpenses() {
@@ -673,6 +688,7 @@ export function RecurringExpenses() {
               </p>
             </div>
             <span className="flex items-center gap-2">
+              {r.scope === "BUSINESS" && <BusinessBadge />}
               {r.isVariableAmount && <Badge variant="muted">estimado</Badge>}
               <span className="font-medium tabular">{formatBRL(r.amountCents)}</span>
             </span>

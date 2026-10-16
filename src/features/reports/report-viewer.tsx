@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { BadgeCheck, CalendarClock, CalendarRange, Clock3, FileSpreadsheet, FileText, Repeat, Sheet as SheetIcon, Target, Telescope, Users, UserRound } from "lucide-react";
+import { BadgeCheck, Briefcase, CalendarClock, CalendarRange, Clock3, FileSpreadsheet, FileText, Repeat, Sheet as SheetIcon, Target, Telescope, Users, UserRound } from "lucide-react";
 import { ChartCard } from "@/components/charts/chart-card";
 import { ChartTooltip, axisTick, compactBRL } from "@/components/charts/chart-tooltip";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,12 @@ function ReportHeader({ report }: { report: ReportView }) {
               <CalendarRange aria-hidden /> {formatDateBR(d.period.start)} a {formatDateBR(d.period.end)}
             </Badge>
             <Badge variant="secondary">Regime: {d.regimeLabel}</Badge>
+            {d.type === "MONTHLY" && d.natureScope && (
+              <Badge variant="secondary" title="Natureza dos totais. Repasses de clientes ficam sempre de fora; saldo e faturas não mudam com o recorte.">
+                {d.natureScope === "BUSINESS" && <Briefcase aria-hidden className="text-series-7" />}
+                Recorte: {d.natureScope === "BUSINESS" ? "Empresa" : d.natureScope === "ALL" ? "Tudo (Pessoal e Empresa)" : "Pessoal"}
+              </Badge>
+            )}
             <Badge variant="secondary">
               {d.scope === "FAMILY" ? <Users aria-hidden /> : <UserRound aria-hidden />}
               {d.scope === "FAMILY" ? "Família (sem contas privadas)" : "Pessoal (inclui suas contas privadas)"}
@@ -620,6 +626,30 @@ function MonthlyBody({ data }: { data: MonthlyReportData }) {
           Mês anterior: {formatBRL(cmp.previousResultCents, { signed: true })} · {data.recognizedTransactions} lançamento(s)
         </StatTile>
       </div>
+      {data.business && data.natureScope !== "BUSINESS" && (
+        <section aria-labelledby="report-business-title" className="rounded-xl border bg-card p-4 shadow-card">
+          <h3 id="report-business-title" className="flex items-center gap-2 text-sm font-semibold">
+            <Briefcase className="size-4 text-series-7" aria-hidden /> Resultado da empresa no mês
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Natureza Empresa · {data.natureScope === "ALL" ? "já incluída nos totais acima" : "fora dos totais acima"}. Saldo e faturas não mudam pela natureza.
+          </p>
+          <dl className="mt-3 grid grid-cols-3 gap-3">
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Receitas</dt>
+              <dd className="break-words text-sm font-semibold tabular text-positive sm:text-base">{formatBRL(data.business.incomeCents)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Despesas</dt>
+              <dd className="break-words text-sm font-semibold tabular sm:text-base">{formatBRL(data.business.expenseCents)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Resultado</dt>
+              <dd className={cn("break-words text-sm font-semibold tabular sm:text-base", data.business.resultCents < 0 && "text-negative")}>{formatBRL(data.business.resultCents, { signed: true })}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatTile label={`Saldo disponível em ${formatDateBR(data.balance.asOf)}`} value={formatBRL(data.balance.availableCents)} certainty="CONFIRMED" tone={data.balance.availableCents < 0 ? "negative" : "neutral"}>
           {data.balance.investmentsCents ? `Investimentos: ${formatBRL(data.balance.investmentsCents)}` : "Contas incluídas nos totais"}

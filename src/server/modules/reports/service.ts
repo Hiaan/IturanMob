@@ -245,6 +245,8 @@ async function upcomingBills(ctx: ServiceContext, from: ISODate, to: ISODate) {
 export interface BuildReportOptions {
   regime?: AccountingRegime;
   scope?: ReportScope;
+  /** Natureza dos totais: Pessoal, Empresa ou Tudo (padrão da família). */
+  natureScope?: "PERSONAL" | "BUSINESS" | "ALL";
   /** Instante de referência (testes). */
   now?: Date;
 }
@@ -264,13 +266,15 @@ export async function buildWeeklyReport(ctx: ServiceContext, weekStartISO: ISODa
   const previous = previousPeriod(period);
   const regime = await resolveRegime(ctx, opts.regime);
   const scope = scopeOf(ctx, opts.scope);
+  const natureScope = await resolveScope(ctx, opts.natureScope);
+  const nf = { scope: natureScope };
 
   const [name, rows, prevRows, categories, top, bills] = await Promise.all([
     householdName(ctx.householdId),
-    recognizedRows(ctx, period, regime),
-    recognizedRows(ctx, previous, regime),
-    expensesByCategory(ctx, { period, regime }),
-    topExpenses(ctx, { period, regime, limit: 5 }),
+    recognizedRows(ctx, period, regime, nf),
+    recognizedRows(ctx, previous, regime, nf),
+    expensesByCategory(ctx, { period, regime, filters: nf }),
+    topExpenses(ctx, { period, regime, limit: 5, filters: nf }),
     upcomingBills(ctx, today, addDays(today, 7)),
   ]);
   const income = sumRows(rows, "INCOME");
@@ -280,6 +284,7 @@ export async function buildWeeklyReport(ctx: ServiceContext, weekStartISO: ISODa
   return {
     version: 1,
     type: "WEEKLY",
+    natureScope,
     householdName: name,
     scope,
     period,
@@ -316,23 +321,24 @@ export async function buildMonthlyReport(ctx: ServiceContext, month: string, opt
   const scope = scopeOf(ctx, opts.scope);
   const visibility = await getVisibilityScope(ctx);
   const balanceAsOf = minISO(period.end, today);
+  const natureScope = await resolveScope(ctx, opts.natureScope);
+  const nf = { scope: natureScope };
 
   const [name, rows, expenseCats, incomeCats, evolution, top, compare, budget, accounts, commitments] = await Promise.all([
     householdName(ctx.householdId),
-    recognizedRows(ctx, period, regime),
-    expensesByCategory(ctx, { period, regime, type: "EXPENSE" }),
-    expensesByCategory(ctx, { period, regime, type: "INCOME" }),
-    monthlyIncomeExpense(ctx, { startMonth: addMonthsToKey(month, -5), endMonth: month, regime }),
-    topExpenses(ctx, { period, regime, limit: 10 }),
-    compareCategories(ctx, { current: period, previous, regime }),
-    budgetOverview(ctx, month, regime),
+    recognizedRows(ctx, period, regime, nf),
+    expensesByCategory(ctx, { period, regime, type: "EXPENSE", filters: nf }),
+    expensesByCategory(ctx, { period, regime, type: "INCOME", filters: nf }),
+    monthlyIncomeExpense(ctx, { startMonth: addMonthsToKey(month, -5), endMonth: month, regime, filters: nf }),
+    topExpenses(ctx, { period, regime, limit: 10, filters: nf }),
+    compareCategories(ctx, { current: period, previous, regime, scope: natureScope }),
+    budgetOverview(ctx, month, regime, natureScope),
     listAccounts(ctx, { asOf: balanceAsOf }),
     futureCommitments(ctx, 12),
   ]);
   const income = sumRows(rows, "INCOME");
   const expense = sumRows(rows, "EXPENSE");
-  // Natureza: o relatório segue o recorte padrão da família; a empresa aparece à parte.
-  const natureScope = await resolveScope(ctx);
+  // Natureza: o relatório segue o recorte escolhido (ou o padrão da família); a empresa aparece à parte.
   const businessRows = natureScope === "BUSINESS" ? rows : await recognizedRows(ctx, period, regime, { scope: "BUSINESS" });
   const businessIncome = sumRows(businessRows, "INCOME");
   const businessExpense = sumRows(businessRows, "EXPENSE");
@@ -505,6 +511,8 @@ export const generateReportSchema = z
       .optional(),
     scope: z.enum(["FAMILY", "PERSONAL"]).optional(),
     regime: z.enum(["ACCRUAL", "CASH"]).optional(),
+    /** Natureza dos totais: Pessoal, Empresa ou Tudo (sem informar: padrão da família). */
+    natureScope: z.enum(["PERSONAL", "BUSINESS", "ALL"]).optional(),
   })
   .strict();
 export type GenerateReportInput = z.input<typeof generateReportSchema>;
@@ -532,8 +540,8 @@ export async function generateReport(ctx: ServiceContext, rawInput: GenerateRepo
   const reportCtx = scope === "FAMILY" && !isFamilyScopeContext(ctx) ? familyScopeContext(ctx.householdId, ctx.timezone) : ctx;
   const data: ReportData =
     input.type === "WEEKLY"
-      ? await buildWeeklyReport(reportCtx, input.periodStart ?? (input.month ? `${input.month}-01` : today), { regime: input.regime, scope, now })
-      : await buildMonthlyReport(reportCtx, input.month ?? monthKey(input.periodStart ?? today), { regime: input.regime, scope, now });
+      ? await buildWeeklyReport(reportCtx, input.periodStart ?? (input.month ? `${input.month}-01` : today), { regime: input.regime, scope, now, natureScope: input.natureScope })
+      : await buildMonthlyReport(reportCtx, input.month ?? monthKey(input.periodStart ?? today), { regime: input.regime, scope, now, natureScope: input.natureScope });
   const generatedById = isFamilyScopeContext(ctx) || !ctx.memberId ? null : ctx.memberId;
   const report = await prisma.report.create({
     data: {

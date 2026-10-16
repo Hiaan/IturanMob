@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArchiveRestore, ArrowLeftRight, CheckCircle2, ChevronDown, EyeOff, Tags, Trash2, Undo2, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeftRight, Briefcase, CheckCircle2, ChevronDown, Tags, Trash2, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { CategoryPicker, type CategoryChoice } from "@/features/categories/category-picker";
-import type { TransactionDTO } from "@/features/finance/types";
+import type { TransactionDTO, TransactionNature } from "@/features/finance/types";
 import { canConvertToTransfer } from "./convert-transfer-dialog";
 import { canExcludeFromReports } from "./report-exclusion";
+import { NATURES, NATURE_LABELS, natureOf } from "./nature";
+import { NATURE_ICONS } from "./nature-control";
 
 /** Barra flutuante com as ações em lote para os itens selecionados. */
 export function BulkBar({
@@ -18,7 +20,7 @@ export function BulkBar({
   onClear,
   onReclassify,
   onConvertTransfer,
-  onExclude,
+  onNature,
   onInclude,
   onConfirm,
   onDelete,
@@ -33,9 +35,9 @@ export function BulkBar({
   onClear: () => void;
   onReclassify: () => void;
   onConvertTransfer: () => void;
-  /** Desconsiderar nos relatórios (abre o diálogo). */
-  onExclude: () => void;
-  /** Voltar a considerar os desconsiderados selecionados. */
+  /** Marcar como Pessoal/Empresa (na hora) ou Repasse (abre o diálogo de motivo/cliente). */
+  onNature: (n: TransactionNature) => void;
+  /** Voltar a considerar os desconsiderados (repasses) selecionados, cada um com a natureza que tinha. */
   onInclude: () => void;
   onConfirm: () => void;
   onDelete: () => void;
@@ -80,33 +82,41 @@ export function BulkBar({
                 <ArrowLeftRight /> <span className="max-lg:sr-only">Converter em transferência</span>
               </Button>
             )}
-            {canWrite && excludable.length > 0 && excludedCount === 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onExclude}
-                disabled={busy}
-                title="Repasse de cliente, reembolso…: sai das receitas e despesas. O saldo da conta e a fatura do cartão não mudam."
-              >
-                <EyeOff /> <span className="max-sm:sr-only">Desconsiderar</span>
-              </Button>
-            )}
-            {canWrite && excludedCount > 0 && (
-              // Há desconsiderados na seleção: um só botão com as duas opções (cabe numa linha).
+            {canWrite && excludable.length > 0 && (
+              // Natureza: Pessoal / Empresa / Repasse… (só muda relatórios; saldo e fatura não mudam).
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" disabled={busy} aria-label="Desconsiderar nos relatórios: opções">
-                    <EyeOff /> <span className="max-sm:sr-only">Desconsiderar</span>
+                  <Button size="sm" variant="outline" disabled={busy} aria-label="Marcar como: Pessoal, Empresa ou Repasse" title="Natureza: só muda relatórios. O saldo da conta e a fatura do cartão não mudam.">
+                    <Briefcase /> <span className="max-sm:sr-only">Marcar como</span>
                     <ChevronDown className="size-3.5 opacity-70" aria-hidden />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="top">
-                  <DropdownMenuItem onSelect={onExclude}>
-                    <EyeOff /> {excludedCount === excludable.length ? "Editar motivo e cliente…" : "Desconsiderar nos relatórios…"}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onInclude}>
-                    <Undo2 /> Voltar a considerar{excludedCount !== items.length ? ` (${excludedCount})` : ""}
-                  </DropdownMenuItem>
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {excludable.length !== items.length ? `${excludable.length} de ${items.length} têm natureza · saldo e fatura não mudam` : "Saldo e fatura não mudam"}
+                  </DropdownMenuLabel>
+                  {NATURES.map((n) => {
+                    const Icon = NATURE_ICONS[n];
+                    const count = excludable.filter((t) => natureOf(t) !== n || t.natureReview).length;
+                    return (
+                      <DropdownMenuItem key={n} onSelect={() => onNature(n)} disabled={n !== "PASSTHROUGH" && count === 0}>
+                        <Icon />
+                        {n === "PASSTHROUGH"
+                          ? excludedCount === excludable.length
+                            ? "Editar repasse (motivo e cliente)…"
+                            : "Repasse…"
+                          : `${NATURE_LABELS[n]}${count !== excludable.length ? ` (${count})` : ""}`}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  {excludedCount > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={onInclude}>
+                        <Undo2 /> Voltar a considerar{excludedCount !== items.length ? ` (${excludedCount})` : ""}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

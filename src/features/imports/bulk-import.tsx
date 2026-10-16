@@ -13,6 +13,7 @@ import {
   CreditCard,
   FileCheck2,
   FileSearch,
+  HelpCircle,
   Info,
   Landmark,
   Layers,
@@ -39,7 +40,20 @@ import { formatDateBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards } from "@/features/finance/hooks";
 import { canRetryBulkItem, clearBulkSession, isBulkUploading, recordBulkResults, removeBulkItem, retryBulkItem, type BulkItem, type BulkSession } from "./bulk-store";
-import { bankLabel, commonWarnings, formatFileSize, formatFromFileName, isTransferWarning, isUnresolvedTransfer, needsCounterpartAmount, needsMappingReview, needsScopeReview, statementKindLabel } from "./helpers";
+import {
+  asksNature,
+  bankLabel,
+  commonWarnings,
+  formatFileSize,
+  formatFromFileName,
+  isNatureWarning,
+  isTransferWarning,
+  isUnresolvedTransfer,
+  needsCounterpartAmount,
+  needsMappingReview,
+  needsScopeReview,
+  statementKindLabel,
+} from "./helpers";
 import { FormatTile, ROW_STATUS, formatLabel } from "./status";
 import { Stepper } from "./stepper";
 import { useBulkCommit, useImportPreviews } from "./use-imports";
@@ -87,9 +101,11 @@ interface Stats {
   unresolvedTransfers: number;
   /** Remessa/câmbio entre moedas sem o valor na outra moeda: fica de fora até informar. */
   awaitingAmount: number;
+  /** Novas selecionadas em que uma regra pede a natureza (sem escolha: entram como Pessoal e viram pendência). */
+  natureAsk: number;
 }
 
-const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0, transfers: 0, unresolvedTransfers: 0, awaitingAmount: 0 };
+const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0, transfers: 0, unresolvedTransfers: 0, awaitingAmount: 0, natureAsk: 0 };
 
 function statsOf(p: ImportPreview): Stats {
   const s = { ...EMPTY_STATS, newRows: p.counts.NEW, matched: p.counts.MATCHED, divergent: p.counts.DIVERGENT, duplicate: p.counts.DUPLICATE, skipped: p.counts.SKIPPED, error: p.counts.ERROR };
@@ -97,6 +113,7 @@ function statsOf(p: ImportPreview): Stats {
     if (r.status === "NEW" && isUnresolvedTransfer(r)) s.unresolvedTransfers++;
     if (needsCounterpartAmount(r)) s.awaitingAmount++;
     if (!r.selected) continue;
+    if (asksNature(r)) s.natureAsk++;
     if (r.kind === "TRANSFER" && r.transfer?.accountId && (r.status === "NEW" || r.status === "MATCHED")) s.transfers++;
     if (r.status === "NEW") s.selectedNew++;
     else if (r.status === "MATCHED") s.selectedMatched++;
@@ -162,6 +179,14 @@ function StatGrid({ stats, className }: { stats: Stats; className?: string }) {
           </div>
         );
       })}
+      {stats.natureAsk > 0 && (
+        <div className="min-w-0 rounded-lg bg-warning/10 px-2 py-1.5" title="Uma regra pede para escolher a natureza: Pessoal, Empresa ou Repasse">
+          <dt className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <HelpCircle className="size-3 shrink-0 text-warning" aria-hidden /> <span className="truncate">Pedem natureza</span>
+          </dt>
+          <dd className="text-sm font-semibold tabular">{stats.natureAsk}</dd>
+        </div>
+      )}
       {(stats.transfers > 0 || stats.unresolvedTransfers > 0) && (
         <div className="min-w-0 rounded-lg bg-muted/50 px-2 py-1.5" title="Aplicações, resgates e transferências entre contas próprias: não contam como receita nem despesa">
           <dt className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
@@ -210,7 +235,7 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
   const kind = statementKindLabel(b?.statement);
   const bank = b ? bankLabel(b) : null;
   const DestIcon = b?.creditCard ? CreditCard : Landmark;
-  const warnings = (b?.warnings ?? []).filter((w) => !hiddenWarnings.includes(w) && !isTransferWarning(w));
+  const warnings = (b?.warnings ?? []).filter((w) => !hiddenWarnings.includes(w) && !isTransferWarning(w) && !(b?.status === "PREVIEW" && isNatureWarning(w)));
   const mappingWarnings = state === "mapping" ? warnings.filter((w) => /mapeamento/i.test(w)) : [];
   // O aviso de destino incompatível (warnings[0]) aparece em destaque, fora da lista.
   const scopeWarning = b?.scopeMismatch && b.status === "PREVIEW" ? (b.warnings[0] ?? null) : null;
@@ -220,6 +245,7 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
   const ReviewIcon = state === "mapping" ? Columns3 : FileSearch;
   const unresolvedTransfers = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter((r) => r.status === "NEW" && isUnresolvedTransfer(r)).length : 0;
   const awaitingAmount = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter(needsCounterpartAmount).length : 0;
+  const natureAsk = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter(asksNature).length : 0;
 
   return (
     <li className="p-3 sm:p-4">
@@ -338,6 +364,15 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
             </p>
           </div>
         )}
+        {preview && (state === "ready" || state === "scope") && natureAsk > 0 && (
+          <div role="note" className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-xs">
+            <HelpCircle className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+            <p className="min-w-0 break-words">
+              {natureAsk} {natureAsk === 1 ? "lançamento pede" : "lançamentos pedem"} a natureza (Pessoal, Empresa ou Repasse): escolha em “Revisar”. Sem escolha, entram como Pessoal e ficam em
+              Pendências. Saldo e fatura não mudam.
+            </p>
+          </div>
+        )}
         {preview && (state === "ready" || state === "scope" || state === "failed") && <StatGrid stats={statsOf(preview)} className="mt-2" />}
         {result && (
           <div className="mt-2">
@@ -393,7 +428,7 @@ export function BulkImport({ session }: { session: BulkSession }) {
   const results = views.flatMap((v) => (v.result ? [v.result] : []));
   const readyStats = sumStats(ready.map((v) => statsOf(v.preview!)));
   const shared = commonWarnings(
-    views.filter((v) => v.preview && (v.state === "ready" || v.state === "mapping" || v.state === "scope")).map((v) => v.preview!.batch.warnings.filter((w, i) => !(i === 0 && v.preview!.batch.scopeMismatch))),
+    views.filter((v) => v.preview && (v.state === "ready" || v.state === "mapping" || v.state === "scope")).map((v) => v.preview!.batch.warnings.filter((w, i) => !(i === 0 && v.preview!.batch.scopeMismatch) && !isNatureWarning(w))),
   );
 
   const [destKind, destId] = (session.opts.accountId ? `acc:${session.opts.accountId}` : session.opts.creditCardId ? `card:${session.opts.creditCardId}` : "none:").split(":");
@@ -538,13 +573,25 @@ export function BulkImport({ session }: { session: BulkSession }) {
             <h3 id="bulk-totals" className="text-sm font-semibold">
               Totais {ready.length ? `dos ${ready.length} arquivo(s) prontos para confirmar` : "do lote"}
             </h3>
-            <div className={cn("grid grid-cols-2 gap-2 sm:grid-cols-3", readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0 ? "sm:grid-cols-4 xl:grid-cols-7" : "xl:grid-cols-6")}>
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-2 sm:grid-cols-3",
+                (readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0) && readyStats.natureAsk > 0
+                  ? "sm:grid-cols-4 xl:grid-cols-8"
+                  : readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0 || readyStats.natureAsk > 0
+                    ? "sm:grid-cols-4 xl:grid-cols-7"
+                    : "xl:grid-cols-6",
+              )}
+            >
               <TotalTile icon={FileCheck2} label="Arquivos prontos" value={`${ready.length} de ${total}`} />
               <TotalTile icon={ROW_STATUS.NEW.icon} label="Novos a criar" value={readyStats.selectedNew} hint={readyStats.selectedNew !== readyStats.newRows ? `de ${readyStats.newRows} novos (só os selecionados)` : "selecionados"} />
               <TotalTile icon={ROW_STATUS.MATCHED.icon} label="Já registrados" value={readyStats.matched} hint="Vinculados sem duplicar" />
               <TotalTile icon={ROW_STATUS.DIVERGENT.icon} label="Divergências" value={readyStats.divergent} hint="Viram pendências" />
               <TotalTile icon={ROW_STATUS.DUPLICATE.icon} label="Duplicados" value={readyStats.duplicate} hint="Não entram de novo" />
               <TotalTile icon={ROW_STATUS.SKIPPED.icon} label="Ignorados" value={readyStats.skipped} hint="Saldos, zeros, pagamentos de fatura" />
+              {readyStats.natureAsk > 0 && (
+                <TotalTile icon={HelpCircle} label="Pedem natureza" value={readyStats.natureAsk} tone="warning" hint="Escolha em “Revisar”; sem escolha, entram como Pessoal e viram pendência" />
+              )}
               {(readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0) && (
                 <TotalTile
                   icon={ArrowLeftRight}
@@ -639,6 +686,11 @@ export function BulkImport({ session }: { session: BulkSession }) {
                 )}
                 {readyStats.unresolvedTransfers > 0 && (
                   <p className="text-foreground">{readyStats.unresolvedTransfers} linha(s) que parecem aplicação/resgate, sem a conta do outro lado, ficam de fora — escolha a conta em “Revisar” para incluí-las.</p>
+                )}
+                {readyStats.natureAsk > 0 && (
+                  <p className="text-foreground">
+                    {readyStats.natureAsk} lançamento(s) pedem a natureza: sem escolha, entram como Pessoal e ficam em Pendências para você escolher (Pessoal, Empresa ou Repasse). Saldo e fatura não mudam.
+                  </p>
                 )}
                 {readyStats.awaitingAmount > 0 && (
                   <p className="text-foreground">{readyStats.awaitingAmount} remessa(s)/câmbio(s) sem o valor na outra moeda ficam de fora — informe o valor em “Revisar” para incluí-las.</p>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, ChevronLeft, ChevronRight, EyeOff, Info, List, Plus, Scale, SearchX, Search, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, EyeOff, HelpCircle, Info, List, Plus, Scale, SearchX, Search, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ import { useTransactionActions } from "./use-transaction-actions";
 import { ReportExclusionDialog } from "./report-exclusion-dialog";
 import { EXCLUSION_KEEPS_BALANCE, useReportExclusion } from "./report-exclusion";
 import { PassthroughCard } from "./passthrough-card";
+import { hasNature, natureOf, useSetNature } from "./nature";
 
 const PAGE_SIZE = 50;
 
@@ -82,6 +83,7 @@ export function TransactionsView() {
   const cards = useCards({ includeArchived: true });
   const actions = useTransactionActions();
   const exclusion = useReportExclusion();
+  const setNature = useSetNature();
 
   const { filters, update, reset, loaded, init } = usePersistentTxFilters();
   const [view, setView] = useState<"list" | "trash">("list");
@@ -161,6 +163,11 @@ export function TransactionsView() {
     queryFn: () => api.get<TxListResponse>("/api/v1/transactions", { deleted: "only", pageSize: 1 }),
     enabled: canDelete,
   });
+  // Lançamentos em que uma regra pediu para escolher a natureza (em qualquer período).
+  const reviewCount = useQuery({
+    queryKey: qk.transactions({ natureReview: true, pageSize: 1, countOnly: true }),
+    queryFn: () => api.get<TxListResponse>("/api/v1/transactions", { natureReview: true, pageSize: 1 }),
+  });
 
   const items = useMemo(() => list.data?.items ?? [], [list.data]);
   const selectedItems = items.filter((t) => selected.has(t.id));
@@ -190,6 +197,7 @@ export function TransactionsView() {
     else if (a === "purge") setToPurge([tx]);
     else if (a === "exclude") openExclude([tx], false);
     else if (a === "include") exclusion.mutate({ transactionIds: [tx.id], excluded: false });
+    else if (a === "personal" || a === "business") setNature.mutate({ transactionIds: [tx.id], nature: a === "personal" ? "PERSONAL" : "BUSINESS" });
   };
 
   const onRemoveToken = (t: SmartToken) => setSearchText((s) => removeToken(s, t.raw));
@@ -202,7 +210,9 @@ export function TransactionsView() {
   const from = total ? (page - 1) * PAGE_SIZE + 1 : 0;
   const to = Math.min(page * PAGE_SIZE, total);
   const grouped = filters.sort === "date_desc" || filters.sort === "date_asc";
-  const busy = actions.bulk.isPending || actions.purge.isPending || exclusion.isPending;
+  const busy = actions.bulk.isPending || actions.purge.isPending || exclusion.isPending || setNature.isPending;
+  const pendingNature = reviewCount.data?.total ?? 0;
+  const scopeLabel = view === "list" && filters.scope ? (filters.scope === "BUSINESS" ? " · Empresa" : " · Pessoal") : "";
   const onlyExcluded = view === "list" && filters.excluded === "only";
   const excludedIn = totals?.excludedIncomeCents ?? 0;
   const excludedOut = totals?.excludedExpenseCents ?? 0;
@@ -306,8 +316,8 @@ export function TransactionsView() {
             </>
           ) : (
             <>
-              <TotalTile label="Receitas" value={totals.incomeCents} icon={TrendingUp} tone="positive" hint="Receitas confirmadas que atendem aos filtros (sem as desconsideradas nos relatórios)" />
-              <TotalTile label="Despesas" value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras no cartão pelo valor total; sem as desconsideradas nos relatórios)" />
+              <TotalTile label={`Receitas${scopeLabel}`} value={totals.incomeCents} icon={TrendingUp} tone="positive" hint="Receitas confirmadas que atendem aos filtros (sem as desconsideradas nos relatórios)" />
+              <TotalTile label={`Despesas${scopeLabel}`} value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras no cartão pelo valor total; sem as desconsideradas nos relatórios)" />
               <TotalTile label="Resultado" value={totals.incomeCents - totals.expenseCents} icon={Scale} signed hint="Receitas menos despesas. Transferências e pagamentos de fatura não entram no cálculo." />
               <TotalTile label="Lançamentos" value={total.toLocaleString("pt-BR")} icon={ArrowLeftRight} hint="Total de lançamentos encontrados (inclui pendentes)" />
             </>
@@ -339,6 +349,19 @@ export function TransactionsView() {
         </p>
       )}
       {onlyExcluded && <PassthroughCard period={shownPeriod} showListLink={false} />}
+      {view === "list" && pendingNature > 0 && !filters.natureReview && (
+        <div role="note" className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex min-w-0 items-start gap-2">
+            <HelpCircle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <span className="min-w-0">
+              <strong className="tabular">{pendingNature}</strong> {pendingNature === 1 ? "lançamento pede" : "lançamentos pedem"} a natureza: Pessoal, Empresa ou Repasse de cliente. Saldo e fatura não mudam.
+            </span>
+          </p>
+          <Button size="sm" variant="outline" className="shrink-0 border-warning/50" onClick={() => update({ natureReview: true, preset: "all", start: undefined, end: undefined })}>
+            Ver {pendingNature === 1 ? "o lançamento" : `os ${pendingNature}`}
+          </Button>
+        </div>
+      )}
 
       {list.isLoading || !loaded ? (
         <ListSkeleton />
@@ -347,6 +370,17 @@ export function TransactionsView() {
       ) : items.length === 0 ? (
         view === "trash" ? (
           <EmptyState icon={Trash2} title={debounced ? "Nada encontrado na lixeira" : "A lixeira está vazia"} description="Lançamentos excluídos aparecem aqui e podem ser restaurados." />
+        ) : view === "list" && filters.natureReview && !debounced ? (
+          <EmptyState
+            icon={HelpCircle}
+            title="Nenhum lançamento pedindo natureza"
+            description="Quando uma regra “Perguntar” encontrar um lançamento (ex.: anúncios no cartão), ele aparece aqui para você escolher entre Pessoal, Empresa ou Repasse."
+            action={
+              <Button variant="outline" onClick={() => update({ natureReview: undefined })}>
+                Mostrar todos os lançamentos
+              </Button>
+            }
+          />
         ) : onlyExcluded && !debounced ? (
           <EmptyState
             icon={EyeOff}
@@ -439,7 +473,11 @@ export function TransactionsView() {
         onClear={() => setSelected(new Set())}
         onReclassify={() => setReclassifyOpen(true)}
         onConvertTransfer={() => setConvertOpen(true)}
-        onExclude={() => openExclude(selectedItems, true)}
+        onNature={(n) => {
+          if (n === "PASSTHROUGH") return openExclude(selectedItems, true);
+          const ids = selectedItems.filter((t) => hasNature(t) && (natureOf(t) !== n || t.natureReview)).map((t) => t.id);
+          if (ids.length) setNature.mutate({ transactionIds: ids, nature: n }, { onSuccess: () => setSelected(new Set()) });
+        }}
         onInclude={() =>
           exclusion.mutate(
             { transactionIds: selectedItems.filter((t) => t.excludedFromReports).map((t) => t.id), excluded: false },

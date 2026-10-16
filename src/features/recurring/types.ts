@@ -15,6 +15,8 @@ export interface RecurringDTO {
   account: { id: string; name: string; color: string } | null;
   creditCard: { id: string; name: string; color: string } | null;
   ownership: string;
+  /** Natureza herdada pelos lançamentos gerados (Pessoal ou Empresa). */
+  scope: "PERSONAL" | "BUSINESS";
   responsible: { id: string; displayName: string; color: string } | null;
   frequency: Frequency;
   frequencyLabel: string;

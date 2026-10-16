@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { Briefcase, TrendingDown, TrendingUp, User } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -42,6 +42,8 @@ const schema = z
     endDate: z.string().optional(),
     autoPost: z.boolean(),
     reminderDaysBefore: z.number({ error: "Informe os dias" }).int().min(0, "Entre 0 e 30").max(30, "Entre 0 e 30"),
+    /** Natureza dos lançamentos gerados: Pessoal ou Empresa (só muda relatórios). */
+    scope: z.enum(["PERSONAL", "BUSINESS"]),
   })
   .superRefine((v, ctx) => {
     const card = v.type === "EXPENSE" && v.payWith === "card";
@@ -70,6 +72,7 @@ function defaults(rec: RecurringDTO | null | undefined, today: string): Values {
     endDate: rec?.endDate ?? "",
     autoPost: rec?.autoPost ?? false,
     reminderDaysBefore: rec?.reminderDaysBefore ?? 3,
+    scope: rec?.scope ?? "PERSONAL",
   };
 }
 
@@ -114,6 +117,7 @@ export function RecurringFormDialog({ open, onOpenChange, recurring }: { open: b
       endDate: v.endDate || null,
       autoPost: v.autoPost,
       reminderDaysBefore: v.reminderDaysBefore,
+      scope: v.scope,
     };
     const done = { onSuccess: () => onOpenChange(false) };
     if (recurring) update.mutate({ id: recurring.id, ...body }, done);
@@ -225,6 +229,41 @@ export function RecurringFormDialog({ open, onOpenChange, recurring }: { open: b
               </Field>
             </div>
           )}
+
+          <div className="grid gap-1.5">
+            <p id="rec-nature-label" className="text-[13px] font-medium">
+              Natureza
+            </p>
+            <Controller
+              control={control}
+              name="scope"
+              render={({ field }) => (
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:max-w-sm" role="radiogroup" aria-labelledby="rec-nature-label">
+                  {(
+                    [
+                      ["PERSONAL", "Pessoal", User],
+                      ["BUSINESS", "Empresa", Briefcase],
+                    ] as const
+                  ).map(([value, label, Icon]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={field.value === value}
+                      onClick={() => field.onChange(value)}
+                      className={cn(
+                        "flex h-9 items-center justify-center gap-1.5 rounded-lg text-sm font-medium outline-none transition focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        field.value === value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Icon className={cn("size-4", field.value === value && value === "BUSINESS" && "text-series-7")} aria-hidden /> {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            />
+            <p className="text-xs text-muted-foreground">Os lançamentos gerados herdam a natureza (ex.: salário da equipe ou ferramenta da agência = Empresa). Só muda os relatórios: saldo e contas a pagar não mudam.</p>
+          </div>
 
           <fieldset className="grid gap-4 rounded-xl border bg-muted/30 p-4">
             <legend className="px-1 text-[13px] font-medium">Repetição</legend>

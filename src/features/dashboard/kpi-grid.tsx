@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
 
 export interface DashboardSummary {
   regime: "ACCRUAL" | "CASH";
+  /** Recorte aplicado (informado ou o padrão da família). */
+  scope?: "PERSONAL" | "BUSINESS" | "ALL";
+  /** Resultado da empresa (natureza Empresa) no período; null sem lançamentos da empresa. */
+  business?: { incomeCents: number; expenseCents: number; resultCents: number } | null;
   period: { start: string; end: string };
   availableBalanceCents: number;
   incomeCents: number;
@@ -96,6 +100,9 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
     );
   }
   const budgetPct = data.budget.limitCents ? Math.round((data.budget.spentCents / data.budget.limitCents) * 100) : null;
+  // Links para Lançamentos no mesmo recorte (Pessoal/Empresa; "Tudo" não filtra).
+  const scopeQs = data.scope && data.scope !== "ALL" ? `&scope=${data.scope}` : "";
+  const scopeText = data.scope === "BUSINESS" ? " Recorte Empresa." : data.scope === "ALL" ? " Recorte Tudo (Pessoal e Empresa)." : data.scope === "PERSONAL" ? " Recorte Pessoal (sem a empresa)." : "";
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Kpi
@@ -112,20 +119,20 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
           </span>
         }
       />
-      <Kpi label="Receitas do período" value={data.incomeCents} icon={TrendingUp} hint="Receitas confirmadas no período, conforme o regime selecionado." href="/transacoes?type=INCOME" footer={<Delta pct={data.comparison.incomeChangePct} />} />
+      <Kpi label="Receitas do período" value={data.incomeCents} icon={TrendingUp} hint={`Receitas confirmadas no período, conforme o regime selecionado.${scopeText} Repasses de clientes ficam de fora.`} href={`/transacoes?type=INCOME${scopeQs}`} footer={<Delta pct={data.comparison.incomeChangePct} />} />
       <Kpi
         label="Despesas do período"
         value={data.expenseCents}
         icon={TrendingDown}
-        hint={data.regime === "CASH" ? "Regime de caixa: débito/Pix/dinheiro na data do pagamento; cartão pelo valor das parcelas no vencimento da fatura." : "Regime de competência: valor total na data de competência (compra), inclusive parcelados."}
-        href="/transacoes?type=EXPENSE"
+        hint={`${data.regime === "CASH" ? "Regime de caixa: débito/Pix/dinheiro na data do pagamento; cartão pelo valor das parcelas no vencimento da fatura." : "Regime de competência: valor total na data de competência (compra), inclusive parcelados."}${scopeText}`}
+        href={`/transacoes?type=EXPENSE${scopeQs}`}
         footer={<Delta pct={data.comparison.expenseChangePct} invert />}
       />
       <Kpi
         label="Resultado do período"
         value={data.resultCents}
         icon={Scale}
-        hint="Receitas menos despesas do período. Transferências e pagamentos de fatura não entram no cálculo."
+        hint={`Receitas menos despesas do período. Transferências e pagamentos de fatura não entram no cálculo.${scopeText}`}
         footer={<span className="text-xs text-muted-foreground">{data.resultCents >= 0 ? "Receitas acima das despesas" : "Despesas acima das receitas"}</span>}
       />
       <Kpi

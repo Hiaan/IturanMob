@@ -19,6 +19,8 @@ export interface HouseholdSettingsDTO {
   duplicateWindowHours: number;
   whatsappReplies: boolean;
   whatsappAnswerQueries: boolean;
+  /** Recorte padrão do painel, relatórios, orçamentos e assistente (Repasse fica sempre de fora). */
+  defaultReportScope: "PERSONAL" | "BUSINESS" | "ALL";
 }
 
 export interface HouseholdDTO {
@@ -42,6 +44,7 @@ export function useUpdateSettings() {
       toast.success("Configurações salvas");
       qc.invalidateQueries({ queryKey: qk.household });
       qc.invalidateQueries({ queryKey: ["analytics"] });
+      qc.invalidateQueries({ queryKey: ["budgets"] });
       qc.invalidateQueries({ queryKey: ["ai"] });
     },
     onError: (e) => toast.error(errorMessage(e)),

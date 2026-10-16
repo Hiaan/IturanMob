@@ -5,7 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ArrowLeftRight, ArrowRight, EyeOff, Info, MoreHorizontal, PencilLine, Play, Plus, Tags, Trash2, Wand2, Zap } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, Briefcase, EyeOff, HelpCircle, Info, MoreHorizontal, PencilLine, Play, Plus, Tags, Trash2, User, Wand2, Zap, type LucideIcon } from "lucide-react";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,8 @@ import { TransferAccountField, suggestInvestmentAccount } from "@/features/accou
 import { useCan } from "@/features/me/use-me";
 import { EXCLUSION_KEEPS_BALANCE, EXCLUSION_REASON_LABELS } from "@/features/transactions/report-exclusion";
 import { ExclusionReasonPicker, PARTY_LABELS, PartySuggestions } from "@/features/transactions/report-exclusion-dialog";
+import { NATURE_KEEPS_BALANCE } from "@/features/transactions/nature";
+import { BusinessBadge } from "@/features/transactions/nature-control";
 import { CategoryPicker } from "./category-picker";
 import { MATCH_FIELD_LABELS, MATCH_TYPE_LABELS, RULE_SOURCE_LABELS, type RuleDTO } from "./types";
 import { useRuleMutations, useRules } from "./use-category-mutations";
@@ -49,8 +51,10 @@ const schema = z
     subcategoryId: z.string(),
     paymentMethod: z.string(),
     accountId: z.string(),
-    /** "Então": definir categoria (e afins), desconsiderar nos relatórios ou tratar como transferência com outra conta própria. */
-    action: z.enum(["CATEGORY", "EXCLUDE", "TRANSFER"]),
+    /** "Então": classificar (natureza, categoria e afins) ou tratar como transferência com outra conta própria. */
+    action: z.enum(["CLASSIFY", "TRANSFER"]),
+    /** Natureza: não alterar, Pessoal, Empresa, Repasse (desconsiderar) ou perguntar. Uma só por regra. */
+    nature: z.enum(["KEEP", "PERSONAL", "BUSINESS", "PASSTHROUGH", "ASK"]),
     transferAccountId: z.string(),
     exclusionReason: z.enum(["CLIENT_PASSTHROUGH", "REIMBURSEMENT", "OTHER"]),
     exclusionParty: z.string().trim().max(80, "Use até 80 caracteres"),
@@ -71,8 +75,8 @@ const schema = z
     if (v.action === "TRANSFER") {
       if (v.transferAccountId === NONE) ctx.addIssue({ code: "custom", path: ["transferAccountId"], message: "Escolha a conta do outro lado da transferência" });
       if (v.where.startsWith("card:")) ctx.addIssue({ code: "custom", path: ["where"], message: "Compras no cartão não viram transferência: escolha uma conta ou “Qualquer conta ou cartão”" });
-    } else if (v.action === "CATEGORY" && v.categoryId === NONE && v.paymentMethod === NONE && v.accountId === NONE) {
-      ctx.addIssue({ code: "custom", path: ["categoryId"], message: "Defina ao menos uma ação: categoria, forma de pagamento ou conta" });
+    } else if (v.nature === "KEEP" && v.categoryId === NONE && v.paymentMethod === NONE && v.accountId === NONE) {
+      ctx.addIssue({ code: "custom", path: ["categoryId"], message: "Defina ao menos uma ação: natureza, categoria, forma de pagamento ou conta" });
     }
   });
 type Values = z.infer<typeof schema>;
@@ -91,7 +95,8 @@ function defaults(rule?: RuleDTO | null): Values {
         subcategoryId: rule.setSubcategoryId ?? NONE,
         paymentMethod: rule.setPaymentMethod ?? NONE,
         accountId: rule.setAccountId ?? NONE,
-        action: rule.setTransferAccountId ? "TRANSFER" : rule.setExcludeFromReports ? "EXCLUDE" : "CATEGORY",
+        action: rule.setTransferAccountId ? "TRANSFER" : "CLASSIFY",
+        nature: rule.setExcludeFromReports ? "PASSTHROUGH" : rule.setScope ? rule.setScope : rule.askNature ? "ASK" : "KEEP",
         transferAccountId: rule.setTransferAccountId ?? NONE,
         exclusionReason: rule.setExclusionReason ?? "CLIENT_PASSTHROUGH",
         exclusionParty: rule.setExclusionParty ?? "",
@@ -111,7 +116,8 @@ function defaults(rule?: RuleDTO | null): Values {
         subcategoryId: NONE,
         paymentMethod: NONE,
         accountId: NONE,
-        action: "CATEGORY",
+        action: "CLASSIFY",
+        nature: "KEEP",
         transferAccountId: NONE,
         exclusionReason: "CLIENT_PASSTHROUGH",
         exclusionParty: "",
@@ -138,12 +144,32 @@ function conditionText(
 function actionText(r: RuleDTO): string {
   if (r.setTransferAccountId) return `Tratar como transferência com ${r.transferAccount?.name ?? "outra conta"}`;
   const parts: string[] = [];
-  if (r.setExcludeFromReports) parts.push(["Desconsiderar", EXCLUSION_REASON_LABELS[r.setExclusionReason ?? "CLIENT_PASSTHROUGH"], r.setExclusionParty].filter(Boolean).join(" · "));
+  if (r.setExcludeFromReports) parts.push(["Repasse (desconsiderar)", EXCLUSION_REASON_LABELS[r.setExclusionReason ?? "CLIENT_PASSTHROUGH"], r.setExclusionParty].filter(Boolean).join(" · "));
+  else if (r.setScope) parts.push(`Natureza ${r.setScope === "BUSINESS" ? "Empresa" : "Pessoal"}`);
+  else if (r.askNature) parts.push("Perguntar a natureza (Pessoal, Empresa ou Repasse)");
   if (r.category) parts.push(r.subcategory ? `${r.category.name} › ${r.subcategory.name}` : r.category.name);
   if (r.setPaymentMethod) parts.push(labelOf(PAYMENT_METHOD_LABELS, r.setPaymentMethod));
   if (r.account) parts.push(`conta ${r.account.name}`);
   return parts.join(" · ") || "Sem ação definida";
 }
+
+type RuleNature = Values["nature"];
+
+const RULE_NATURES: Array<{ value: RuleNature; label: string; icon: LucideIcon | null }> = [
+  { value: "KEEP", label: "Não alterar", icon: null },
+  { value: "PERSONAL", label: "Pessoal", icon: User },
+  { value: "BUSINESS", label: "Empresa", icon: Briefcase },
+  { value: "PASSTHROUGH", label: "Repasse (desconsiderar)", icon: EyeOff },
+  { value: "ASK", label: "Perguntar", icon: HelpCircle },
+];
+
+const RULE_NATURE_HINTS: Record<RuleNature, string> = {
+  KEEP: "A natureza fica como estiver (Pessoal, se nada a definir).",
+  PERSONAL: "Os lançamentos que atenderem à regra entram como Pessoal (da família).",
+  BUSINESS: "Os lançamentos que atenderem à regra entram como Empresa: saem do recorte Pessoal e entram no resultado da empresa. Ex.: Pix para alguém da equipe.",
+  PASSTHROUGH: "Repasse de cliente ou reembolso: fica fora de todos os relatórios.",
+  ASK: "O lançamento entra como Pessoal e fica marcado “Escolher natureza” (com uma pendência) para você decidir entre Pessoal, Empresa ou Repasse.",
+};
 
 export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; onOpenChange: (o: boolean) => void; rule?: RuleDTO | null }) {
   const { save } = useRuleMutations();
@@ -154,12 +180,24 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults(rule) });
   const { control, register, handleSubmit, reset, setValue, formState } = form;
   const e = formState.errors;
-  const [transactionType, categoryId, subcategoryId, matchType, action, transferAccountId, pattern, exclusionReason, exclusionParty, where] = useWatch({
+  const [transactionType, categoryId, subcategoryId, matchType, action, transferAccountId, pattern, exclusionReason, exclusionParty, where, nature, minAmountCents] = useWatch({
     control,
-    name: ["transactionType", "categoryId", "subcategoryId", "matchType", "action", "transferAccountId", "pattern", "exclusionReason", "exclusionParty", "where"],
+    name: ["transactionType", "categoryId", "subcategoryId", "matchType", "action", "transferAccountId", "pattern", "exclusionReason", "exclusionParty", "where", "nature", "minAmountCents"],
   });
   const transfer = action === "TRANSFER";
-  const exclude = action === "EXCLUDE";
+  const exclude = !transfer && nature === "PASSTHROUGH";
+  const ask = !transfer && nature === "ASK";
+  /** Leva o foco a um campo da condição (dica do "Perguntar"). */
+  const focusField = (id: string) => {
+    const el = document.getElementById(id);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    el?.focus({ preventScroll: true });
+  };
+  const whereName = where.startsWith("card:")
+    ? allCards.data?.find((c) => `card:${c.id}` === where)?.name
+    : where.startsWith("acc:")
+      ? allAccounts.data?.find((a) => `acc:${a.id}` === where)?.name
+      : null;
   // Contas/cartões da condição: os ativos e o já escolhido (mesmo arquivado).
   const whereAccounts = (allAccounts.data ?? []).filter((a) => !a.archivedAt || where === `acc:${a.id}`);
   const whereCards = (allCards.data ?? []).filter((c) => !c.archivedAt || where === `card:${c.id}`);
@@ -203,25 +241,32 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
               setPaymentMethod: v.paymentMethod === NONE ? null : v.paymentMethod,
               setAccountId: v.accountId === NONE ? null : v.accountId,
             };
-            const noExclusion = { setExcludeFromReports: false, setExclusionReason: null, setExclusionParty: null };
+            // Uma só natureza por regra: Repasse (desconsiderar), Pessoal/Empresa ou perguntar.
+            const noNature = { setExcludeFromReports: false, setExclusionReason: null, setExclusionParty: null, setScope: null, askNature: false };
+            const natureInput =
+              v.nature === "PASSTHROUGH"
+                ? { ...noNature, setExcludeFromReports: true, setExclusionReason: v.exclusionReason, setExclusionParty: v.exclusionParty.trim() || null }
+                : v.nature === "ASK"
+                  ? { ...noNature, askNature: true }
+                  : v.nature === "PERSONAL" || v.nature === "BUSINESS"
+                    ? { ...noNature, setScope: v.nature }
+                    : noNature;
             save.mutate(
               {
                 id: rule?.id,
-                // Transferência não é receita nem despesa: a regra vale para os dois sentidos e não define categoria.
-                // Desconsiderar pode vir junto com categoria; nunca com transferência.
+                // Transferência não é receita nem despesa: a regra vale para os dois sentidos, não define categoria nem natureza.
+                // A natureza pode vir junto com categoria; nunca com transferência.
                 input:
                   v.action === "TRANSFER"
-                    ? { ...base, ...noExclusion, transactionType: null, setTransferAccountId: v.transferAccountId, setCategoryId: null, setSubcategoryId: null, setPaymentMethod: null, setAccountId: null }
-                    : v.action === "EXCLUDE"
-                      ? { ...base, ...classify, setExcludeFromReports: true, setExclusionReason: v.exclusionReason, setExclusionParty: v.exclusionParty.trim() || null }
-                      : { ...base, ...classify, ...noExclusion },
+                    ? { ...base, ...noNature, transactionType: null, setTransferAccountId: v.transferAccountId, setCategoryId: null, setSubcategoryId: null, setPaymentMethod: null, setAccountId: null }
+                    : { ...base, ...classify, ...natureInput },
               },
               { onSuccess: () => onOpenChange(false), onError: (err) => setServerError(errorMessage(err)) },
             );
           })}
         >
           <Field label="Nome da regra" htmlFor="rule-name" error={e.name?.message} required>
-            <Input id="rule-name" placeholder={exclude ? "Ex.: Anúncios do cliente Alfa" : "Ex.: iFood é delivery"} {...register("name")} aria-invalid={Boolean(e.name)} autoFocus={!rule} />
+            <Input id="rule-name" placeholder={exclude ? "Ex.: Anúncios do cliente Alfa" : ask ? "Ex.: Anúncios no Nubank: perguntar" : nature === "BUSINESS" ? "Ex.: Pix para o Daniel é da empresa" : "Ex.: iFood é delivery"} {...register("name")} aria-invalid={Boolean(e.name)} autoFocus={!rule} />
           </Field>
 
           <fieldset className="grid gap-3 rounded-xl border p-4">
@@ -275,7 +320,7 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
               hint={matchType === "REGEX" ? "Expressão regular (sem diferenciar maiúsculas). Ex.: ^uber( |$)" : "Sem diferenciar maiúsculas e acentos."}
               required
             >
-              <Input id="rule-pattern" placeholder={exclude ? "Ex.: facebk" : "Ex.: ifood"} {...register("pattern")} aria-invalid={Boolean(e.pattern)} className={cn(matchType === "REGEX" && "font-mono")} />
+              <Input id="rule-pattern" placeholder={exclude || ask ? "Ex.: facebk" : nature === "BUSINESS" ? "Ex.: Daniel da Silva" : "Ex.: ifood"} {...register("pattern")} aria-invalid={Boolean(e.pattern)} className={cn(matchType === "REGEX" && "font-mono")} />
             </Field>
             <div className="grid items-start gap-3 sm:grid-cols-3">
               <Field label="Tipo de lançamento" htmlFor="rule-ttype" hint={transfer ? "Transferência vale para entradas e saídas" : undefined}>
@@ -357,11 +402,10 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
               control={control}
               name="action"
               render={({ field }) => (
-                <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Ação da regra">
+                <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Ação da regra">
                   {(
                     [
-                      ["CATEGORY", Tags, "Definir categoria", "Categoria, forma de pagamento ou conta"],
-                      ["EXCLUDE", EyeOff, "Desconsiderar nos relatórios", "Repasse de cliente ou reembolso: saldo e fatura não mudam"],
+                      ["CLASSIFY", Tags, "Natureza e categoria", "Pessoal, Empresa, Repasse ou perguntar; categoria, forma de pagamento ou conta"],
                       ["TRANSFER", ArrowLeftRight, "Transferência com a conta…", "Aplicação/resgate ou entre contas próprias: não é receita nem despesa"],
                     ] as const
                   ).map(([value, Icon, label, desc]) => (
@@ -402,11 +446,44 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
                 />
                 <p className="text-xs text-muted-foreground">
                   Na importação de extratos e no WhatsApp, a saída vira transferência <strong className="font-medium text-foreground">para</strong> esta conta e a entrada, transferência{" "}
-                  <strong className="font-medium text-foreground">vinda</strong> dela. Sem categoria: não conta como receita nem despesa.
+                  <strong className="font-medium text-foreground">vinda</strong> dela. Sem categoria nem natureza: não conta como receita nem despesa.
                 </p>
               </div>
             ) : (
               <>
+                <div className="grid gap-2">
+                  <p id="rule-nature-label" className="text-[13px] font-medium">
+                    Natureza
+                  </p>
+                  <Controller
+                    control={control}
+                    name="nature"
+                    render={({ field }) => (
+                      <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="rule-nature-label">
+                        {RULE_NATURES.map(({ value, label, icon: Icon }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={field.value === value}
+                            onClick={() => {
+                              field.onChange(value);
+                              if (formState.isSubmitted) void form.trigger("categoryId");
+                            }}
+                            className={cn(
+                              "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none transition focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                              field.value === value ? "border-brand bg-accent text-accent-foreground" : "bg-card text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {field.value === value ? <span aria-hidden>✓</span> : Icon ? <Icon className={cn("size-3.5", value === "BUSINESS" && "text-series-7")} aria-hidden /> : null}
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  />
+                  <p className="text-xs text-muted-foreground">{RULE_NATURE_HINTS[nature]}</p>
+                </div>
                 {exclude && (
                   <div className="grid gap-3">
                     <div className="grid gap-1.5">
@@ -424,16 +501,40 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
                       <Input id="rule-party" maxLength={80} autoComplete="off" placeholder="Ex.: Agência Alfa" {...register("exclusionParty")} aria-invalid={Boolean(e.exclusionParty)} />
                       <PartySuggestions value={exclusionParty} onPick={(v) => setValue("exclusionParty", v)} enabled={open} />
                     </Field>
-                    <p className="flex gap-2 rounded-lg bg-info/10 px-3 py-2.5 text-xs text-info">
-                      <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                      <span>
-                        Lançamentos novos que atenderem à regra (extrato importado, WhatsApp ou manual) já entram desconsiderados. <strong className="font-semibold">{EXCLUSION_KEEPS_BALANCE}</strong> Para os
-                        anteriores, use “Aplicar a lançamentos anteriores” na lista de regras.
-                      </span>
-                    </p>
-                    <p className="pt-1 text-[13px] font-semibold">Também classificar (opcional)</p>
                   </div>
                 )}
+                {ask && (
+                  <div className="grid gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs">
+                    <p className="flex items-start gap-1.5">
+                      <HelpCircle className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+                      <span>
+                        Para perguntar só quando importa, combine o texto com um <strong className="font-semibold">valor mínimo</strong> e <strong className="font-semibold">só no cartão</strong>. Ex.: “facebk” no
+                        cartão Nubank a partir de R$ 100,00.
+                      </span>
+                    </p>
+                    <p className="text-muted-foreground">
+                      Hoje: {minAmountCents > 0 ? `a partir de ${formatBRL(minAmountCents)}` : "qualquer valor"} · {whereName ? `só em ${whereName}` : "qualquer conta ou cartão"}.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => focusField("rule-min")}>
+                        Definir valor mínimo
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => focusField("rule-where")}>
+                        Escolher o cartão
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {nature !== "KEEP" && (
+                  <p className="flex gap-2 rounded-lg bg-info/10 px-3 py-2.5 text-xs text-info">
+                    <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                    <span>
+                      Lançamentos novos que atenderem à regra (extrato importado, WhatsApp ou manual) já entram {exclude ? "desconsiderados" : ask ? "pedindo a natureza" : `como ${nature === "BUSINESS" ? "Empresa" : "Pessoal"}`}.{" "}
+                      <strong className="font-semibold">{exclude ? EXCLUSION_KEEPS_BALANCE : NATURE_KEEPS_BALANCE}</strong> Para os anteriores, use “Aplicar a lançamentos anteriores” na lista de regras.
+                    </span>
+                  </p>
+                )}
+                <p className="pt-1 text-[13px] font-semibold">{nature === "KEEP" ? "Classificar" : "Também classificar (opcional)"}</p>
                 <Field label="Categoria" htmlFor="rule-category" error={e.categoryId?.message}>
                   <CategoryPicker
                     id="rule-category"
@@ -530,15 +631,16 @@ export function RulesSection() {
   const rules = useRules();
   const canWrite = useCan("rules:write");
   const canApply = useCan("transactions:write");
-  const { save, remove, apply, applyTransfer, applyExclusion } = useRuleMutations();
+  const { save, remove, apply, applyTransfer, applyNature } = useRuleMutations();
   const [editing, setEditing] = useState<RuleDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deleting, setDeleting] = useState<RuleDTO | null>(null);
   const [applyingTransfer, setApplyingTransfer] = useState<RuleDTO | null>(null);
-  const [applyingExclusion, setApplyingExclusion] = useState<RuleDTO | null>(null);
+  /** Regra de natureza (Repasse, Pessoal/Empresa ou perguntar) a aplicar aos anteriores, com confirmação. */
+  const [applyingNature, setApplyingNature] = useState<RuleDTO | null>(null);
   const items = useMemo(() => [...(rules.data ?? [])].sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt)), [rules.data]);
-  // "Sem categoria" só classifica: regras que desconsideram são aplicadas uma a uma (com confirmação).
-  const applicable = items.filter((r) => r.active && r.setCategoryId && !r.setExcludeFromReports);
+  // "Sem categoria" só classifica: regras de natureza (Repasse, Pessoal/Empresa, perguntar) são aplicadas uma a uma, com confirmação.
+  const applicable = items.filter((r) => r.active && r.setCategoryId && !r.setExcludeFromReports && !r.setScope && !r.askNature);
 
   const openForm = (r: RuleDTO | null) => {
     setEditing(r);
@@ -554,7 +656,7 @@ export function RulesSection() {
           </CardTitle>
           <CardDescription className="mt-1">
             Categorize automaticamente novos lançamentos a partir do texto, do valor, do tipo e da conta ou cartão — desconsidere nos relatórios repasses de clientes e reembolsos, ou trate aplicações e
-            resgates como transferência entre contas próprias.
+            resgates como transferência entre contas próprias. Também definem a natureza: Pessoal, Empresa, Repasse ou perguntar.
           </CardDescription>
         </div>
         <CardAction className="ml-0 flex-wrap sm:ml-auto">
@@ -577,7 +679,9 @@ export function RulesSection() {
             Regras são explícitas: só valem quando o lançamento atende exatamente às condições que você definiu. O sistema <strong className="font-semibold">não presume</strong> que todas as compras de um mesmo
             estabelecimento pertencem à mesma categoria (na farmácia, por exemplo, pode haver remédios e itens de higiene). Use valor e tipo para ser mais específico. Ao aplicar, apenas lançamentos ainda sem categoria
             são alterados. Regras de transferência (ex.: “Resgate CDB” com a conta CDB) fazem a importação e o WhatsApp registrarem a movimentação como transferência, sem contar como receita ou despesa. Regras de
-            desconsiderar (ex.: “facebk” só no cartão Nubank → repasse do cliente Alfa) tiram o valor das receitas, despesas e relatórios sem mudar o saldo nem a fatura.
+            desconsiderar (ex.: “facebk” só no cartão Nubank → repasse do cliente Alfa) tiram o valor das receitas, despesas e relatórios sem mudar o saldo nem a fatura. Regras de natureza
+            definem Pessoal ou Empresa (ex.: Pix para “Daniel da Silva” → Empresa) ou perguntam a cada lançamento (ex.: “facebk” no cartão Nubank a partir de R$ 100 → Perguntar); a natureza só muda os
+            relatórios.
           </span>
         </p>
         {rules.isLoading ? (
@@ -618,7 +722,18 @@ export function RulesSection() {
                     )}
                     {r.setExcludeFromReports && (
                       <Badge variant="outline" className="border-dashed border-muted-foreground/50 text-muted-foreground" title={EXCLUSION_KEEPS_BALANCE}>
-                        <EyeOff aria-hidden /> Desconsidera
+                        <EyeOff aria-hidden /> Repasse
+                      </Badge>
+                    )}
+                    {r.setScope === "BUSINESS" && <BusinessBadge title={`Define a natureza Empresa. ${NATURE_KEEPS_BALANCE}`} />}
+                    {r.setScope === "PERSONAL" && (
+                      <Badge variant="outline" title={`Define a natureza Pessoal. ${NATURE_KEEPS_BALANCE}`}>
+                        <User aria-hidden /> Pessoal
+                      </Badge>
+                    )}
+                    {r.askNature && (
+                      <Badge variant="warning" title="Pede para escolher a natureza (Pessoal, Empresa ou Repasse) de cada lançamento que atende à regra">
+                        <HelpCircle aria-hidden /> Pergunta a natureza
                       </Badge>
                     )}
                     {!r.active && <Badge variant="muted">Inativa</Badge>}
@@ -632,6 +747,10 @@ export function RulesSection() {
                       <ArrowLeftRight className="mt-0.5 size-3 shrink-0" aria-hidden />
                     ) : r.setExcludeFromReports ? (
                       <EyeOff className="mt-0.5 size-3 shrink-0" aria-hidden />
+                    ) : r.setScope ? (
+                      <Briefcase className="mt-0.5 size-3 shrink-0" aria-hidden />
+                    ) : r.askNature ? (
+                      <HelpCircle className="mt-0.5 size-3 shrink-0" aria-hidden />
                     ) : (
                       <ArrowRight className="mt-0.5 size-3 shrink-0" aria-hidden />
                     )}
@@ -667,8 +786,8 @@ export function RulesSection() {
                             <DropdownMenuItem onSelect={() => setApplyingTransfer(r)}>
                               <Play /> Aplicar a lançamentos anteriores…
                             </DropdownMenuItem>
-                          ) : r.setExcludeFromReports ? (
-                            <DropdownMenuItem onSelect={() => setApplyingExclusion(r)}>
+                          ) : r.setExcludeFromReports || r.setScope || r.askNature ? (
+                            <DropdownMenuItem onSelect={() => setApplyingNature(r)}>
                               <Play /> Aplicar a lançamentos anteriores…
                             </DropdownMenuItem>
                           ) : (
@@ -723,32 +842,50 @@ export function RulesSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AlertDialog open={Boolean(applyingExclusion)} onOpenChange={(o) => !o && !applyExclusion.isPending && setApplyingExclusion(null)}>
+      <AlertDialog open={Boolean(applyingNature)} onOpenChange={(o) => !o && !applyNature.isPending && setApplyingNature(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Desconsiderar lançamentos anteriores?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {applyingNature?.setExcludeFromReports
+                ? "Desconsiderar lançamentos anteriores?"
+                : applyingNature?.askNature
+                  ? "Pedir a natureza dos lançamentos anteriores?"
+                  : `Marcar lançamentos anteriores como ${applyingNature?.setScope === "BUSINESS" ? "Empresa" : "Pessoal"}?`}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-muted-foreground">
+                {applyingNature?.setExcludeFromReports ? (
+                  <p>
+                    As receitas e despesas já registradas que atendem à regra “{applyingNature?.name}” passam a ser desconsideradas nos relatórios como{" "}
+                    <strong className="text-foreground">
+                      {EXCLUSION_REASON_LABELS[applyingNature?.setExclusionReason ?? "CLIENT_PASSTHROUGH"].toLowerCase()}
+                      {applyingNature?.setExclusionParty ? ` (${applyingNature.setExclusionParty})` : ""}
+                    </strong>
+                    .
+                  </p>
+                ) : applyingNature?.askNature ? (
+                  <p>
+                    As receitas e despesas já registradas que atendem à regra “{applyingNature?.name}” e ainda estão como Pessoal ficam marcadas{" "}
+                    <strong className="text-foreground">“Escolher natureza”</strong>, com uma pendência para cada uma. Nada muda nos totais até você escolher.
+                  </p>
+                ) : (
+                  <p>
+                    As receitas e despesas já registradas que atendem à regra “{applyingNature?.name}” passam a ter a natureza{" "}
+                    <strong className="text-foreground">{applyingNature?.setScope === "BUSINESS" ? "Empresa" : "Pessoal"}</strong>. Repasses (desconsiderados) não são alterados.
+                  </p>
+                )}
                 <p>
-                  As receitas e despesas já registradas que atendem à regra “{applyingExclusion?.name}” passam a ser desconsideradas nos relatórios como{" "}
-                  <strong className="text-foreground">
-                    {EXCLUSION_REASON_LABELS[applyingExclusion?.setExclusionReason ?? "CLIENT_PASSTHROUGH"].toLowerCase()}
-                    {applyingExclusion?.setExclusionParty ? ` (${applyingExclusion.setExclusionParty})` : ""}
-                  </strong>
-                  .
-                </p>
-                <p>
-                  <strong className="font-medium text-foreground">{EXCLUSION_KEEPS_BALANCE}</strong> O valor só sai de receitas, despesas, categorias, orçamentos e relatórios. Dá para voltar a considerar
-                  cada lançamento depois.
-                  {applyingExclusion?.setCategoryId ? " Os que ainda não têm categoria também recebem a categoria da regra." : ""}
+                  <strong className="font-medium text-foreground">{applyingNature?.setExcludeFromReports ? EXCLUSION_KEEPS_BALANCE : NATURE_KEEPS_BALANCE}</strong> Dá para mudar cada lançamento depois.
+                  {applyingNature?.setCategoryId ? " Os que ainda não têm categoria também recebem a categoria da regra." : ""}
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={applyExclusion.isPending}>Cancelar</AlertDialogCancel>
-            <Button variant="brand" loading={applyExclusion.isPending} onClick={() => applyingExclusion && applyExclusion.mutate(applyingExclusion, { onSettled: () => setApplyingExclusion(null) })}>
-              <EyeOff /> Desconsiderar
+            <AlertDialogCancel disabled={applyNature.isPending}>Cancelar</AlertDialogCancel>
+            <Button variant="brand" loading={applyNature.isPending} onClick={() => applyingNature && applyNature.mutate(applyingNature, { onSettled: () => setApplyingNature(null) })}>
+              {applyingNature?.setExcludeFromReports ? <EyeOff /> : applyingNature?.askNature ? <HelpCircle /> : <Briefcase />}
+              {applyingNature?.setExcludeFromReports ? "Desconsiderar" : applyingNature?.askNature ? "Pedir a natureza" : `Marcar como ${applyingNature?.setScope === "BUSINESS" ? "Empresa" : "Pessoal"}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -758,8 +895,8 @@ export function RulesSection() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir a regra “{deleting?.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleting?.setExcludeFromReports
-                ? "Lançamentos já categorizados ou desconsiderados por ela continuam como estão. Novos lançamentos deixam de seguir esta regra."
+              {deleting?.setExcludeFromReports || deleting?.setScope || deleting?.askNature
+                ? "Lançamentos já categorizados ou com a natureza definida por ela continuam como estão. Novos lançamentos deixam de seguir esta regra."
                 : "Lançamentos já categorizados por ela não são alterados. Novos lançamentos deixam de ser categorizados por esta regra."}
             </AlertDialogDescription>
           </AlertDialogHeader>

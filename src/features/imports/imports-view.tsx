@@ -22,7 +22,7 @@ import { ReconciliationStep } from "./reconciliation-step";
 import { ImportHistory } from "./import-history";
 import { BulkImport } from "./bulk-import";
 import { clearBulkSession, isBulkUploading, useBulkSession } from "./bulk-store";
-import { bankLabel, isTabularFormat, isTransferWarning, needsMappingReview, statementKindLabel } from "./helpers";
+import { bankLabel, isNatureWarning, isTabularFormat, isTransferWarning, needsMappingReview, statementKindLabel } from "./helpers";
 import { useImportPreview } from "./use-imports";
 import type { ImportPreview } from "./types";
 
@@ -111,7 +111,7 @@ function PreviewFlow({ preview, onCommitted, onNewImport }: { preview: ImportPre
       <SingleStepper current={showMapping || mappingBroken ? "mapping" : "review"} hasMapping={tabular} />
       <div className="space-y-4">
         <BatchHeader preview={preview} />
-        <Warnings warnings={preview.batch.warnings.filter((w) => !isTransferWarning(w))} />
+        <Warnings warnings={preview.batch.warnings.filter((w) => !isTransferWarning(w) && !(preview.batch.status === "PREVIEW" && isNatureWarning(w)))} />
         {tabular && (
           <div>
             {!showMapping && !mappingBroken ? (

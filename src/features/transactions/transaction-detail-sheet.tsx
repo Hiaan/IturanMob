@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArchiveRestore, ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, EyeOff, FileText, ImageOff, Info, Mic, PencilLine, Trash2, Undo2 } from "lucide-react";
+import { ArchiveRestore, ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, EyeOff, FileText, HelpCircle, ImageOff, Info, Loader2, Mic, PencilLine, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,9 @@ import { describeExchange, isForeignCurrency, useAccountCurrencies } from "@/fea
 import { ReportExclusionDialog } from "./report-exclusion-dialog";
 import { EXCLUSION_REASON_LABELS, canExcludeFromReports, exclusionAuthorLine, sameParty, usePassthrough, useReportExclusion } from "./report-exclusion";
 import { PassthroughBalance, excludedListHref } from "./passthrough-card";
+import { NATURES, NATURE_HINTS, NATURE_KEEPS_BALANCE, NATURE_LABELS, hasNature, natureOf, useSetNature } from "./nature";
+import { NATURE_ICONS, NatureBadge, NatureReviewBadge, NatureSegmented } from "./nature-control";
+import type { TransactionNature } from "@/features/finance/types";
 
 const EDITABLE_TYPES = new Set(["EXPENSE", "INCOME", "TRANSFER"]);
 
@@ -179,11 +182,88 @@ function ExclusionPanel({
           <Button size="sm" variant="outline" onClick={onEdit} aria-label="Editar desconsideração">
             <PencilLine /> Editar
           </Button>
-          <Button size="sm" variant="outline" loading={undoing} onClick={onUndo}>
-            <Undo2 /> Voltar a considerar
+          <Button size="sm" variant="outline" loading={undoing} onClick={onUndo} title={`Volta a contar nos relatórios como ${tx.scope === "BUSINESS" ? "Empresa" : "Pessoal"}`}>
+            <Undo2 /> Voltar a considerar ({tx.scope === "BUSINESS" ? "Empresa" : "Pessoal"})
           </Button>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Natureza: Pessoal | Empresa | Repasse. Quando uma regra pediu para escolher, vira um aviso com as
+ * três opções em destaque. Repasse abre o diálogo de motivo/cliente/observação.
+ */
+function NaturePanel({
+  tx,
+  canWrite,
+  onPick,
+  pending,
+}: {
+  tx: TransactionDetail;
+  canWrite: boolean;
+  onPick: (n: TransactionNature) => void;
+  pending: TransactionNature | null;
+}) {
+  const nature = natureOf(tx);
+  if (tx.natureReview) {
+    return (
+      <section aria-labelledby="nature-review-title" className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
+        <div className="flex items-start gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warning/12 text-warning" aria-hidden>
+            <HelpCircle className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 id="nature-review-title" className="text-sm font-semibold">
+              Escolher natureza
+            </h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">Uma regra pediu para você confirmar: este lançamento é pessoal, da empresa ou um repasse de cliente?</p>
+          </div>
+        </div>
+        {canWrite ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-3" role="group" aria-label="Escolher natureza">
+            {NATURES.map((n) => {
+              const Icon = NATURE_ICONS[n];
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  disabled={Boolean(pending)}
+                  onClick={() => onPick(n)}
+                  className="flex min-w-0 items-start gap-2 rounded-lg border bg-card p-2.5 text-left text-sm outline-none transition hover:border-ring/50 hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-60"
+                >
+                  {pending === n ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" aria-hidden /> : <Icon className={cn("mt-0.5 size-4 shrink-0", n === "BUSINESS" ? "text-series-7" : "text-muted-foreground")} aria-hidden />}
+                  <span className="min-w-0">
+                    <span className="block font-medium">{n === "PASSTHROUGH" ? "Repasse…" : NATURE_LABELS[n]}</span>
+                    <span className="block text-[11px] leading-snug text-muted-foreground">
+                      {n === "PERSONAL" ? "Da família" : n === "BUSINESS" ? "Equipe, anúncios próprios, clientes" : "De cliente: fora dos relatórios"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">Por enquanto conta como Pessoal. Quem pode editar lançamentos escolhe a natureza.</p>
+        )}
+        <p className="mt-2.5 text-xs text-muted-foreground">{NATURE_KEEPS_BALANCE}</p>
+      </section>
+    );
+  }
+  return (
+    <section aria-labelledby="nature-title" className="space-y-2">
+      <h3 id="nature-title" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Natureza
+      </h3>
+      {canWrite ? (
+        <NatureSegmented value={nature} pending={pending} disabled={Boolean(pending)} onChange={onPick} label="Natureza do lançamento" />
+      ) : (
+        <p className="text-sm font-medium">{NATURE_LABELS[nature]}</p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {NATURE_HINTS[nature]} <span className="text-foreground/80">Saldo e fatura não mudam.</span>
+      </p>
     </section>
   );
 }
@@ -197,6 +277,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
   const canDelete = useCan("transactions:delete");
   const actions = useTransactionActions();
   const exclusion = useReportExclusion();
+  const setNature = useSetNature();
   const [exclusionOpen, setExclusionOpen] = useState(false);
   const currencies = useAccountCurrencies();
   const [editing, setEditing] = useState(false);
@@ -212,6 +293,14 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
   const deleted = Boolean(tx?.deletedAt);
   const editable = tx && EDITABLE_TYPES.has(tx.type) && !deleted && canWrite;
   const excludable = Boolean(tx && canExcludeFromReports(tx) && canWrite);
+  const withNature = Boolean(tx && hasNature(tx));
+  /** Pessoal/Empresa: grava na hora. Repasse: abre o diálogo (motivo, cliente, observação). */
+  const pickNature = (n: TransactionNature) => {
+    if (!tx) return;
+    if (n === "PASSTHROUGH") return setExclusionOpen(true);
+    if (n === natureOf(tx) && !tx.natureReview) return;
+    setNature.mutate({ transactionIds: [tx.id], nature: n });
+  };
   const currency = tx?.currency ?? "BRL";
   // Transferência entre moedas: valor que saiu (origem) e o creditado no destino.
   const crossTransfer = tx?.type === "TRANSFER" && tx.destinationAmountCents != null;
@@ -272,7 +361,9 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <AmountText tx={tx} className="text-2xl tracking-tight" secondary={false} />
                 {tx.status === "PENDING" && <PendingBadge />}
+                <NatureBadge tx={tx} />
                 <ExcludedBadge tx={tx} />
+                {tx.natureReview && !deleted && <NatureReviewBadge />}
                 {deleted && (
                   <Badge variant="negative">
                     <Trash2 aria-hidden /> Na lixeira
@@ -308,11 +399,6 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
                   <CheckCircle2 /> Confirmar
                 </Button>
               )}
-              {excludable && !tx.excludedFromReports && (
-                <Button size="sm" variant="outline" onClick={() => setExclusionOpen(true)} title="Repasse de cliente, reembolso…: o saldo da conta e a fatura do cartão não mudam">
-                  <EyeOff /> Desconsiderar nos relatórios
-                </Button>
-              )}
               {!deleted && canDelete && (
                 <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setConfirmDelete(true)}>
                   <Trash2 /> Excluir
@@ -336,6 +422,7 @@ export function TransactionDetailSheet({ id, onClose }: { id: string | null; onC
             </div>
 
             <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+              {withNature && <NaturePanel tx={tx} canWrite={excludable} onPick={pickNature} pending={setNature.isPending ? (setNature.variables?.nature ?? null) : null} />}
               {tx.excludedFromReports && (
                 <ExclusionPanel
                   tx={tx}

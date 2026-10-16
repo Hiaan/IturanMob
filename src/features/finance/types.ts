@@ -99,6 +99,12 @@ export interface MemberDTO {
   isMe: boolean;
 }
 
+/** Natureza do lançamento: só muda relatórios e análises (saldo, fatura e projeção nunca mudam). */
+export type TransactionNature = "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
+export type TransactionScope = "PERSONAL" | "BUSINESS";
+/** Recorte dos relatórios e análises (Repasse fica sempre de fora). */
+export type ReportScope = "PERSONAL" | "BUSINESS" | "ALL";
+
 /** Motivo de "Desconsiderar nos relatórios". */
 export type ExclusionReason = "CLIENT_PASSTHROUGH" | "REIMBURSEMENT" | "OTHER";
 
@@ -138,6 +144,12 @@ export interface TransactionDTO {
   updatedAt: string;
   deletedAt: string | null;
   goalId: string | null;
+  /** Pessoal (família) ou da empresa. Repasse é a marca de desconsiderado (`excludedFromReports`). */
+  scope: TransactionScope;
+  /** Natureza exibida: Pessoal, Empresa ou Repasse (= desconsiderado nos relatórios). */
+  nature: TransactionNature;
+  /** Uma regra pediu para escolher a natureza (há uma pendência "Escolher natureza" aberta). */
+  natureReview: boolean;
   /** Desconsiderado nos relatórios (repasse de cliente, reembolso…): saldo e fatura não mudam. */
   excludedFromReports: boolean;
   exclusion: TransactionExclusion | null;
