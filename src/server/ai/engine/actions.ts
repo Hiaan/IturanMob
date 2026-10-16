@@ -16,6 +16,10 @@ import { checkBudgetAlerts } from "../../modules/budgets/service";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { answerImportConfirmation } from "./statement-import";
+import { isInvestmentAccountType } from "../nlu/investment";
+import { createAccount } from "../../modules/accounts/service";
+import { can } from "../../auth/permissions";
+import { AppError } from "../../errors";
 import { findMentions, matchCategory, detectPaymentMethod, parseLocally } from "../nlu/local-parser";
 import { CONFIRM_HINT, createdLine, kindVerb, missingQuestion, relativeDate } from "./replies";
 import { closeClarification, findOpenClarification, openClarification } from "./clarifications";
@@ -190,7 +194,13 @@ async function askFollowUps(ctx: ServiceContext, hc: HouseholdContext, opts: Exe
 }
 
 function listNames(hc: HouseholdContext) {
-  return { cards: hc.cards.map((c) => c.name), accounts: hc.accounts.map((a) => a.name), goals: hc.goals.map((g) => g.name) };
+  return {
+    cards: hc.cards.map((c) => c.name),
+    accounts: hc.accounts.map((a) => a.name),
+    goals: hc.goals.map((g) => g.name),
+    investmentAccounts: hc.accounts.filter((a) => isInvestmentAccountType(a.type)).map((a) => a.name),
+    cashAccounts: hc.accounts.filter((a) => !isInvestmentAccountType(a.type)).map((a) => a.name),
+  };
 }
 
 async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: HouseholdContext, opts: ExecuteOptions, forceStatus?: "CONFIRMED" | "PENDING"): Promise<ActionOutcome> {
@@ -215,7 +225,10 @@ async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: H
   const notes = created.filter((c) => !c.transactionId && c.note && c.draft.kind !== "GOAL_CONTRIBUTION");
 
   if (confirmed.length) {
-    const lines = confirmed.map((c) => `${createdLine(c.draft, hc.today)}${c.billLinked ? `\nConta prevista “${c.billLinked}” marcada como paga.` : ""}${c.note ? `\n(${c.note})` : ""}`);
+    const lines = confirmed.map(
+      (c) =>
+        `${createdLine(c.draft, hc.today)}${c.billLinked ? `\nConta prevista “${c.billLinked}” marcada como paga.` : ""}${c.note ? `\n(${c.note})` : ""}${c.draft.investment && c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`,
+    );
     replies.push(`✅ ${confirmed.length > 1 ? `${confirmed.length} lançamentos registrados` : kindVerb(confirmed[0]!.draft.kind)}:\n${lines.join("\n\n")}`);
   }
   if (pending.length) {
@@ -617,12 +630,68 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
     }
     if (d.missing.some((x) => x.startsWith("conta"))) {
       const accs = findMentions(norm, hc.accounts);
-      if (accs.length >= 2) {
+      const invMissing = d.missing.some((x) => x.startsWith("conta de investimento"));
+      const create = d.investment && invMissing ? /^\s*criar\s+(?:a\s+|uma\s+)?(?:conta\s+)?(?:de\s+investimento\s+)?(.{2,60}?)\s*$/i.exec(opts.text) : null;
+      // Lado de cada conta: na aplicação a origem é a conta de movimento; no resgate, a de investimento.
+      const setSide = (side: "investment" | "cash", acc: { id: string; name: string }) => {
+        const asSource = d.investment ? (d.investment === "IN") === (side === "cash") : side === "cash";
+        if (asSource) {
+          d.accountId = acc.id;
+          d.labels = { ...d.labels, account: acc.name };
+        } else {
+          d.destinationAccountId = acc.id;
+          d.labels = { ...d.labels, destinationAccount: acc.name };
+        }
+      };
+      if (create) {
+        if (!can(ctx.role, "accounts:write")) {
+          return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: ["Seu perfil não pode criar contas. Peça a um administrador para cadastrar a conta de investimento em Contas."], transactionIds: [] };
+        }
+        const name = create[1]!.replace(/[*_"“”]/g, "").trim();
+        try {
+          const acc = await createAccount(ctx, { name, institution: null, type: /poupan/i.test(name) ? "SAVINGS" : "INVESTMENT", initialBalanceCents: 0, initialBalanceDate: hc.today });
+          hc.accounts.push({ id: acc.id, name: acc.name, institution: null, type: acc.type, aliases: [normalizeForNlu(acc.name)] });
+          setSide("investment", acc);
+          d.missing = d.missing.filter((x) => !x.startsWith("conta de investimento"));
+          d.warnings = [...d.warnings, `Conta *${acc.name}* criada (saldo inicial R$ 0,00 — ajuste em Contas se já havia dinheiro nela).`];
+          filled = true;
+        } catch (err) {
+          if (!(err instanceof AppError)) throw err;
+          return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [`Não consegui criar a conta: ${err.message}`], transactionIds: [] };
+        }
+      } else if (accs.length >= 2 && !d.investment) {
         d.accountId = accs[0]!.id;
         d.destinationAccountId = accs[1]!.id;
         d.labels = { ...d.labels, account: hc.accounts.find((a) => a.id === accs[0]!.id)!.name, destinationAccount: hc.accounts.find((a) => a.id === accs[1]!.id)!.name };
         d.missing = d.missing.filter((x) => !x.startsWith("conta"));
         filled = true;
+      } else if (accs.length) {
+        for (const m of accs.slice(0, 2)) {
+          const acc = hc.accounts.find((a) => a.id === m.id)!;
+          if (d.investment) {
+            const side = isInvestmentAccountType(acc.type) ? "investment" : "cash";
+            const label = side === "investment" ? "conta de investimento" : d.investment === "IN" ? "conta de origem" : "conta de destino";
+            if (!d.missing.some((x) => x.startsWith(label))) continue;
+            setSide(side, acc);
+            d.missing = d.missing.filter((x) => !x.startsWith(label));
+            filled = true;
+          } else if (d.missing.includes("conta de destino") && !d.missing.includes("conta de origem") && acc.id !== d.accountId) {
+            d.destinationAccountId = acc.id;
+            d.labels = { ...d.labels, destinationAccount: acc.name };
+            d.missing = d.missing.filter((x) => x !== "conta de destino" && x !== "contas diferentes");
+            filled = true;
+          } else if (d.missing.includes("conta de origem") && !d.missing.includes("conta de destino") && acc.id !== d.destinationAccountId) {
+            d.accountId = acc.id;
+            d.labels = { ...d.labels, account: acc.name };
+            d.missing = d.missing.filter((x) => x !== "conta de origem" && x !== "contas diferentes");
+            filled = true;
+          }
+        }
+      }
+      if (filled && d.missing.some((x) => x.startsWith("conta"))) {
+        // Ainda falta o outro lado: pergunta de novo, já com o que foi preenchido.
+        await prisma.clarification.update({ where: { id: open.id }, data: { payload: { ...payload, drafts: [d, ...drafts.slice(1)] } as unknown as Prisma.InputJsonValue } });
+        return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [missingQuestion(d, listNames(hc))], transactionIds: [] };
       }
     }
     if (d.missing.some((x) => x.startsWith("meta"))) {

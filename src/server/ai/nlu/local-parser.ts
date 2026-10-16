@@ -1,6 +1,7 @@
 import { extractAmounts, extractInstallments, type AmountMention } from "./numbers";
 import { extractDate } from "./dates";
 import { normalizeForNlu, sanitizeUntrusted } from "./text";
+import { detectInvestmentMessage, isInvestmentAccountType } from "./investment";
 import type { HouseholdContext } from "../engine/context";
 import type { DraftKind, Intent, PaymentMethodValue, RawCorrection, RawDeletion, RawDraft, RawInterpretation } from "../engine/schemas";
 
@@ -232,6 +233,8 @@ export function detectIntent(norm: string, amounts: AmountMention[]): Intent {
 
 function detectKind(norm: string, hc: HouseholdContext): DraftKind {
   if (RE.cardPayment.test(norm) && RE.cardPaymentVerb.test(norm)) return "CARD_PAYMENT";
+  // Aplicação/resgate é transferência para/da conta de investimento (a menos que cite uma meta).
+  if (detectInvestmentMessage(norm) && !findMentions(norm, hc.goals).length) return "TRANSFER";
   if (RE.goal.test(norm)) return "GOAL_CONTRIBUTION";
   if (RE.transfer.test(norm)) {
     const accounts = findMentions(norm, hc.accounts);
@@ -319,7 +322,16 @@ function draftFromSegment(seg: Segment, full: { original: string; norm: string }
     const accs = findMentions(full.norm, hc.accounts).filter((a) => ["do", "da", "de"].includes(a.before));
     sourceAccountHint = accs[0] ? hc.accounts.find((a) => a.id === accs[0]!.id)!.name : null;
   }
-  if (kind === "TRANSFER") {
+  const investment = kind === "TRANSFER" ? detectInvestmentMessage(full.norm) : null;
+  if (kind === "TRANSFER" && investment) {
+    const mentioned = findMentions(full.norm, hc.accounts).map((m) => hc.accounts.find((a) => a.id === m.id)!);
+    const inv = mentioned.find((a) => isInvestmentAccountType(a.type)) ?? null;
+    const cash = mentioned.find((a) => !isInvestmentAccountType(a.type)) ?? null;
+    sourceAccountHint = (investment === "IN" ? cash : inv)?.name ?? null;
+    destinationAccountHint = (investment === "IN" ? inv : cash)?.name ?? null;
+    description = investment === "IN" ? `Aplicação${inv ? ` em ${inv.name}` : ""}` : `Resgate${inv ? ` de ${inv.name}` : ""}`;
+    method = method && method !== "CREDIT_CARD" ? method : /\bpix\b/.test(full.norm) ? "PIX" : "BANK_TRANSFER";
+  } else if (kind === "TRANSFER") {
     const accs = findMentions(full.norm, hc.accounts);
     const from = accs.find((a) => ["do", "da", "de"].includes(a.before)) ?? (accs.length >= 2 ? accs[0] : undefined);
     const to = accs.find((a) => ["para", "pra", "pro", "p", "no", "na"].includes(a.before) && a.id !== from?.id) ?? (accs.length >= 2 ? accs.find((a) => a.id !== from?.id) : undefined);
@@ -359,6 +371,7 @@ function draftFromSegment(seg: Segment, full: { original: string; norm: string }
     goalHint,
     confidence: Math.min(...confidenceParts),
     segment: seg.original,
+    investment,
   };
 }
 

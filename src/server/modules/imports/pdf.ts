@@ -62,6 +62,8 @@ export interface PdfRow {
 export interface PdfStatement {
   kind: PdfStatementKind;
   bank: string | null;
+  /** Banco achado no cabeçalho/rodapé das páginas (não só em descrições de lançamentos). */
+  bankConfident: boolean;
   rows: PdfRow[];
   startDate: ISODate | null;
   endDate: ISODate | null;
@@ -260,6 +262,34 @@ export function detectBank(norm: string): string | null {
   return BANKS.find((b) => b.re.test(norm))?.name ?? null;
 }
 
+/**
+ * Banco do documento pelo "quadro" das páginas (primeiras e últimas linhas: cabeçalho, agência/conta,
+ * rodapé com app e atendimento). Descrições de lançamentos citam outros bancos ("Pix para NU
+ * PAGAMENTOS"), então o corpo só decide quando o quadro não cita nenhum — e aí sem confiança.
+ */
+/** Linhas de identificação/rodapé (app, atendimento, ouvidoria, CNPJ): nunca são lançamento nem continuação. */
+const IDENTITY = /\b(app|aplicativo|atendimento|sac|ouvidoria|central de|agencia|cnpj|instituicao|www|com br|extrato|fatura|pagina)\b/;
+
+export function detectBankFromLines(lines: PdfLine[]): { bank: string | null; confident: boolean } {
+  const byPage = new Map<number, PdfLine[]>();
+  for (const l of lines) byPage.set(l.page, [...(byPage.get(l.page) ?? []), l]);
+  const scores = new Map<string, number>();
+  for (const pageLines of byPage.values()) {
+    pageLines.forEach((l, i) => {
+      // Só o quadro da página e só linhas sem valor: lançamentos citam outros bancos.
+      if (!(i < 8 || i >= pageLines.length - 4) || findAmounts(l.text).length) return;
+      const n = normalizePdfText(l.text);
+      const weight = IDENTITY.test(n.replace(/\./g, " ")) ? 5 : 1;
+      for (const b of BANKS) if (b.re.test(n)) scores.set(b.name, (scores.get(b.name) ?? 0) + weight);
+    });
+  }
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  const [top, second] = ranked;
+  if (top && (!second || top[1] >= second[1] * 2)) return { bank: top[0], confident: true };
+  const body = detectBank(normalizePdfText(lines.map((l) => l.text).join("\n")));
+  return { bank: top?.[0] ?? body, confident: false };
+}
+
 /** O nome/instituição de uma conta ou cartão do app (texto normalizado) corresponde ao banco identificado no PDF. */
 export function bankMatches(bank: string, norm: string): boolean {
   const entry = BANKS.find((b) => b.name === bank);
@@ -281,6 +311,8 @@ export function detectKind(norm: string): PdfStatementKind {
 /** Linhas informativas: saldos, totais, limites, resumos e cabeçalhos. */
 const SKIP_LINE =
   /\b(saldo|total|subtotal|limite|valor da fatura|pagamento minimo|valor minimo|encargos previstos|proxima fatura|proximas faturas|melhor dia|resumo|cotacao|taxa de juros|cet\b|custo efetivo|lancamentos futuros|demais faturas|fatura anterior|vencimento|fechamento)\b/;
+/** Resumo do mês/período: "Outubro 2026 ( 01/10/2026 - 15/10/2026 ) Entradas: R$ … • Saídas: R$ …". */
+const SUMMARY_LINE = /\b(entradas|saidas|creditos|debitos)\s*:\s*(r\$|[+-]?\s*\d)|\(\s*\d{1,2}\/\d{1,2}\/\d{4}\s*(-|a|ate)\s*\d{1,2}\/\d{1,2}\/\d{4}\s*\)/;
 const SECTION_IN = /^(total de )?(entradas|creditos|depositos|recebimentos)\b/;
 const SECTION_OUT = /^(total de )?(saidas|debitos|pagamentos e saidas|gastos)\b/;
 const INCOME_WORDS = /\b(recebid[oa]s?|recebimento|credito em conta|deposito|salario|estorno|rendimento|resgate|reembolso|devolucao|transferencia recebida|ted recebida|doc recebido|pix recebido|cashback)\b/;
@@ -333,6 +365,8 @@ function cleanDescription(text: string, amounts: AmountHit[]): string {
   for (const a of [...amounts].sort((x, y) => y.index - x.index)) s = s.slice(0, a.index) + " " + s.slice(a.end);
   const d = LEADING_DATE.exec(s);
   if (d && d.index === 0) s = s.slice(0, d.index + d[0].length - d[1]!.length) + " " + s.slice(d.index + d[0].length);
+  // Segunda data logo em seguida (data contábil, como no C6: "09/09 09/09 Entradas …").
+  s = s.replace(/^\s*\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?(?![\d/])\s+/, " ");
   return s
     .replace(/\bU?S\$\s*\d[\d.,]*/gi, " ")
     .replace(/\bR\$\s*/gi, " ")
@@ -348,7 +382,19 @@ function cleanDescription(text: string, amounts: AmountHit[]): string {
 export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pages?: number }): PdfStatement {
   const fullText = normalizePdfText(lines.map((l) => l.text).join("\n"));
   const kind = detectKind(fullText);
-  const bank = detectBank(fullText);
+  const { bank, confident: bankConfident } = detectBankFromLines(lines);
+  // Extrato que marca as saídas com sinal ("-R$ 8,00", "-245,90"): valor sem sinal é entrada.
+  let datedWithAmount = 0;
+  let explicitNegative = 0;
+  for (const l of lines) {
+    const n = normalizePdfText(l.text);
+    if (!dateAtStart(n) || SUMMARY_LINE.test(n) || SKIP_LINE.test(n)) continue;
+    const first = findAmounts(l.text)[0];
+    if (!first) continue;
+    datedWithAmount++;
+    if (first.sign === -1 && first.marker === null) explicitNegative++;
+  }
+  const unsignedIsCredit = kind !== "CREDIT_CARD" && explicitNegative >= 2 && explicitNegative / Math.max(1, datedWithAmount) >= 0.15;
   const warnings: string[] = [];
   const docDates = fullDates(fullText).sort();
   const reference = docDates.length ? docDates[docDates.length - 1]! : opts.today;
@@ -377,6 +423,10 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
       last = null;
       continue;
     }
+    if (SUMMARY_LINE.test(norm)) {
+      last = null;
+      continue;
+    }
     if (SECTION_IN.test(norm)) section = 1;
     else if (SECTION_OUT.test(norm)) section = -1;
 
@@ -399,7 +449,8 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
     }
     if (!amounts.length) {
       // Continuação da descrição da linha anterior (nome do favorecido, cidade etc.).
-      if (last && last.page === line.page && last.appended < 2 && !date && norm.length <= 80 && last.row.description.length < 90) {
+      const footer = IDENTITY.test(norm.replace(/\./g, " "));
+      if (last && last.page === line.page && last.appended < 2 && !date && !footer && norm.length <= 80 && last.row.description.length < 90) {
         last.row.description = `${last.row.description} ${line.text.replace(/\s{2,}/g, " ")}`.trim().slice(0, 140);
         last.appended++;
       }
@@ -437,6 +488,8 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
       sign = looksLikeCardCredit(description) ? -1 : 1;
     } else if (section !== 0) {
       sign = section;
+    } else if (unsignedIsCredit) {
+      sign = 1;
     } else {
       sign = INCOME_WORDS.test(normalizePdfText(description)) ? 1 : -1;
       wasInferred = true;
@@ -453,6 +506,7 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
   return {
     kind,
     bank,
+    bankConfident,
     rows,
     startDate: period?.start ?? dates[0] ?? null,
     endDate: period?.end ?? dates[dates.length - 1] ?? null,

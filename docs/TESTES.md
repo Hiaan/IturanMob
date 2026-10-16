@@ -49,7 +49,7 @@ validação, resolução de referências, serviços e banco.
 | 11 | Compra parcelada | `ledger.test.ts` › "compra parcelada gera faturas futuras…", "alterar o número de parcelas recalcula as faturas" · `billing.test.ts` |
 | 12 | Gerar faturas futuras | `ledger.test.ts` (idem) · `billing.test.ts` |
 | 13 | Pagar fatura sem duplicar despesas | `ledger.test.ts` › "…o pagamento da fatura não duplica despesa" · `reports.test.ts` › "…sem dupla contagem do pagamento de fatura" |
-| 14 | Transferir entre contas | `ledger.test.ts` › "transferência entre contas não é receita nem despesa" · `goals.test.ts` › "contribuição com transferência…" |
+| 14 | Transferir entre contas | `ledger.test.ts` › "transferência entre contas não é receita nem despesa" · `goals.test.ts` › "contribuição com transferência…" · `transfers-investments.test.ts` (aplicação/resgate na importação, regra aprendida, conversão do que já foi importado sem duplicar) · `whatsapp-investments.test.ts` · `own-moves.test.ts` |
 | 15 | Criar e acompanhar metas | `goals.test.ts` (6 testes) |
 | 16 | Processar despesas recorrentes | `recurring.test.ts` (7 testes) · `recurring-schedule.test.ts` · `bills.test.ts` |
 | 17 | Recalcular saldos | `ledger.test.ts` › "recalcula saldos e verifica integridade" · e2e `finance-flow.spec.ts` (saldo após lançamentos) |

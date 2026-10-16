@@ -87,7 +87,7 @@ describe("Importação de PDF e importação em massa", () => {
       ["2026-10-10", -123456, "CARD_PAYMENT"],
     ]);
     expect(preview.rows[0]!.cells).toMatchObject({ Página: "1" });
-    expect(preview.batch.warnings.join(" ")).toContain("deduzida pela descrição");
+    expect(preview.batch.warnings.join(" ")).not.toContain("deduzida");
 
     const done = await commitImport(fam.ctx, preview.batch.id);
     expect(done.result).toMatchObject({ created: 4, duplicatesAtCommit: 0 });

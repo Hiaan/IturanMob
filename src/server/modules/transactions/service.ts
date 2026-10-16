@@ -226,7 +226,8 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
 
 async function applyRules(db: Db, ctx: ServiceContext, data: Normalized, merchantName: string | null | undefined): Promise<string | null> {
   if (data.categoryId || (data.type !== "EXPENSE" && data.type !== "INCOME")) return null;
-  const rules = await db.financialRule.findMany({ where: { householdId: ctx.householdId, active: true } });
+  // Regras de transferência (aplicação/resgate) não mexem em categoria.
+  const rules = await db.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setTransferAccountId: null } });
   if (!rules.length) return null;
   const rule = findMatchingRule(rules, { description: data.description, merchant: merchantName ?? null, amountCents: data.amountCents, type: data.type });
   if (!rule) return null;

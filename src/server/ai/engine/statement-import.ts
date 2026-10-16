@@ -101,7 +101,8 @@ export async function processPdfStatement(
 
   const fresh = rows.filter((r) => r.selected && r.status === "NEW");
   const cardPayments = fresh.filter((r) => r.kind === "CARD_PAYMENT");
-  const regular = fresh.filter((r) => r.kind !== "CARD_PAYMENT");
+  const transfers = fresh.filter((r) => r.kind === "TRANSFER");
+  const regular = fresh.filter((r) => r.kind !== "CARD_PAYMENT" && r.kind !== "TRANSFER");
   const inflow = regular.filter((r) => (r.amountCents ?? 0) > 0).reduce((s, r) => s + (r.amountCents ?? 0), 0);
   const outflow = regular.filter((r) => (r.amountCents ?? 0) < 0).reduce((s, r) => s - (r.amountCents ?? 0), 0);
   if (regular.length) {
@@ -109,8 +110,11 @@ export async function processPdfStatement(
     lines.push(`• ${regular.length} lançamento(s) novo(s): ${money}`);
   }
   if (cardPayments.length) lines.push(`• ${cardPayments.length} pagamento(s) de fatura de cartão (não contam como despesa)`);
-  const unselected = rows.filter((r) => !r.selected && r.status === "NEW").length;
+  if (transfers.length) lines.push(`• ${transfers.length} aplicação(ões)/resgate(s) ou transferência(s) entre contas próprias (não contam como receita nem despesa)`);
+  const unresolvedTransfers = rows.filter((r) => !r.selected && r.status === "NEW" && r.kind === "TRANSFER" && !r.transfer?.accountId).length;
+  const unselected = rows.filter((r) => !r.selected && r.status === "NEW").length - unresolvedTransfers;
   if (unselected) lines.push(`• ${unselected} lançamento(s) não marcado(s) para importar (ex.: parcela de compra antiga) — revise no site se quiser incluir`);
+  if (unresolvedTransfers) lines.push(`• ${unresolvedTransfers} aplicação(ões)/resgate(s) sem a conta de investimento definida — escolha a conta no site para incluir`);
   if (counts.MATCHED) lines.push(`• ${counts.MATCHED} já registrado(s) no app (serão conciliados)`);
   if (counts.DIVERGENT) lines.push(`• ${counts.DIVERGENT} com valor diferente do app (viram pendência para conferir)`);
   if (counts.DUPLICATE) lines.push(`• ${counts.DUPLICATE} repetido(s) de importações anteriores (ignorados)`);

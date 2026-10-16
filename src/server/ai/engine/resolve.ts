@@ -3,6 +3,7 @@ import type { PaymentMethodValue, RawDraft, DraftKind } from "./schemas";
 import { normalizeForNlu } from "../nlu/text";
 import { amountMentioned, extractAmounts } from "../nlu/numbers";
 import { findMentions, matchCategory } from "../nlu/local-parser";
+import { detectInvestmentMessage, isInvestmentAccountType } from "../nlu/investment";
 import { findMatchingRule } from "../../modules/rules/matcher";
 import { isISODate, addDays } from "@/lib/dates";
 import { MAX_AMOUNT_CENTS } from "@/lib/money";
@@ -44,6 +45,8 @@ export interface ResolvedDraft {
   };
   /** Regra explícita do usuário aplicada. */
   ruleId: string | null;
+  /** Aplicação (IN) ou resgate (OUT) de investimento. */
+  investment: "IN" | "OUT" | null;
 }
 
 function matchByName<T extends { id: string; name: string; aliases?: string[] }>(hint: string | null | undefined, list: T[]): T | null {
@@ -123,6 +126,14 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   const warnings: string[] = [];
   let confidence = Math.max(0, Math.min(1, raw.confidence));
 
+  // Aplicação/resgate classificado como receita/despesa (ex.: pelo modelo externo): é transferência.
+  const investment =
+    raw.investment ??
+    (raw.kind === "INCOME" || raw.kind === "EXPENSE" || raw.kind === "TRANSFER" ? detectInvestmentMessage(normalizeForNlu(raw.segment || raw.description)) : null);
+  if (investment && raw.kind !== "TRANSFER") {
+    raw = { ...raw, kind: "TRANSFER", investment, categoryHint: null, cardHint: null, installments: null, description: investment === "IN" ? "Aplicação" : "Resgate" };
+  }
+
   // --- Valor
   let amountCents = raw.amountCents;
   if (amountCents !== null) {
@@ -152,7 +163,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
 
   // --- Contas e cartões
   let account = matchByName(raw.accountHint, hc.accounts);
-  const destination = matchByName(raw.destinationAccountHint, hc.accounts);
+  let destination = matchByName(raw.destinationAccountHint, hc.accounts);
   let card = matchByName(raw.cardHint, hc.cards);
   if (raw.accountHint && !account) {
     warnings.push(`Conta "${raw.accountHint}" não encontrada.`);
@@ -193,7 +204,10 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   let ruleId: string | null = null;
   if (raw.kind === "EXPENSE" || raw.kind === "INCOME") {
     const kind = raw.kind === "INCOME" ? "INCOME" : "EXPENSE";
-    const rule = findMatchingRule(hc.rules, { description: raw.description, merchant: raw.merchant, amountCents: amountCents ?? 0, type: raw.kind });
+    const rule = findMatchingRule(
+      hc.rules.filter((r) => !r.setTransferAccountId),
+      { description: raw.description, merchant: raw.merchant, amountCents: amountCents ?? 0, type: raw.kind },
+    );
     if (rule?.setCategoryId) {
       const cat = hc.categories.find((c) => c.id === rule.setCategoryId && c.kind === kind);
       if (cat) {
@@ -231,7 +245,38 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   // --- Metas, transferências e faturas
   const goal = matchByName(raw.goalHint, hc.goals);
   if (raw.kind === "GOAL_CONTRIBUTION" && !goal) missing.push(hc.goals.length ? "meta" : "meta (nenhuma meta cadastrada)");
-  if (raw.kind === "TRANSFER") {
+  if (raw.kind === "TRANSFER" && investment) {
+    // Lado do investimento × lado da conta de movimento, pelo tipo da conta (corrige a ordem trocada).
+    const named = [account, destination].filter(Boolean) as typeof hc.accounts;
+    let inv = named.find((a) => isInvestmentAccountType(a.type)) ?? null;
+    let cash = named.find((a) => !isInvestmentAccountType(a.type)) ?? null;
+    const text = normalizeForNlu(`${raw.segment} ${raw.description}`);
+    if (!inv) {
+      let options = hc.accounts.filter((a) => isInvestmentAccountType(a.type));
+      if (/\bpoupanca\b/.test(text) && options.some((a) => a.type === "SAVINGS")) options = options.filter((a) => a.type === "SAVINGS");
+      else if (options.some((a) => a.type === "INVESTMENT") && !/\bpoupanca\b/.test(text)) options = options.filter((a) => a.type === "INVESTMENT");
+      if (options.length === 1) {
+        inv = options[0]!;
+        warnings.push(`Conta de investimento considerada: ${inv.name}.`);
+      }
+    }
+    if (!cash) {
+      let options = hc.accounts.filter((a) => !isInvestmentAccountType(a.type) && a.type !== "WALLET");
+      if (options.length > 1 && inv?.institution) {
+        const same = options.filter((a) => a.institution && normalizeForNlu(a.institution) === normalizeForNlu(inv!.institution!));
+        if (same.length === 1) options = same;
+      }
+      if (options.length === 1) {
+        cash = options[0]!;
+        warnings.push(`Conta considerada: ${cash.name}.`);
+      }
+    }
+    account = investment === "IN" ? cash : inv;
+    destination = investment === "IN" ? inv : cash;
+    if (inv && /^(aplicacao|resgate)$/.test(normalizeForNlu(raw.description))) raw = { ...raw, description: investment === "IN" ? `Aplicação em ${inv.name}` : `Resgate de ${inv.name}` };
+    if (!inv) missing.push(hc.accounts.some((a) => isInvestmentAccountType(a.type)) ? "conta de investimento" : "conta de investimento (nenhuma cadastrada)");
+    if (!cash) missing.push(investment === "IN" ? "conta de origem" : "conta de destino");
+  } else if (raw.kind === "TRANSFER") {
     if (!account) missing.push("conta de origem");
     if (!destination) missing.push("conta de destino");
     if (account && destination && account.id === destination.id) missing.push("contas diferentes");
@@ -276,6 +321,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
       goal: goal?.name ?? null,
     },
     ruleId,
+    investment: raw.kind === "TRANSFER" ? investment : null,
   };
   resolved.decision = decide(resolved.confidence, missing, hc, resolved.amountCents);
   if (resolved.decision === "CONFIRM" && (resolved.amountCents ?? 0) >= LARGE_AMOUNT_CENTS) warnings.push("Valor alto: confirme antes de registrar.");

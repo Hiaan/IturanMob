@@ -12,6 +12,7 @@ import { addDays, dateToISO, formatDateBR, instantToISO, isoToDate, todayISO } f
 import { formatBRL, MAX_AMOUNT_CENTS } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
 import { audit } from "../audit/service";
+import { createRule } from "../categories/service";
 import { createPendingItem, resolvePendingWhere } from "../pending/service";
 import { createTransaction, deleteTransaction, updateTransaction } from "../transactions/service";
 import { getVisibilityScope, visibleAccountWhere, visibleCardWhere, visibleTransactionWhere } from "../visibility/scope";
@@ -20,6 +21,7 @@ import { isOfx, ofxDescription, parseOfx, type OfxStatement } from "./ofx";
 import { parseXlsx } from "./xlsx";
 import { bankMatches, type PdfRow, type PdfStatementKind } from "./pdf";
 import { readPdfForImport } from "./pdf-import";
+import { resolveOwnMove, similarityKey, type AccountLite, type OwnMoveKind } from "../transfers/own-moves";
 import { applyMapping, columnMappingSchema, detectMapping, mappingProblems } from "./mapping";
 import { descriptionSimilarity, detectInstallment, importRowFingerprint, looksLikeCardBillPayment, looksLikeCardCredit } from "./matching";
 import type { ColumnMapping, ImportFileFormat, ParsedImportRow, ParsedTable } from "./types";
@@ -90,7 +92,7 @@ export type ImportMappingUpdate = z.input<typeof importMappingUpdateSchema>;
 // Tipos internos
 // -----------------------------------------------------------------------------
 
-type RowKind = "EXPENSE" | "INCOME" | "CARD_PAYMENT";
+type RowKind = "EXPENSE" | "INCOME" | "CARD_PAYMENT" | "TRANSFER";
 
 interface ImportScope {
   accountId: string | null;
@@ -121,6 +123,13 @@ interface ReconciledFill {
   previousPaymentMethod: PaymentMethod | null;
 }
 
+/** Lançamento existente (receita/despesa) convertido em transferência na confirmação. */
+interface ConvertedTransfer {
+  rowId: string;
+  transactionId: string;
+  before: { type: "EXPENSE" | "INCOME"; accountId: string | null; destinationAccountId: string | null; categoryId: string | null; subcategoryId: string | null; paymentMethod: PaymentMethod | null };
+}
+
 /** Metadados do lote (armazenados em ImportBatch.mapping). */
 export interface ImportBatchMeta {
   version: 1;
@@ -148,6 +157,7 @@ export interface ImportBatchMeta {
     divergent: number;
     errors: number;
     reconciledFills: ReconciledFill[];
+    convertedTransfers?: ConvertedTransfer[];
   };
 }
 
@@ -160,6 +170,12 @@ interface RowRawData {
   memo?: string | null;
   installment?: { number: number; total: number } | null;
   suggestedPaymentMethod?: PaymentMethod | null;
+  /** TRANSFER: conta do outro lado (saída da linha → destino; entrada → origem). */
+  transferAccountId?: string | null;
+  /** Por que virou transferência: investimento, contas próprias, regra aprendida ou escolha manual. */
+  transferReason?: OwnMoveKind | "RULE" | "MANUAL" | null;
+  /** EXPENSE/INCOME quando a pessoa desfaz a transferência na prévia. */
+  originalKind?: RowKind | null;
 }
 
 interface PreparedRow {
@@ -298,6 +314,58 @@ async function loadBatch(ctx: ServiceContext, batchId: string) {
   return batch;
 }
 
+const TRANSFER_WHY: Record<string, string> = {
+  INVESTMENT: "aplicação/resgate de investimento",
+  OWN_ACCOUNTS: "transferência entre contas próprias",
+  RULE: "regra aprendida",
+  MANUAL: "marcado por você",
+};
+
+function transferMessage(raw: RowRawData, amountCents: number, accountName: string): string {
+  const outflow = amountCents < 0;
+  return `Transferência ${outflow ? "para" : "vinda de"} ${accountName} (${TRANSFER_WHY[raw.transferReason ?? "MANUAL"] ?? "transferência"}): não conta como receita nem despesa.`;
+}
+
+/** Mensagens das linhas de transferência e linhas sem a conta do outro lado (ficam desmarcadas). */
+async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[]) {
+  const transfers = rows.filter((r) => r.raw.kind === "TRANSFER" && r.amountCents);
+  if (!transfers.length) return;
+  const ids = [...new Set(transfers.map((r) => r.raw.transferAccountId).filter(Boolean) as string[])];
+  const matchedIds = transfers.filter((r) => r.matchedTransactionId).map((r) => r.matchedTransactionId!);
+  const [accounts, matched, investmentAccounts] = await Promise.all([
+    prisma.account.findMany({ where: { id: { in: ids }, householdId: ctx.householdId }, select: { id: true, name: true } }),
+    matchedIds.length ? prisma.transaction.findMany({ where: { id: { in: matchedIds } }, select: { id: true, type: true } }) : Promise.resolve([]),
+    prisma.account.count({ where: { ...visibleAccountWhere(ctx), archivedAt: null, type: { in: ["INVESTMENT", "SAVINGS"] } } }),
+  ]);
+  const names = new Map(accounts.map((a) => [a.id, a.name]));
+  const matchedType = new Map(matched.map((t) => [t.id, t.type]));
+  let unresolved = 0;
+  for (const r of transfers) {
+    const name = r.raw.transferAccountId ? names.get(r.raw.transferAccountId) : undefined;
+    if (r.status === "NEW") {
+      if (!name) {
+        unresolved++;
+        r.selected = false;
+        r.message = "Parece aplicação/resgate de investimento ou transferência entre contas próprias: escolha a conta do outro lado (ou crie uma conta de investimento) para importar como transferência.";
+      } else {
+        r.message = transferMessage(r.raw, r.amountCents!, name);
+      }
+    } else if (r.status === "MATCHED" && name) {
+      const type = r.matchedTransactionId ? matchedType.get(r.matchedTransactionId) : undefined;
+      if (type === "EXPENSE" || type === "INCOME") {
+        r.message = `${r.message ?? "Já registrado no app."} Está como ${type === "INCOME" ? "receita" : "despesa"}: ao confirmar, vira transferência ${r.amountCents! < 0 ? "para" : "vinda de"} ${name}.`;
+      }
+    }
+  }
+  if (unresolved) {
+    warnings.push(
+      investmentAccounts
+        ? `${unresolved} linha(s) parecem aplicação/resgate ou transferência entre contas próprias, mas não deu para saber qual conta é a do outro lado. Escolha a conta nessas linhas para importá-las como transferência.`
+        : `${unresolved} linha(s) parecem aplicação/resgate de investimento, mas a família não tem conta de investimento cadastrada. Crie uma (ex.: "Investimentos" ou "CDB <banco>") e escolha-a nessas linhas: assim o dinheiro aplicado não vira despesa nem o resgate vira receita.`,
+    );
+  }
+}
+
 /**
  * Conta (extrato) ou cartão (fatura) do banco identificado no PDF. Só sugere quando há exatamente
  * uma opção compatível entre as visíveis para quem importa; com dúvida, devolve null.
@@ -344,7 +412,7 @@ interface ParseResult {
   meta: Pick<ImportBatchMeta, "mapping" | "headers" | "headerRowIndex" | "delimiter" | "sheetName" | "statement" | "warnings" | "pdfAi">;
   ofxKind: "BANK" | "CREDIT_CARD" | null;
   /** PDF: tipo identificado pelo conteúdo (heurística; divergência com a conta escolhida vira aviso). */
-  pdf: { kind: PdfStatementKind; bank: string | null; classification: "STATEMENT" | "RECEIPT" | "OTHER" } | null;
+  pdf: { kind: PdfStatementKind; bank: string | null; bankConfident: boolean; classification: "STATEMENT" | "RECEIPT" | "OTHER" } | null;
 }
 
 function tableRowsLimit(table: ParsedTable) {
@@ -392,7 +460,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
     return {
       rows: pdf.rows,
       ofxKind: null,
-      pdf: { kind: pdf.kind, bank: pdf.bank, classification: pdf.classification },
+      pdf: { kind: pdf.kind, bank: pdf.bank, bankConfident: pdf.bankConfident, classification: pdf.classification },
       meta: {
         mapping: null,
         headers: [],
@@ -524,13 +592,20 @@ async function prepareRows(
   }
   const signFactor = (isCard && cardPurchasesPositive ? -1 : 1) * (opts.invertSigns ? -1 : 1);
 
-  const [categories, subcategories, cards] = await Promise.all([
+  const [categories, subcategories, cards, ownAccounts, transferRules] = await Promise.all([
     prisma.category.findMany({ where: { householdId: ctx.householdId, archivedAt: null }, select: { id: true, name: true, kind: true } }),
     prisma.subcategory.findMany({ where: { householdId: ctx.householdId, archivedAt: null }, select: { name: true, categoryId: true, category: { select: { kind: true } } } }),
     scope.accountId
       ? prisma.creditCard.findMany({ where: { ...visibleCardWhere(ctx), archivedAt: null }, select: { id: true, name: true, issuer: true, last4: true } })
       : Promise.resolve([] as Array<{ id: string; name: string; issuer: string | null; last4: string | null }>),
+    scope.accountId
+      ? prisma.account.findMany({ where: { ...visibleAccountWhere(ctx), archivedAt: null }, select: { id: true, name: true, institution: true, type: true } })
+      : Promise.resolve([] as AccountLite[]),
+    scope.accountId
+      ? prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setTransferAccountId: { not: null } } })
+      : Promise.resolve([]),
   ]);
+  const scopeAccount = ownAccounts.find((a) => a.id === scope.accountId) ?? null;
   const catByName = new Map<string, string>();
   for (const c of categories) catByName.set(`${c.kind}|${normalizeText(c.name)}`, c.id);
   for (const s of subcategories) {
@@ -625,11 +700,20 @@ async function prepareRows(
       }
       raw.kind = "CARD_PAYMENT";
       raw.cardPaymentCardId = cardId;
+    } else if (scopeAccount) {
+      // Aplicação/resgate de investimento ou transferência entre contas próprias: não é receita nem despesa.
+      const move = resolveOwnMove(r.description, amount, scopeAccount, ownAccounts, transferRules);
+      if (move) {
+        raw.originalKind = raw.kind;
+        raw.kind = "TRANSFER";
+        raw.transferAccountId = move.counterpartId;
+        raw.transferReason = move.kind;
+      }
     }
 
     if (raw.kind !== "CARD_PAYMENT") {
       raw.suggestedPaymentMethod = scope.accountId ? suggestPaymentMethod(r.description, r.meta.trnType, outflow) : null;
-      if (r.categoryName) {
+      if (r.categoryName && raw.kind !== "TRANSFER") {
         row.categoryId = catByName.get(`${outflow ? "EXPENSE" : "INCOME"}|${normalizeText(r.categoryName)}`) ?? null;
       }
     }
@@ -917,6 +1001,7 @@ async function buildRows(
         : null;
   const prepared = await prepareRows(ctx, scope, parsed.rows, { invertSigns: opts.invertSigns, warnings });
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
+  await annotateTransfers(ctx, rows, warnings);
   if (pdfMismatch) {
     warnings.unshift(pdfMismatch);
     for (const r of rows) r.selected = false;
@@ -982,7 +1067,7 @@ export async function createImportPreviewFromBuffer(
   if (format === "PDF") {
     parsed = await parseImportFile("PDF", content, { householdId: ctx.householdId, timezone: ctx.timezone, fileName, messageId: input.messageId });
     // Sem destino escolhido: usa a conta/cartão do banco identificado no PDF, quando há só uma opção.
-    if (!scope.accountId && !scope.creditCardId && parsed.pdf) {
+    if (!scope.accountId && !scope.creditCardId && parsed.pdf?.bankConfident) {
       const suggestion = await suggestPdfScope(ctx, parsed.pdf.kind, parsed.pdf.bank);
       if (suggestion) {
         scope = await resolveScope(ctx, suggestion.accountId, suggestion.creditCardId);
@@ -1043,10 +1128,20 @@ const rowInclude = {
 
 type RowWithMatch = Prisma.ImportRowGetPayload<{ include: typeof rowInclude }>;
 
-function rowDTO(r: RowWithMatch) {
+function rowDTO(r: RowWithMatch, accountNames: Map<string, string> = new Map()) {
   const raw = readRaw(r.rawData);
   return {
     id: r.id,
+    /** Transferência entre contas próprias (aplicação/resgate): a conta do outro lado e o sentido. */
+    transfer:
+      raw.kind === "TRANSFER"
+        ? {
+            accountId: raw.transferAccountId ?? null,
+            accountName: raw.transferAccountId ? accountNames.get(raw.transferAccountId) ?? null : null,
+            direction: (r.amountCents ?? 0) < 0 ? ("OUT" as const) : ("IN" as const),
+            reason: raw.transferReason ?? null,
+          }
+        : null,
     rowIndex: r.rowIndex,
     date: r.date ? dateToISO(r.date) : null,
     amountCents: r.amountCents,
@@ -1112,6 +1207,10 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
   });
   const rows = await prisma.importRow.findMany({ where: { batchId }, orderBy: { rowIndex: "asc" }, include: rowInclude });
   const meta = readMeta(batch.mapping);
+  const transferIds = [...new Set(rows.map((r) => readRaw(r.rawData).transferAccountId).filter(Boolean) as string[])];
+  const accountNames = new Map(
+    (transferIds.length ? await prisma.account.findMany({ where: { id: { in: transferIds }, householdId: ctx.householdId }, select: { id: true, name: true } }) : []).map((a) => [a.id, a.name]),
+  );
   const counts: Record<ImportRowStatus, number> = { NEW: 0, DUPLICATE: 0, MATCHED: 0, DIVERGENT: 0, SKIPPED: 0, IMPORTED: 0, ERROR: 0 };
   let selected = 0;
   let selectedNewCents = 0;
@@ -1130,7 +1229,7 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
     headerRowIndex: meta.headerRowIndex,
     invertSigns: meta.invertSigns,
     cardPurchasesPositive: meta.cardPurchasesPositive,
-    rows: rows.map(rowDTO),
+    rows: rows.map((r) => rowDTO(r, accountNames)),
   };
 }
 
@@ -1172,6 +1271,7 @@ export async function updateImportRows(ctx: ServiceContext, batchId: string, raw
           if (!kind) throw new ValidationError("Categoria inválida.", { rowId: row.id });
           const raw = readRaw(row.rawData);
           if (raw.kind === "CARD_PAYMENT") throw new ValidationError("Pagamento de fatura não recebe categoria.", { rowId: row.id });
+          if (raw.kind === "TRANSFER") throw new ValidationError("Transferência entre contas não recebe categoria. Volte a linha para receita/despesa se ela não for transferência.", { rowId: row.id });
           const expected = (row.amountCents ?? 0) < 0 ? "EXPENSE" : "INCOME";
           if (kind !== expected) throw new ValidationError(expected === "INCOME" ? "Use uma categoria de receita." : "Use uma categoria de despesa.", { rowId: row.id });
         }
@@ -1183,6 +1283,84 @@ export async function updateImportRows(ctx: ServiceContext, batchId: string, raw
   });
   await publishEvent(ctx.householdId, "import.changed", batchId);
   return getImportPreview(ctx, batchId);
+}
+
+export const importRowsTransferSchema = z.object({
+  rowIds: z.array(idSchema).min(1).max(IMPORT_MAX_ROWS),
+  /** Conta do outro lado; null desfaz (a linha volta a ser receita/despesa). */
+  transferAccountId: idSchema.nullable(),
+  /** Aplica também às linhas parecidas do arquivo (mesma descrição sem números, mesmo sentido). */
+  applyToSimilar: z.boolean().default(false),
+  /** Cria uma regra: próximas importações (e o WhatsApp) já tratam essas linhas como transferência. */
+  remember: z.boolean().default(false),
+});
+export type ImportRowsTransfer = z.input<typeof importRowsTransferSchema>;
+
+/** Marca linhas da prévia como transferência entre contas próprias (ou desfaz). */
+export async function setImportRowsTransfer(ctx: ServiceContext, batchId: string, rawInput: ImportRowsTransfer) {
+  assertCan(ctx, "data:import");
+  const input = importRowsTransferSchema.parse(rawInput);
+  const batch = await loadBatch(ctx, batchId);
+  if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída e não pode mais ser alterada.");
+  if (!batch.accountId) throw new ValidationError("Transferência só vale para extrato de conta: escolha a conta da importação (faturas de cartão não têm transferências).");
+  let accountName: string | null = null;
+  if (input.transferAccountId) {
+    if (input.transferAccountId === batch.accountId) throw new ValidationError("Escolha uma conta diferente da conta do extrato.", { field: "transferAccountId" });
+    const acc = await prisma.account.findFirst({ where: { id: input.transferAccountId, ...visibleAccountWhere(ctx), archivedAt: null }, select: { name: true } });
+    if (!acc) throw new ValidationError("Conta inválida.", { field: "transferAccountId" });
+    accountName = acc.name;
+  }
+  const chosen = await prisma.importRow.findMany({ where: { batchId, id: { in: input.rowIds } } });
+  if (chosen.length !== new Set(input.rowIds).size) throw new NotFoundError("Linha da importação");
+  let rows = chosen;
+  if (input.applyToSimilar) {
+    const keys = new Set(chosen.map((r) => `${similarityKey(r.description)}|${Math.sign(r.amountCents ?? 0)}`));
+    const others = await prisma.importRow.findMany({ where: { batchId, id: { notIn: input.rowIds }, status: { in: ["NEW", "MATCHED"] } } });
+    rows = [...chosen, ...others.filter((r) => similarityKey(r.description) && keys.has(`${similarityKey(r.description)}|${Math.sign(r.amountCents ?? 0)}`))];
+  }
+  const eligible = rows.filter((r) => (r.status === "NEW" || r.status === "MATCHED") && r.amountCents && readRaw(r.rawData).kind !== "CARD_PAYMENT");
+  if (!eligible.length) throw new ValidationError("Nenhuma das linhas pode virar transferência (só lançamentos novos ou já registrados, fora pagamentos de fatura).");
+
+  await withTransaction(async (db) => {
+    for (const r of eligible) {
+      const raw = readRaw(r.rawData);
+      const outflow = (r.amountCents ?? 0) < 0;
+      if (input.transferAccountId) {
+        const next: RowRawData = {
+          ...raw,
+          originalKind: raw.kind === "TRANSFER" ? raw.originalKind ?? (outflow ? "EXPENSE" : "INCOME") : raw.kind,
+          kind: "TRANSFER",
+          transferAccountId: input.transferAccountId,
+          transferReason: "MANUAL",
+        };
+        await db.importRow.update({
+          where: { id: r.id },
+          data: {
+            rawData: toJson(next),
+            categoryId: null,
+            ...(r.status === "NEW" ? { selected: true, message: transferMessage(next, r.amountCents!, accountName!) } : {}),
+          },
+        });
+      } else if (raw.kind === "TRANSFER") {
+        const next: RowRawData = { ...raw, kind: raw.originalKind && raw.originalKind !== "TRANSFER" ? raw.originalKind : outflow ? "EXPENSE" : "INCOME", transferAccountId: null, transferReason: null, originalKind: null };
+        await db.importRow.update({ where: { id: r.id }, data: { rawData: toJson(next), ...(r.status === "NEW" ? { message: null } : {}) } });
+      }
+    }
+    await refreshCounters(db, batchId);
+  });
+
+  let ruleCreated = false;
+  if (input.remember && input.transferAccountId) {
+    const patterns = [...new Set(eligible.map((r) => similarityKey(r.description)).filter(Boolean) as string[])].slice(0, 5);
+    for (const pattern of patterns) {
+      const exists = await prisma.financialRule.findFirst({ where: { householdId: ctx.householdId, pattern, setTransferAccountId: input.transferAccountId } });
+      if (exists) continue;
+      await createRule(ctx, { name: `Transferência: ${pattern}`.slice(0, 80), matchField: "DESCRIPTION", matchType: "CONTAINS", pattern, setTransferAccountId: input.transferAccountId, priority: 150 });
+      ruleCreated = true;
+    }
+  }
+  await publishEvent(ctx.householdId, "import.changed", batchId);
+  return { ...(await getImportPreview(ctx, batchId)), updatedRows: eligible.length, ruleCreated };
 }
 
 /** Reprocessa a prévia com outro mapeamento de colunas (ou inversão de sinais). */
@@ -1272,9 +1450,16 @@ async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; 
         importBatchId: { not: batch.id },
         createdAt: { gt: batch.createdAt },
         date: { gte: new Date(Math.min(...dates)), lte: new Date(Math.max(...dates)) },
-        ...(scope.creditCardId ? { creditCardId: scope.creditCardId, type: "EXPENSE" as const } : { accountId: scope.accountId, type: { in: ["EXPENSE", "INCOME", "CARD_PAYMENT"] as Array<"EXPENSE" | "INCOME" | "CARD_PAYMENT"> } }),
+        ...(scope.creditCardId
+          ? { creditCardId: scope.creditCardId, type: "EXPENSE" as const }
+          : {
+              OR: [
+                { accountId: scope.accountId, type: { in: ["EXPENSE", "INCOME", "CARD_PAYMENT"] as Array<"EXPENSE" | "INCOME" | "CARD_PAYMENT"> } },
+                { type: "TRANSFER" as const, OR: [{ accountId: scope.accountId }, { destinationAccountId: scope.accountId }] },
+              ],
+            }),
       },
-      select: { id: true, type: true, amountCents: true, date: true, importBatch: { select: { fileName: true } } },
+      select: { id: true, type: true, amountCents: true, date: true, destinationAccountId: true, importBatch: { select: { fileName: true } } },
       orderBy: { createdAt: "asc" },
     });
     const used = new Set<string>();
@@ -1287,7 +1472,7 @@ async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; 
           !used.has(t.id) &&
           t.date.getTime() === r.date!.getTime() &&
           (t.amountCents === abs || (inst && inst.number === 1 && t.amountCents === abs * inst.total)) &&
-          (outflow ? t.type !== "INCOME" : t.type === "INCOME"),
+          (t.type === "TRANSFER" ? (t.destinationAccountId === scope.accountId) === !outflow : outflow ? t.type !== "INCOME" : t.type === "INCOME"),
       );
       if (!hit) continue;
       used.add(hit.id);
@@ -1325,6 +1510,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
   let divergent = 0;
   let errors = 0;
   const fills: ReconciledFill[] = [...(meta.commit?.reconciledFills ?? [])];
+  const converted: ConvertedTransfer[] = [...(meta.commit?.convertedTransfers ?? [])];
   let duplicatesAtCommit = 0;
 
   try {
@@ -1341,9 +1527,21 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
         const amount = Math.abs(row.amountCents);
         const outflow = row.amountCents < 0;
         const installment = scope.creditCardId && raw.installment && raw.installment.number === 1 ? raw.installment : null;
+        if (raw.kind === "TRANSFER" && (!raw.transferAccountId || !scope.accountId)) {
+          errors++;
+          await prisma.importRow.update({ where: { id: row.id }, data: { status: "ERROR", message: "Transferência sem a conta do outro lado: escolha a conta na prévia." } });
+          continue;
+        }
         const fields =
           raw.kind === "CARD_PAYMENT"
             ? { type: "CARD_PAYMENT" as const, creditCardId: raw.cardPaymentCardId ?? null, accountId: scope.accountId, paymentMethod: raw.suggestedPaymentMethod ?? "BANK_TRANSFER" }
+            : raw.kind === "TRANSFER"
+              ? {
+                  type: "TRANSFER" as const,
+                  accountId: outflow ? scope.accountId : raw.transferAccountId!,
+                  destinationAccountId: outflow ? raw.transferAccountId! : scope.accountId,
+                  paymentMethod: raw.suggestedPaymentMethod && raw.suggestedPaymentMethod !== "DEBIT_CARD" && raw.suggestedPaymentMethod !== "CASH" ? raw.suggestedPaymentMethod : "BANK_TRANSFER",
+                }
             : scope.creditCardId
               ? { type: "EXPENSE" as const, creditCardId: scope.creditCardId, installmentCount: installment?.total ?? 1, payerMemberId: scope.cardHolderId ?? undefined }
               : {
@@ -1365,7 +1563,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                 description: row.description || "Lançamento importado",
                 notes: raw.memo && row.description && !row.description.includes(raw.memo) ? raw.memo.slice(0, 500) : null,
                 date: dateToISO(row.date!),
-                categoryId: raw.kind === "CARD_PAYMENT" ? null : row.categoryId,
+                categoryId: raw.kind === "CARD_PAYMENT" || raw.kind === "TRANSFER" ? null : row.categoryId,
               },
               { source: "IMPORT", importBatchId: batchId, checkDuplicates: false, db },
             );
@@ -1385,6 +1583,30 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
         matched++;
         const tx = row.matchedTransaction;
         if (!tx || tx.deletedAt || fills.some((f) => f.rowId === row.id)) continue;
+        // Aplicação/resgate já registrado como receita/despesa: vira transferência (sem duplicar).
+        if (raw.kind === "TRANSFER" && raw.transferAccountId && scope.accountId && !converted.some((c) => c.rowId === row.id)) {
+          const full = await prisma.transaction.findUnique({
+            where: { id: tx.id },
+            select: { type: true, accountId: true, destinationAccountId: true, creditCardId: true, categoryId: true, subcategoryId: true, paymentMethod: true },
+          });
+          if (full && (full.type === "EXPENSE" || full.type === "INCOME") && !full.creditCardId && full.accountId !== raw.transferAccountId) {
+            const outflow = (row.amountCents ?? 0) < 0;
+            try {
+              await updateTransaction(
+                ctx,
+                tx.id,
+                outflow
+                  ? { type: "TRANSFER", accountId: scope.accountId, destinationAccountId: raw.transferAccountId }
+                  : { type: "TRANSFER", accountId: raw.transferAccountId, destinationAccountId: scope.accountId },
+                { reason: "Importação: aplicação/resgate convertido em transferência" },
+              );
+              converted.push({ rowId: row.id, transactionId: tx.id, before: { type: full.type, accountId: full.accountId, destinationAccountId: full.destinationAccountId, categoryId: full.categoryId, subcategoryId: full.subcategoryId, paymentMethod: full.paymentMethod } });
+            } catch (err) {
+              logger.warn({ householdId: ctx.householdId, batchId, err: errorInfo(err).name }, "imports: conversão em transferência não aplicada");
+            }
+            continue;
+          }
+        }
         // Conciliação: completa a conta/cartão de lançamentos registrados sem forma de pagamento.
         const full = await prisma.transaction.findUnique({ where: { id: tx.id }, select: { accountId: true, creditCardId: true, type: true, paymentMethod: true } });
         if (!full || full.accountId || full.creditCardId || (full.type !== "EXPENSE" && full.type !== "INCOME")) continue;
@@ -1421,7 +1643,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
       }
     }
 
-    meta.commit = { created, matched, divergent, errors, reconciledFills: fills };
+    meta.commit = { created, matched, divergent, errors, reconciledFills: fills, convertedTransfers: converted };
     meta.duplicatesAtCommit = (meta.duplicatesAtCommit ?? 0) + duplicatesAtCommit;
     await withTransaction(async (db) => {
       await refreshCounters(db, batchId);
@@ -1569,6 +1791,17 @@ export async function undoImport(ctx: ServiceContext, batchId: string) {
       );
     } catch (err) {
       logger.warn({ householdId: ctx.householdId, batchId, err: errorInfo(err).name }, "imports: falha ao reverter conciliação");
+    }
+  }
+
+  // Reverte as receitas/despesas que a importação converteu em transferência.
+  for (const conv of meta.commit?.convertedTransfers ?? []) {
+    const tx = await prisma.transaction.findFirst({ where: { id: conv.transactionId, householdId: ctx.householdId }, select: { type: true, deletedAt: true } });
+    if (!tx || tx.deletedAt || tx.type !== "TRANSFER") continue;
+    try {
+      await updateTransaction(ctx, conv.transactionId, { ...conv.before }, { reason: "Importação desfeita" });
+    } catch (err) {
+      logger.warn({ householdId: ctx.householdId, batchId, err: errorInfo(err).name }, "imports: falha ao reverter conversão em transferência");
     }
   }
 

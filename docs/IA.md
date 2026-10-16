@@ -101,6 +101,20 @@ Como as respostas são entendidas:
 Pelo painel (lançamento rápido), nada é perguntado: a categoria e a conta são escolhidas na própria
 pré-visualização ou depois, em Transações.
 
+### Aplicação e resgate de investimento
+
+"apliquei 1000 no CDB", "resgatei 300 da caixinha" e "guardei 200 na poupança" são **transferências**
+entre a conta de movimento e a conta de investimento: não entram como receita nem como despesa.
+Rendimento, juros e dividendos ("rendeu 12,50") continuam sendo receita. O mesmo vale quando o modelo
+externo classifica a mensagem como receita/despesa: a resolução corrige para transferência.
+
+- A conta de investimento vem do nome citado ou, se houver uma só (poupança quando a mensagem fala
+  em poupança), é usada e a resposta diz qual.
+- Com várias, o bot pergunta qual. Sem nenhuma, o bot explica e aceita *criar <nome>* (cria a conta de
+  investimento com saldo inicial R$ 0,00, que pode ser ajustado em Contas).
+- A conta de movimento segue a mesma regra (única conta → usada; senão, o bot pergunta).
+- "guardei 300 para a meta viagem" continua sendo contribuição para a meta.
+
 Correções ("na verdade foi 50", "muda a categoria para farmácia") e exclusões ("apaga o último
 lançamento") atuam sobre **um** lançamento identificado. Exclusões são lógicas e podem ser desfeitas
 ("restaura").

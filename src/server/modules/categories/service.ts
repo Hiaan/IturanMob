@@ -181,6 +181,8 @@ export const ruleSchema = z.object({
   setSubcategoryId: z.string().nullish(),
   setPaymentMethod: z.enum(["PIX", "DEBIT_CARD", "CREDIT_CARD", "CASH", "BANK_SLIP", "BANK_TRANSFER", "AUTO_DEBIT", "VOUCHER", "OTHER"]).nullish(),
   setAccountId: z.string().nullish(),
+  /** Transforma a movimentação em transferência com esta conta (aplicação/resgate, contas próprias). */
+  setTransferAccountId: z.string().nullish(),
   setOwnership: z.enum(["SHARED", "INDIVIDUAL"]).nullish(),
   setResponsibleMemberId: z.string().nullish(),
   priority: z.number().int().min(0).max(10000).default(100),
@@ -206,6 +208,12 @@ async function validateRuleRefs(ctx: ServiceContext, data: Partial<z.output<type
   if (data.setAccountId && !(await prisma.account.findFirst({ where: { id: data.setAccountId, householdId: ctx.householdId } }))) {
     throw new ValidationError("Conta inválida.");
   }
+  if (data.setTransferAccountId) {
+    if (!(await prisma.account.findFirst({ where: { id: data.setTransferAccountId, householdId: ctx.householdId } }))) throw new ValidationError("Conta da transferência inválida.");
+    // Regra de transferência não define categoria (transferência não é receita nem despesa).
+    data.setCategoryId = null;
+    data.setSubcategoryId = null;
+  }
   if (data.setResponsibleMemberId && !(await prisma.householdMember.findFirst({ where: { id: data.setResponsibleMemberId, householdId: ctx.householdId } }))) {
     throw new ValidationError("Membro inválido.");
   }
@@ -215,7 +223,12 @@ export async function listRules(ctx: ServiceContext) {
   return prisma.financialRule.findMany({
     where: { householdId: ctx.householdId },
     orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
-    include: { category: { select: { name: true, color: true } }, subcategory: { select: { name: true } }, account: { select: { name: true } } },
+    include: {
+      category: { select: { name: true, color: true } },
+      subcategory: { select: { name: true } },
+      account: { select: { name: true } },
+      transferAccount: { select: { name: true } },
+    },
   });
 }
 
@@ -252,6 +265,21 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
   assertCan(ctx, "transactions:write");
   const rule = await prisma.financialRule.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!rule) throw new NotFoundError("Regra");
+  if (rule.setTransferAccountId) {
+    // Regra de transferência: converte receitas/despesas antigas que casam com o padrão.
+    const { findMatchingRule } = await import("../rules/matcher");
+    const { convertToTransfers } = await import("../transactions/convert-transfer");
+    const candidates = await prisma.transaction.findMany({
+      where: { householdId: ctx.householdId, deletedAt: null, type: { in: ["EXPENSE", "INCOME"] }, creditCardId: null, accountId: { not: null }, NOT: { accountId: rule.setTransferAccountId } },
+      include: { merchant: { select: { name: true } } },
+      take: 2000,
+    });
+    const ids = candidates.filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: "TRANSFER" })).map((t) => t.id);
+    if (!ids.length) return { applied: 0 };
+    const res = await convertToTransfers(ctx, { transactionIds: ids.slice(0, 500), counterpartAccountId: rule.setTransferAccountId });
+    if (res.converted) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: res.converted } } });
+    return { applied: res.converted };
+  }
   if (!rule.setCategoryId) throw new ValidationError("Esta regra não define categoria.");
   const { findMatchingRule } = await import("../rules/matcher");
   const txs = await prisma.transaction.findMany({

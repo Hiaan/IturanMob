@@ -20,6 +20,8 @@ export interface PdfImportResult {
   rows: ParsedImportRow[];
   kind: PdfStatementKind;
   bank: string | null;
+  /** Banco do cabeçalho/rodapé (só então a conta/cartão é escolhida automaticamente). */
+  bankConfident: boolean;
   startDate: ISODate | null;
   endDate: ISODate | null;
   source: "TEXT" | "AI";
@@ -84,7 +86,7 @@ export async function readPdfForImport(content: Buffer, opts: PdfImportOptions):
     if (st.rows.length > opts.maxRows) throw new ValidationError(`O PDF tem ${st.rows.length.toLocaleString("pt-BR")} lançamentos. O limite é de ${opts.maxRows.toLocaleString("pt-BR")} por importação — divida o período em partes.`);
     if (classification === "RECEIPT") warnings.push("Este PDF parece um comprovante, não um extrato. Confira as linhas antes de importar.");
     if (st.kind === "UNKNOWN") warnings.push("Não foi possível identificar se o PDF é extrato de conta ou fatura de cartão: confira os sinais (entrada/saída) na prévia.");
-    return { rows: toParsedRows(st.rows, "TEXT"), kind: st.kind, bank: st.bank, startDate: st.startDate, endDate: st.endDate, source: "TEXT", classification, scanned, warnings, aiRows: null };
+    return { rows: toParsedRows(st.rows, "TEXT"), kind: st.kind, bank: st.bank, bankConfident: st.bankConfident, startDate: st.startDate, endDate: st.endDate, source: "TEXT", classification, scanned, warnings, aiRows: null };
   }
 
   // Sem lançamentos reconhecidos no texto (ou PDF digitalizado): a IA, se autorizada, tenta a leitura.
@@ -117,6 +119,7 @@ function aiResult(rows: PdfRow[], kind: PdfStatementKind, bank: string | null, s
     rows: toParsedRows(rows, "AI"),
     kind,
     bank,
+    bankConfident: false,
     startDate: dates[0] ?? null,
     endDate: dates[dates.length - 1] ?? null,
     source: "AI",

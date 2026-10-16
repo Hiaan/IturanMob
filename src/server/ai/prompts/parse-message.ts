@@ -29,6 +29,7 @@ REGRAS
 - Datas relativas ("ontem", "segunda", "dia 5") devem ser resolvidas a partir da data de hoje informada. Sem menção de data → date = null.
 - Transferência entre contas da família (TRANSFER) não é despesa. Pagamento de fatura de cartão é CARD_PAYMENT (não é despesa).
 - "Separei/guardei X para a <meta>" é GOAL_CONTRIBUTION.
+- Aplicação e resgate de investimento ("apliquei no CDB", "resgatei da caixinha", "guardei na poupança") são TRANSFER entre a conta de movimento e a conta de investimento: nunca INCOME/EXPENSE. Rendimento, juros e dividendos são INCOME.
 - person: "remetente" quando quem gastou é o autor da mensagem; o nome do membro quando outra pessoa gastou ("minha esposa gastou" → nome da esposa). Quem pagou não é necessariamente o responsável econômico.
 - responsible: apenas quando a despesa é explicitamente de outra pessoa (ex.: "do nosso filho"); ownership = INDIVIDUAL nesse caso.
 - category: escolha da lista abaixo no formato "Categoria > Subcategoria". Não presuma categoria só pelo estabelecimento quando o item comprado indicar outra. Se nada servir, null.

@@ -23,7 +23,7 @@ export function installmentsText(totalCents: number, count: number): string {
 export function draftSummary(d: ResolvedDraft, today: string): string {
   const parts: string[] = [];
   if (d.labels.category) parts.push(d.labels.subcategory ? `${d.labels.category} › ${d.labels.subcategory}` : d.labels.category);
-  if (d.kind === "TRANSFER") parts.push(`${d.labels.account ?? "?"} → ${d.labels.destinationAccount ?? "?"}`);
+  if (d.kind === "TRANSFER") parts.push(`${d.labels.account ?? "?"} → ${d.labels.destinationAccount ?? "?"}${d.investment ? " (não é receita nem despesa)" : ""}`);
   else if (d.labels.card) parts.push(`${d.labels.card}${d.installmentCount > 1 ? ` ${installmentsText(d.amountCents ?? 0, d.installmentCount)}` : ""}`);
   else if (d.labels.account) parts.push(d.labels.account);
   else if (d.paymentMethod) parts.push(labelOf(PAYMENT_METHOD_LABELS, d.paymentMethod));
@@ -53,9 +53,22 @@ export function createdLine(d: ResolvedDraft, today: string): string {
   return `*${d.description}* — ${formatBRL(d.amountCents ?? 0)}\n${draftSummary(d, today)}`;
 }
 
-export function missingQuestion(d: ResolvedDraft, opts: { cards: string[]; accounts: string[]; goals: string[] }): string {
+export function missingQuestion(d: ResolvedDraft, opts: { cards: string[]; accounts: string[]; goals: string[]; investmentAccounts?: string[]; cashAccounts?: string[] }): string {
   const label = d.description ? `*${d.description}*` : "o lançamento";
   const missing = d.missing;
+  if (d.investment && missing.some((m) => m.startsWith("conta de investimento"))) {
+    const what = d.investment === "IN" ? "a aplicação" : "o resgate";
+    if (missing.includes("conta de investimento (nenhuma cadastrada)")) {
+      return `Para registrar ${what} de ${formatBRL(d.amountCents ?? 0)} como transferência (não é ${d.investment === "IN" ? "despesa" : "receita"}), preciso da conta de investimento — e ainda não há nenhuma cadastrada. Responda *criar <nome>* (ex.: "criar CDB Nubank") para eu criar agora, ou cadastre em Contas.`;
+    }
+    return `Em qual conta de investimento foi ${what} de ${formatBRL(d.amountCents ?? 0)}? Contas: ${(opts.investmentAccounts ?? opts.accounts).join(", ")}. Ou responda *criar <nome>* para uma nova.`;
+  }
+  if (d.investment && (missing.includes("conta de origem") || missing.includes("conta de destino"))) {
+    const list = (opts.cashAccounts ?? opts.accounts).join(", ");
+    return d.investment === "IN"
+      ? `De qual conta saiu o dinheiro da aplicação de ${formatBRL(d.amountCents ?? 0)}? Contas: ${list}.`
+      : `Para qual conta voltou o dinheiro do resgate de ${formatBRL(d.amountCents ?? 0)}? Contas: ${list}.`;
+  }
   if (missing.includes("valor")) return `Não identifiquei o valor de ${label}. Quanto foi?`;
   if (missing.includes("cartão")) {
     return `Em qual cartão foi ${label}${d.amountCents ? ` (${formatBRL(d.amountCents)}${d.installmentCount > 1 ? ` em ${d.installmentCount}x` : ""})` : ""}? Opções: ${opts.cards.join(", ")}.`;

@@ -176,3 +176,37 @@ export const C6_EXTRATO: FixtureLine[][] = [
 export const PIX_COMPROVANTE: FixtureLine[][] = [
   ["Comprovante de transferência", "Pix enviado", "Valor: R$ 150,00", "Data: 14/10/2026 às 10:32", "Para: Maria Souza", "Autenticação: ABCD1234EFGH"],
 ];
+
+/**
+ * C6 — extrato real em estrutura (valores fictícios): resumo mensal com "Entradas: R$ … • Saídas: R$ …",
+ * duas datas por linha (lançamento e contábil), tipo antes da descrição, saída com "-R$" e entrada sem
+ * sinal. Descrições citam "NU PAGAMENTOS" (destino de Pix), mas o banco do extrato é o C6.
+ */
+const c6Row = (d: string, tipo: string, desc: string, valor: string) => [c(d, 40), c(d, 85), c(tipo, 130), c(desc, 215), c(valor, 480)];
+export const C6_EXTRATO_REAL: FixtureLine[][] = [
+  [
+    "Extrato da conta corrente",
+    "FULANO DE TAL   Agência: 1 • Conta: 12345678-9",
+    "Período: 01/09/2026 a 15/10/2026",
+    "Setembro 2026 ( 01/09/2026 - 30/09/2026 ) Entradas: R$ 1.033,00 • Saídas: R$ 1.083,00",
+    [c("Data lançamento", 40), c("Data contábil", 85), c("Tipo", 130), c("Descrição", 215), c("Valor", 480)],
+    c6Row("09/09", "Outros gastos", "MENSALIDADE C6TAG", "-R$ 8,00"),
+    c6Row("09/09", "Entradas", "EST MENSALIDAD C6TAG", "R$ 8,00"),
+    c6Row("10/09", "Saída PIX", "Pix enviado para NU PAGAMENTOS S/A", "-R$ 1.000,00"),
+    c6Row("12/09", "Entrada PIX", "Pix recebido de NU PAGAMENTOS S/A", "R$ 1.000,00"),
+    c6Row("26/09", "Entradas", "EST RECARGA DE CEL", "R$ 25,00"),
+    c6Row("27/09", "Débito de Cartão", "MERCADO BOM", "-R$ 75,00"),
+    "No app do C6 Bank você acompanha seus lançamentos",
+    "Atendimento 24 horas 3003 6116",
+  ],
+  [
+    "Extrato da conta corrente",
+    "FULANO DE TAL   Agência: 1 • Conta: 12345678-9",
+    "Outubro 2026 ( 01/10/2026 - 15/10/2026 ) Entradas: R$ 300,00 • Saídas: R$ 120,00",
+    [c("Data lançamento", 40), c("Data contábil", 85), c("Tipo", 130), c("Descrição", 215), c("Valor", 480)],
+    c6Row("02/10", "Entrada PIX", "Pix recebido de NU PAGAMENTOS S/A", "R$ 300,00"),
+    c6Row("03/10", "Pagamento", "PAGTO BOLETO ESCOLA NU PAGAMENTOS", "-R$ 120,00"),
+    "No app do C6 Bank você acompanha seus lançamentos",
+    "Atendimento 24 horas 3003 6116",
+  ],
+];

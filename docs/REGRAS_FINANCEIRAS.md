@@ -136,7 +136,37 @@ conta/cartão, numa janela de ±3 dias:
 
 Nada é gravado antes de a pessoa revisar a prévia e confirmar. Cada lote pode ser desfeito.
 
-### 10.1 PDF e importação em massa
+### 10.1 Investimentos e contas próprias
+
+Aplicação e resgate de investimento (CDB, RDB, LCI/LCA, Tesouro, poupança, fundos, previdência,
+caixinhas/cofrinhos) e transferências "mesma titularidade" são **transferências**, não receita nem
+despesa — no extrato importado, no WhatsApp e na correção do que já foi importado:
+
+| Linha do extrato da conta | Vira |
+|---|---|
+| "RESGATE CDB" (entrada) | Transferência da conta de investimento → conta do extrato |
+| "APLICACAO RDB" (saída) | Transferência da conta do extrato → conta de investimento |
+| "RENDIMENTO POUPANCA", juros, dividendos | Receita (ganho de verdade) |
+| "IOF/IR RESGATE", tarifas, custódia | Despesa |
+
+- **Conta do outro lado:** regra aprendida da família; senão, a única conta de investimento/poupança
+  compatível (considerando o nome citado na descrição, poupança × investimento e a mesma instituição).
+  Na dúvida, ou sem conta de investimento cadastrada, a linha fica **desmarcada** com o aviso para
+  escolher (ou criar) a conta — nada é presumido.
+- **Na prévia:** qualquer linha pode virar transferência (ou voltar a receita/despesa), escolhendo a
+  outra conta, também para as linhas parecidas do arquivo; "lembrar" cria uma regra (Categorias →
+  Regras) que vale para as próximas importações.
+- **Já registrado como receita/despesa** (ex.: resgate anotado pelo WhatsApp): a linha do extrato
+  corresponde ao lançamento e, na confirmação, ele é **convertido** em transferência (o desfazer da
+  importação reverte a conversão).
+- **Extrato das duas contas** (corrente e CDB): a mesma aplicação entra uma vez só.
+- **O que já foi importado errado:** em Lançamentos, "Converter em transferência" (seleção múltipla)
+  mostra antes o plano e converte. Se o outro lado do movimento também estiver registrado na conta
+  escolhida (ex.: a saída no extrato do CDB), ele é **unido** à transferência — excluído de forma
+  restaurável e auditada — para não contar duas vezes. Regras de transferência também podem ser
+  aplicadas a lançamentos anteriores.
+
+### 10.2 PDF e importação em massa
 
 - **PDF com texto** (exportado pelo app/site do banco) é lido localmente, sem IA: linhas com data e
   valor viram lançamentos; saldos, totais, limites, resumos e valores em dólar são ignorados. Há

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { bankMatches, classifyPdf, dateAtStart, findAmounts, isScanned, normalizePdfText, parsePdfStatement, PdfPasswordError } from "@/server/modules/imports/pdf";
 import * as F from "../helpers/pdf-fixtures";
 
+const c = (text: string, x: number) => ({ text, x });
+
 const TODAY = "2026-10-16";
 
 async function rowsOf(fixture: F.FixtureLine[][]) {
@@ -43,7 +45,8 @@ describe("PDF: extratos e faturas dos bancos brasileiros (layouts sintéticos)",
       ["2026-10-05", -3990, "TAR PACOTE ITAU"],
       ["2026-10-10", -123456, "ITAU UNICLASS FATURA CARTAO"],
     ]);
-    expect(st.warnings.join(" ")).toContain("deduzida pela descrição");
+    // Saídas com "-": o valor sem sinal (salário) é entrada, sem precisar deduzir pela descrição.
+    expect(st.warnings.join(" ")).not.toContain("deduzida");
   });
 
   it("Bradesco: Crédito/Débito em colunas e data só na primeira linha do dia", async () => {
@@ -109,6 +112,31 @@ describe("PDF: extratos e faturas dos bancos brasileiros (layouts sintéticos)",
       ["2026-10-20", 5590, "Netflix.com"],
       ["2026-10-21", 240, "IOF de compra internacional"],
     ]);
+  });
+
+  it("C6 (estrutura real): banco pelo cabeçalho/rodapé, resumo mensal ignorado, entrada sem sinal e totais por mês", async () => {
+    const { st, rows } = await rowsOf(F.C6_EXTRATO_REAL);
+    expect(st).toMatchObject({ kind: "BANK", bank: "C6 Bank", bankConfident: true });
+    expect(rows).toEqual([
+      ["2026-09-09", -800, "Outros gastos MENSALIDADE C6TAG"],
+      ["2026-09-09", 800, "Entradas EST MENSALIDAD C6TAG"],
+      ["2026-09-10", -100000, "Saída PIX Pix enviado para NU PAGAMENTOS S/A"],
+      ["2026-09-12", 100000, "Entrada PIX Pix recebido de NU PAGAMENTOS S/A"],
+      ["2026-09-26", 2500, "Entradas EST RECARGA DE CEL"],
+      ["2026-09-27", -7500, "Débito de Cartão MERCADO BOM"],
+      ["2026-10-02", 30000, "Entrada PIX Pix recebido de NU PAGAMENTOS S/A"],
+      ["2026-10-03", -12000, "Pagamento PAGTO BOLETO ESCOLA NU PAGAMENTOS"],
+    ]);
+    // Fecha com o resumo de cada mês do próprio PDF.
+    const sum = (month: string, sign: 1 | -1) => st.rows.filter((r) => r.date.startsWith(month) && Math.sign(r.amountCents) === sign).reduce((t, r) => t + Math.abs(r.amountCents), 0);
+    expect([sum("2026-09", 1), sum("2026-09", -1), sum("2026-10", 1), sum("2026-10", -1)]).toEqual([103300, 108300, 30000, 12000]);
+    // No C6 a ausência de "-" já é o sinal: nada foi "deduzido".
+    expect(st.warnings.join(" ")).not.toContain("deduzida");
+  });
+
+  it("banco citado só nas descrições não é confiável para escolher a conta", async () => {
+    const st = await parsePdfStatement(await F.makePdf([["Extrato", [c("01/10/2026", 40), c("Pix para NU PAGAMENTOS", 110), c("-50,00", 380)], [c("02/10/2026", 40), c("Pix de NU PAGAMENTOS", 110), c("-20,00", 380)], ...Array.from({ length: 14 }, (_, i) => [c(`${String(i + 3).padStart(2, "0")}/10/2026`, 40), c("COMPRA LOJA", 110), c("-1,00", 380)])]]), { today: TODAY });
+    expect(st.bankConfident).toBe(false);
   });
 
   it("fatura com virada de ano: dezembro fica no ano anterior ao vencimento", async () => {

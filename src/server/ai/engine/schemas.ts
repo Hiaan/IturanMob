@@ -45,6 +45,8 @@ export interface RawDraft {
   confidence: number;
   /** Texto do segmento que originou o lançamento. */
   segment: string;
+  /** Aplicação (IN) ou resgate (OUT) de investimento: transferência com a conta de investimento. */
+  investment?: "IN" | "OUT" | null;
 }
 
 export interface RawCorrection {

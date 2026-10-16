@@ -592,7 +592,8 @@ model Account {
   recurringTransactions RecurringTransaction[]
   scheduledPayments     ScheduledPayment[]
   importBatches         ImportBatch[]
-  rules                 FinancialRule[]
+  rules                 FinancialRule[]        @relation("RuleAccount")
+  transferRules         FinancialRule[]        @relation("RuleTransferAccount")
 
   @@unique([householdId, name])
   @@index([householdId])
@@ -739,6 +740,9 @@ model FinancialRule {
   setAccountId           String?
   setOwnership           Ownership?
   setResponsibleMemberId String?
+  /// Movimentação entre contas próprias (aplicação/resgate de investimento, mesma titularidade):
+  /// a linha importada/mensagem vira TRANSFERÊNCIA com esta conta do outro lado.
+  setTransferAccountId   String?
   priority               Int              @default(100)
   active                 Boolean          @default(true)
   source                 RuleSource       @default(USER)
@@ -747,10 +751,11 @@ model FinancialRule {
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
 
-  household   Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  category    Category?    @relation(fields: [setCategoryId], references: [id], onDelete: SetNull)
-  subcategory Subcategory? @relation(fields: [setSubcategoryId], references: [id], onDelete: SetNull)
-  account     Account?     @relation(fields: [setAccountId], references: [id], onDelete: SetNull)
+  household       Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  category        Category?    @relation(fields: [setCategoryId], references: [id], onDelete: SetNull)
+  subcategory     Subcategory? @relation(fields: [setSubcategoryId], references: [id], onDelete: SetNull)
+  account         Account?     @relation("RuleAccount", fields: [setAccountId], references: [id], onDelete: SetNull)
+  transferAccount Account?     @relation("RuleTransferAccount", fields: [setTransferAccountId], references: [id], onDelete: SetNull)
 
   @@index([householdId, active])
 }
