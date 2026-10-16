@@ -210,3 +210,39 @@ export const C6_EXTRATO_REAL: FixtureLine[][] = [
     "Atendimento 24 horas 3003 6116",
   ],
 ];
+
+/**
+ * C6 — "Extrato exportado" pelo app (estrutura do PDF real, dados fictícios): o cabeçalho não cita o
+ * banco; "C6 Bank" só aparece no rodapé da última página, em colunas misturadas com telefones, seguido
+ * de outras linhas de atendimento. As descrições citam "NU PAGAMENTOS" várias vezes.
+ */
+const c6Header = (period: boolean) => [
+  "Extrato exportado no dia 15 de outubro de 2026 às 10:12",
+  "FULANO DE TAL • 123.456.789-00",
+  "Agência: 1 • Conta: 12345678-9",
+  ...(period ? ["Extrato Período • 01/09/2026 a 15/10/2026"] : []),
+];
+export const C6_EXTRATO_EXPORTADO: FixtureLine[][] = [
+  [
+    ...c6Header(true),
+    "Setembro 2026 ( 01/09/2026 - 30/09/2026 ) Entradas: R$ 1.000,00 • Saídas: R$ 1.050,00",
+    [c("Data lançamento", 40), c("Data contábil", 85), c("Tipo", 130), c("Descrição", 215), c("Valor", 480)],
+    c6Row("10/09", "Saída PIX", "Pix enviado para NU PAGAMENTOS S/A", "-R$ 1.000,00"),
+    c6Row("12/09", "Entrada PIX", "Pix recebido de NU PAGAMENTOS S/A", "R$ 1.000,00"),
+    c6Row("27/09", "Débito de Cartão", "MERCADO BOM", "-R$ 50,00"),
+  ],
+  [
+    ...c6Header(false),
+    "Outubro 2026 ( 01/10/2026 - 15/10/2026 ) Entradas: R$ 300,00 • Saídas: R$ 120,00",
+    [c("Data lançamento", 40), c("Data contábil", 85), c("Tipo", 130), c("Descrição", 215), c("Valor", 480)],
+    c6Row("02/10", "Entrada PIX", "Pix recebido de NU PAGAMENTOS S/A", "R$ 300,00"),
+    c6Row("03/10", "Pagamento", "PAGTO BOLETO ESCOLA NU PAGAMENTOS", "-R$ 120,00"),
+    "Fale com a gente",
+    "No app do C6 Bank metropolitanas 0800 660 6060",
+    "Capitais e regiões 4003 6116",
+    "Atendimento 24 horas Ouvidoria",
+    "Demais localidades 0800 727 0132",
+    "Chat para clientes Deficiência auditiva ou de fala",
+    "0800 770 0122",
+  ],
+];

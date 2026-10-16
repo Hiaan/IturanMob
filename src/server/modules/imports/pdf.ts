@@ -270,16 +270,24 @@ export function detectBank(norm: string): string | null {
 /** Linhas de identificação/rodapé (app, atendimento, ouvidoria, CNPJ): nunca são lançamento nem continuação. */
 const IDENTITY = /\b(app|aplicativo|atendimento|sac|ouvidoria|central de|agencia|cnpj|instituicao|www|com br|extrato|fatura|pagina)\b/;
 
+/** Linhas de canal de atendimento (app, SAC, ouvidoria, site): identificam o emissor onde estiverem. */
+const SERVICE_CHANNEL = /\b(app|aplicativo|atendimento|sac|ouvidoria|central de|cnpj|www|com br)\b/;
+
 export function detectBankFromLines(lines: PdfLine[]): { bank: string | null; confident: boolean } {
   const byPage = new Map<number, PdfLine[]>();
   for (const l of lines) byPage.set(l.page, [...(byPage.get(l.page) ?? []), l]);
   const scores = new Map<string, number>();
   for (const pageLines of byPage.values()) {
     pageLines.forEach((l, i) => {
-      // Só o quadro da página e só linhas sem valor: lançamentos citam outros bancos.
-      if (!(i < 8 || i >= pageLines.length - 4) || findAmounts(l.text).length) return;
+      // Só linhas sem valor: lançamentos citam outros bancos ("Pix para NU PAGAMENTOS").
+      if (findAmounts(l.text).length) return;
       const n = normalizePdfText(l.text);
-      const weight = IDENTITY.test(n.replace(/\./g, " ")) ? 5 : 1;
+      const flat = n.replace(/\./g, " ");
+      const inFrame = i < 8 || i >= pageLines.length - 4;
+      // No quadro da página (cabeçalho/rodapé) vale qualquer menção; fora dele, só a linha de canal de
+      // atendimento — rodapés longos que aparecem só na última página ("No app do C6 Bank …").
+      const weight = inFrame ? (IDENTITY.test(flat) ? 5 : 1) : SERVICE_CHANNEL.test(flat) ? 5 : 0;
+      if (!weight) return;
       for (const b of BANKS) if (b.re.test(n)) scores.set(b.name, (scores.get(b.name) ?? 0) + weight);
     });
   }
@@ -413,7 +421,8 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
   let currentDate: ISODate | null = null;
   let section: -1 | 0 | 1 = 0;
   let inferred = 0;
-  let last: { row: PdfRow; page: number; appended: number } | null = null;
+  /** Último lançamento lido e onde começa a descrição dele (x), para aceitar continuações. */
+  let last: { row: PdfRow; page: number; appended: number; descX: number } | null = null;
 
   for (const line of lines) {
     const norm = normalizePdfText(line.text);
@@ -450,7 +459,14 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
     if (!amounts.length) {
       // Continuação da descrição da linha anterior (nome do favorecido, cidade etc.).
       const footer = IDENTITY.test(norm.replace(/\./g, " "));
-      if (last && last.page === line.page && last.appended < 2 && !date && !footer && norm.length <= 80 && last.row.description.length < 90) {
+      if (footer) {
+        // Rodapé (app, atendimento, ouvidoria): daqui em diante na página nada é continuação.
+        last = null;
+        continue;
+      }
+      // Continuação começa na coluna da descrição; texto que começa bem à esquerda dela é rodapé/aviso.
+      const startsInDescription = !last || (line.cells[0]?.x ?? 0) >= last.descX - 30;
+      if (last && last.page === line.page && last.appended < 2 && !date && startsInDescription && norm.length <= 80 && last.row.description.length < 90) {
         last.row.description = `${last.row.description} ${line.text.replace(/\s{2,}/g, " ")}`.trim().slice(0, 140);
         last.appended++;
       }
@@ -497,7 +513,11 @@ export function parseStatementLines(lines: PdfLine[], opts: { today: ISODate; pa
     if (wasInferred) inferred++;
     const row: PdfRow = { date: rowDate, description: description.slice(0, 140), amountCents: sign * chosen.cents, inferredSign: wasInferred, line: line.text.slice(0, 300), page: line.page };
     rows.push(row);
-    last = { row, page: line.page, appended: 0 };
+    const descCell = line.cells.find((c) => {
+      const t = normalizePdfText(c.text);
+      return /[a-z]/.test(t) && !dateAtStart(t) && !findAmounts(c.text).length;
+    });
+    last = { row, page: line.page, appended: 0, descX: descCell?.x ?? line.cells[0]?.x ?? 0 };
   }
 
   if (inferred) warnings.push(`${inferred} lançamento(s) sem sinal explícito no PDF: entrada ou saída foi deduzida pela descrição. Confira na prévia.`);

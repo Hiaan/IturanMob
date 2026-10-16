@@ -134,6 +134,14 @@ describe("PDF: extratos e faturas dos bancos brasileiros (layouts sintéticos)",
     expect(st.warnings.join(" ")).not.toContain("deduzida");
   });
 
+  it("C6 exportado pelo app: cabeçalho sem o banco, rodapé só na última página — ainda é C6 com confiança", async () => {
+    const { st, rows } = await rowsOf(F.C6_EXTRATO_EXPORTADO);
+    expect(st).toMatchObject({ kind: "BANK", bank: "C6 Bank", bankConfident: true });
+    expect(rows.map((r) => r[1])).toEqual([-100000, 100000, -5000, 30000, -12000]);
+    // O rodapé não vira continuação da última descrição.
+    expect(rows[rows.length - 1]![2]).toBe("Pagamento PAGTO BOLETO ESCOLA NU PAGAMENTOS");
+  });
+
   it("banco citado só nas descrições não é confiável para escolher a conta", async () => {
     const st = await parsePdfStatement(await F.makePdf([["Extrato", [c("01/10/2026", 40), c("Pix para NU PAGAMENTOS", 110), c("-50,00", 380)], [c("02/10/2026", 40), c("Pix de NU PAGAMENTOS", 110), c("-20,00", 380)], ...Array.from({ length: 14 }, (_, i) => [c(`${String(i + 3).padStart(2, "0")}/10/2026`, 40), c("COMPRA LOJA", 110), c("-1,00", 380)])]]), { today: TODAY });
     expect(st.bankConfident).toBe(false);
