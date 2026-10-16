@@ -98,6 +98,9 @@ describe("Desconsiderar nos relatórios", () => {
     expect((await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end, excluded: "hide" })).total).toBe(1);
     expect((await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end, excluded: "only" })).total).toBe(3);
 
+    // A busca da lista encontra pelo cliente do repasse.
+    expect((await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end, search: "cliente x" })).total).toBeGreaterThanOrEqual(3);
+
     // Saldo do repasse: recebeu 500, gastou 900 → falta receber 400.
     const pass = await passthroughSummary(fam.ctx);
     expect(pass.parties).toEqual([expect.objectContaining({ party: "Cliente X", receivedCents: 50_000, spentCents: 90_000, balanceCents: -40_000, count: 3 })]);
@@ -151,6 +154,12 @@ describe("Desconsiderar nos relatórios", () => {
     expect(await applyRuleRetroactively(fam.ctx, rule.id)).toEqual({ applied: 2 });
     const excluded = await prisma.transaction.findMany({ where: { householdId: fam.householdId, excludedFromReports: true }, select: { description: true } });
     expect(excluded.map((t) => t.description).sort()).toEqual(["FACEBK *ADS 1", "FACEBK *ADS 2", "FACEBK *ADS 3"]);
+
+    // Regra que desconsidera e também classifica: a contagem soma os dois efeitos.
+    const uber = await createTransaction(fam.ctx, { type: "EXPENSE", amountCents: 2_000, description: "UBER CLIENTE Z", date: "2026-10-12", creditCardId: card.id, paymentMethod: "CREDIT_CARD" });
+    const both = await createRule(fam.ctx, { name: "Uber de cliente", pattern: "uber cliente", setExcludeFromReports: true, setCategoryId: food });
+    expect(await applyRuleRetroactively(fam.ctx, both.id)).toEqual({ applied: 2 });
+    expect(await prisma.transaction.findUniqueOrThrow({ where: { id: uber.transaction.id } })).toMatchObject({ excludedFromReports: true, categoryId: food });
 
     // Regra de transferência e de desconsiderar ao mesmo tempo é recusada.
     await expect(createRule(fam.ctx, { name: "x", pattern: "y", setExcludeFromReports: true, setTransferAccountId: s.nubank.id })).rejects.toThrow(/transferência e desconsiderar/);

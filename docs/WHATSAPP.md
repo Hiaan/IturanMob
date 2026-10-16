@@ -259,6 +259,10 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
 - *considerar de novo* / *volta a considerar* / *não é repasse* → desfaz.
 - A resposta lembra que saldo e fatura não mudam e, para repasse com cliente, mostra o saldo do repasse.
 - *desconsidera a mensagem anterior* continua sendo excluir o último lançamento (fluxo de exclusão).
+- Natureza: *isso é da empresa*, *marca como empresa o pix do Daniel*, *isso é pessoal* / *não é da
+  empresa* (mesmas regras de alvo); *paguei 750 pro Ícaro, empresa* registra já como Empresa.
+- Regra "perguntar natureza": depois de registrar, o bot pergunta *é da empresa, de cliente (repasse) ou
+  pessoal?* — responda *empresa*, *cliente* (ou *cliente Fulano*) ou *pessoal*; *pular* deixa em Pendências.
 
 Status da conexão: `DISCONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`, `LOGGED_OUT`.
 Eventos (`WhatsAppConnectionEvent`): `CONNECTED`, `DISCONNECTED`, `QR`, `ERROR`, `LOGGED_OUT`.

@@ -32,6 +32,7 @@ import {
   expensesByCategory,
   monthlyIncomeExpense,
   recognizedRows,
+  resolveScope,
   resolveRegime,
   topExpenses,
 } from "../analytics/service";
@@ -330,6 +331,11 @@ export async function buildMonthlyReport(ctx: ServiceContext, month: string, opt
   ]);
   const income = sumRows(rows, "INCOME");
   const expense = sumRows(rows, "EXPENSE");
+  // Natureza: o relatório segue o recorte padrão da família; a empresa aparece à parte.
+  const natureScope = await resolveScope(ctx);
+  const businessRows = natureScope === "BUSINESS" ? rows : await recognizedRows(ctx, period, regime, { scope: "BUSINESS" });
+  const businessIncome = sumRows(businessRows, "INCOME");
+  const businessExpense = sumRows(businessRows, "EXPENSE");
 
   // Meses anteriores (média dos 3 meses antes do mês do relatório, considerando meses com movimento).
   const prevItems = evolution.items.filter((i) => i.month < month).slice(-3);
@@ -410,6 +416,8 @@ export async function buildMonthlyReport(ctx: ServiceContext, month: string, opt
     version: 1,
     type: "MONTHLY",
     month,
+    natureScope,
+    business: businessRows.length ? { incomeCents: businessIncome, expenseCents: businessExpense, resultCents: businessIncome - businessExpense } : null,
     householdName: name,
     scope,
     period,

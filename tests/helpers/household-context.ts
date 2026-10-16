@@ -38,6 +38,7 @@ export function makeHouseholdContext(overrides: Partial<HouseholdContext> = {}):
     settings: {
       householdId: "hh_1",
       defaultRegime: "ACCRUAL",
+      defaultReportScope: "PERSONAL",
       confidenceHigh: 0.85,
       confidenceMedium: 0.6,
       budgetAlertThresholds: [50, 75, 90, 100],

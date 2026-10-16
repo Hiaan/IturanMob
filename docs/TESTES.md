@@ -69,7 +69,11 @@ Outras coberturas além dos 22 cenários:
   fatura e projeção idênticos antes/depois; relatórios em competência e caixa; orçamento; lista e
   filtros; saldo do repasse; regra com condição de cartão aplicada aos novos e anteriores; desfazer),
   `whatsapp-report-exclusion.test.ts` (citação da confirmação do robô, "o pix do fulano é repasse",
-  "todos", "considerar de novo") e `report-exclusion-nlu.test.ts` (frases).
+  "todos", "considerar de novo", natureza Empresa/Pessoal e pergunta da regra) e
+  `report-exclusion-nlu.test.ts` (frases);
+- natureza Pessoal/Empresa/Repasse: `transaction-nature.test.ts` (caixa e fatura idênticos, recortes
+  Pessoal/Empresa/Tudo e padrão da família, resultado da empresa, regras definir/perguntar com valor
+  mínimo no cartão, prévia da importação com "aplicar às parecidas").
 
 ## Boas práticas para novos testes
 

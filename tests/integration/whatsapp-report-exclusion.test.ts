@@ -92,6 +92,37 @@ describe("WhatsApp: desconsiderar nos relatórios", () => {
     expect(sicrano).toHaveLength(2);
   });
 
+  it("natureza: 'paguei 750 pro Ícaro, empresa', 'isso é da empresa' e 'isso é pessoal'", async () => {
+    const { fam } = await family();
+    const pay = await sendMessage(fam, { text: "paguei 750 pro Ícaro, empresa" });
+    expect(pay.reply).toContain("Marcado como *Empresa*");
+    const icaro = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 75_000 } });
+    expect(icaro.scope).toBe("BUSINESS");
+    expect(icaro.description.toLowerCase()).not.toContain("empresa");
+
+    await sendMessage(fam, { text: "gastei 40 de padaria no itaú" });
+    const biz = await sendMessage(fam, { text: "isso é da empresa" });
+    expect(biz.reply).toContain("Marcado como *Empresa*");
+    const padaria = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 4_000 } });
+    expect(padaria.scope).toBe("BUSINESS");
+    const back = await sendMessage(fam, { text: "isso é pessoal" });
+    expect(back.reply).toContain("Marcado como *Pessoal*");
+    expect((await prisma.transaction.findUniqueOrThrow({ where: { id: padaria.id } })).scope).toBe("PERSONAL");
+  });
+
+  it("regra 'perguntar natureza': o bot pergunta se o anúncio é da empresa, de cliente ou pessoal; 'cliente' vira repasse", async () => {
+    const { fam, card } = await family();
+    const { createRule } = await import("@/server/modules/categories/service");
+    await createRule(fam.ctx, { name: "Anúncios", pattern: "facebook", transactionType: "EXPENSE", matchCreditCardId: card.id, minAmountCents: 15_000, askNature: true });
+    const ad = await sendMessage(fam, { text: "gastei 211,47 no facebook ads no cartão nubank" });
+    expect(ad.reply).toContain("é da *empresa*, de *cliente* (repasse) ou *pessoal*?");
+    const ans = await sendMessage(fam, { text: "cliente" });
+    expect(ans.reply).toContain("ficou como *Repasse de cliente*");
+    const tx = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 21_147 } });
+    expect(tx).toMatchObject({ excludedFromReports: true, exclusionReason: "CLIENT_PASSTHROUGH", natureReview: false });
+    expect(await prisma.pendingItem.count({ where: { householdId: fam.householdId, type: "NATURE_REVIEW", status: "OPEN" } })).toBe(0);
+  });
+
   it("'desconsidera a mensagem anterior' continua sendo excluir o último lançamento, não desconsiderar", async () => {
     const { fam } = await family();
     await sendMessage(fam, { text: "gastei 40 de padaria no itaú" });

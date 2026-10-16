@@ -253,6 +253,28 @@ cartão para um cliente, que reembolsa por Pix.
   anteriores. Não combina com regra de transferência.
 - Se o lançamento virar transferência, a marca é removida (transferência nunca é receita/despesa).
 
+### 10.6 Natureza: Pessoal, Empresa ou Repasse
+
+Para quem mistura na conta pessoal gastos e receitas da empresa (ex.: agência que paga a equipe por Pix
+e anuncia no próprio cartão).
+
+- Cada receita/despesa tem natureza **Pessoal** (padrão), **Empresa** ou **Repasse** (o desconsiderado
+  da seção 10.5). Internamente: `Transaction.scope` (PERSONAL/BUSINESS) + a marca de desconsiderado.
+- **Nunca muda** saldo, ledger, fatura, limite, projeção de caixa ou contas a pagar — só relatórios.
+- Painel, relatórios, orçamentos, categorias e assistente usam o recorte **Pessoal | Empresa | Tudo**:
+  informado na tela ou, sem informar, o padrão da família (`HouseholdSettings.defaultReportScope`,
+  padrão Pessoal — famílias sem nada marcado não veem diferença). Repasse fica fora de todos.
+- O painel e o relatório mensal mostram o **resultado da empresa** (receitas − despesas Empresa) à parte.
+- Regras: ação "definir natureza" (Pessoal/Empresa), "desconsiderar" (Repasse) ou **"perguntar"**
+  (ex.: "Facebk" no cartão Nubank acima de R$ 150): o lançamento novo fica marcado "escolher natureza",
+  com pendência; no WhatsApp o bot pergunta "é da empresa, de cliente (repasse) ou pessoal?". Uma regra
+  define uma só natureza; todas podem ser aplicadas aos anteriores.
+- Importação: a prévia mostra a natureza sugerida pelas regras e destaca as que pedem escolha; escolher
+  com "aplicar às parecidas" (mesmo começo da descrição; "FACEBK *X" e "FACEBK *Y" são parecidas). A
+  escolha vale sobre as regras ao importar; nas linhas já registradas, é aplicada ao lançamento existente.
+- Recorrências têm natureza; os lançamentos gerados herdam.
+- Exportações trazem a coluna "Natureza".
+
 ## 11. Indicadores do painel
 
 | Indicador | Regra |

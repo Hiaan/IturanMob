@@ -15,6 +15,8 @@ import { audit } from "../audit/service";
 import { createRule } from "../categories/service";
 import { createPendingItem, resolvePendingWhere } from "../pending/service";
 import { createTransaction, deleteTransaction, updateTransaction } from "../transactions/service";
+import { NATURES, setTransactionNature, type Nature } from "../transactions/nature";
+import { findMatchingRule } from "../rules/matcher";
 import { getVisibilityScope, visibleAccountWhere, visibleCardWhere, visibleTransactionWhere } from "../visibility/scope";
 import { parseCsv } from "./csv";
 import { isOfx, ofxDescription, parseOfx, type OfxStatement } from "./ofx";
@@ -178,6 +180,11 @@ interface RowRawData {
   originalKind?: RowKind | null;
   /** Transferência entre moedas: valor na moeda da outra conta (informado pela pessoa). */
   counterpartAmountCents?: number | null;
+  /** Natureza escolhida na prévia (vale sobre as regras ao importar). */
+  nature?: Nature | null;
+  /** Natureza sugerida por regra (Pessoal/Empresa/Repasse) e pedido de escolha ("perguntar"). */
+  natureSuggested?: Nature | null;
+  natureAsk?: boolean;
 }
 
 interface PreparedRow {
@@ -341,6 +348,30 @@ async function crossCurrencyMessage(r: PreparedRow, name: string, scopeCurrency:
 }
 
 /** Mensagens das linhas de transferência e linhas sem a conta do outro lado (ficam desmarcadas). */
+/**
+ * Natureza sugerida pelas regras (Pessoal/Empresa/Repasse) e linhas em que uma regra pede para
+ * escolher (ex.: anúncios no cartão que podem ser da empresa, de cliente ou pessoais).
+ */
+async function annotateNature(ctx: ServiceContext, rows: PreparedRow[], scope: { accountId: string | null; creditCardId: string | null }, warnings: string[]) {
+  const candidates = rows.filter((r) => (r.raw.kind === "EXPENSE" || r.raw.kind === "INCOME") && r.amountCents && (r.status === "NEW" || r.status === "MATCHED"));
+  if (!candidates.length) return;
+  const rules = await prisma.financialRule.findMany({
+    where: { householdId: ctx.householdId, active: true, setTransferAccountId: null, OR: [{ setExcludeFromReports: true }, { setScope: { not: null } }, { askNature: true }] },
+  });
+  if (!rules.length) return;
+  let asks = 0;
+  for (const r of candidates) {
+    const subject = { description: r.description, merchant: null, amountCents: Math.abs(r.amountCents!), type: r.raw.kind, accountId: scope.accountId, creditCardId: scope.creditCardId };
+    const ex = findMatchingRule(rules.filter((x) => x.setExcludeFromReports), subject);
+    const sc = ex ? null : findMatchingRule(rules.filter((x) => x.setScope), subject);
+    const ask = ex || sc ? null : findMatchingRule(rules.filter((x) => x.askNature), subject);
+    r.raw.natureSuggested = ex ? "PASSTHROUGH" : sc?.setScope === "BUSINESS" ? "BUSINESS" : sc ? "PERSONAL" : null;
+    r.raw.natureAsk = Boolean(ask);
+    if (ask && r.status === "NEW") asks++;
+  }
+  if (asks) warnings.push(`${asks} lançamento(s) pedem a natureza (Pessoal, Empresa ou Repasse de cliente): escolha na prévia ou depois em Pendências.`);
+}
+
 async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[], scopeAccountId: string | null) {
   const transfers = rows.filter((r) => r.raw.kind === "TRANSFER" && r.amountCents);
   if (!transfers.length) return;
@@ -1027,6 +1058,7 @@ async function buildRows(
   const prepared = await prepareRows(ctx, scope, parsed.rows, { invertSigns: opts.invertSigns, warnings });
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
   await annotateTransfers(ctx, rows, warnings, scope.accountId);
+  await annotateNature(ctx, rows, scope, warnings);
   if (pdfMismatch) {
     warnings.unshift(pdfMismatch);
     for (const r of rows) r.selected = false;
@@ -1183,6 +1215,15 @@ function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency:
     selected: r.selected,
     categoryId: r.categoryId,
     kind: raw.kind,
+    /** Receitas/despesas: natureza que vai valer (escolhida, sugerida por regra ou Pessoal). */
+    nature:
+      raw.kind === "EXPENSE" || raw.kind === "INCOME"
+        ? {
+            value: (raw.nature ?? raw.natureSuggested ?? "PERSONAL") as Nature,
+            source: raw.nature ? ("MANUAL" as const) : raw.natureSuggested ? ("RULE" as const) : ("DEFAULT" as const),
+            ask: Boolean(raw.natureAsk && !raw.nature),
+          }
+        : null,
     categoryName: raw.categoryName ?? null,
     installment: raw.installment ?? null,
     cells: raw.cells,
@@ -1639,6 +1680,8 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                 notes: raw.memo && row.description && !row.description.includes(raw.memo) ? raw.memo.slice(0, 500) : null,
                 date: dateToISO(row.date!),
                 categoryId: raw.kind === "CARD_PAYMENT" || raw.kind === "TRANSFER" ? null : row.categoryId,
+                // Natureza escolhida na prévia vale sobre as regras; sem escolha, as regras decidem.
+                ...(raw.nature && (raw.kind === "EXPENSE" || raw.kind === "INCOME") ? { nature: raw.nature } : {}),
               },
               { source: "IMPORT", importBatchId: batchId, checkDuplicates: false, db },
             );
@@ -1716,6 +1759,20 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
           data: { batchId, statementAmountCents: Math.abs(row.amountCents ?? 0), appAmountCents: tx.amountCents },
         });
       }
+    }
+
+    // Já registrados (conciliados) com natureza escolhida na prévia: aplica no lançamento existente.
+    const natureByChoice = new Map<Nature, string[]>();
+    for (const row of rows) {
+      const raw = readRaw(row.rawData);
+      if (row.status !== "MATCHED" || !raw.nature || !row.matchedTransaction || row.matchedTransaction.deletedAt) continue;
+      if (raw.kind !== "EXPENSE" && raw.kind !== "INCOME") continue;
+      natureByChoice.set(raw.nature, [...(natureByChoice.get(raw.nature) ?? []), row.matchedTransaction.id]);
+    }
+    for (const [nature, ids] of natureByChoice) {
+      await setTransactionNature(ctx, { transactionIds: ids, nature }, { reason: `Importação ${batch.fileName}: natureza escolhida na prévia` }).catch((err) =>
+        logger.warn({ householdId: ctx.householdId, batchId, err: errorInfo(err).name }, "imports: natureza não aplicada aos já registrados"),
+      );
     }
 
     meta.commit = { created, matched, divergent, errors, reconciledFills: fills, convertedTransfers: converted };
@@ -1984,3 +2041,51 @@ export async function listImports(ctx: ServiceContext, opts: { limit?: number } 
   return batches.map(batchDTO);
 }
 
+
+
+// -----------------------------------------------------------------------------
+// Natureza na prévia (Pessoal / Empresa / Repasse)
+// -----------------------------------------------------------------------------
+
+/** "FACEBK *ABC123" e "FACEBK *XYZ9" são parecidos (o que vem antes do "*"); senão, o começo da descrição. */
+function natureSimilarityKey(description: string | null): string | null {
+  const star = (description ?? "").indexOf("*");
+  if (star >= 3) {
+    const prefix = normalizeText(description!.slice(0, star)).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (prefix.length >= 3) return `*${prefix}`;
+  }
+  return similarityKey(description);
+}
+
+export const importRowsNatureSchema = z.object({
+  rowIds: z.array(idSchema).min(1).max(5000),
+  /** null volta para o que as regras sugerem. */
+  nature: z.enum(NATURES).nullable(),
+  /** Também as linhas parecidas do mesmo arquivo (mesmo começo de descrição). */
+  applyToSimilar: z.boolean().default(false),
+});
+
+/** Escolhe a natureza das linhas (vale sobre as regras ao importar; saldo e fatura não mudam). */
+export async function setImportRowsNature(ctx: ServiceContext, batchId: string, rawInput: z.input<typeof importRowsNatureSchema>) {
+  assertCan(ctx, "data:import");
+  const input = importRowsNatureSchema.parse(rawInput);
+  const batch = await loadBatch(ctx, batchId);
+  if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída.");
+  const all = await prisma.importRow.findMany({ where: { batchId }, select: { id: true, status: true, description: true, rawData: true } });
+  const eligible = all.filter((r) => (r.status === "NEW" || r.status === "MATCHED") && ["EXPENSE", "INCOME"].includes(readRaw(r.rawData).kind));
+  const chosen = new Set(input.rowIds);
+  let targets = eligible.filter((r) => chosen.has(r.id));
+  if (!targets.length) throw new ValidationError("Nenhuma das linhas é receita ou despesa (só elas têm natureza).");
+  if (input.applyToSimilar) {
+    const keys = new Set(targets.map((r) => natureSimilarityKey(r.description)).filter(Boolean) as string[]);
+    targets = eligible.filter((r) => chosen.has(r.id) || (keys.size && keys.has(natureSimilarityKey(r.description) ?? "")));
+  }
+  await withTransaction(async (db) => {
+    for (const r of targets) {
+      const raw = readRaw(r.rawData);
+      await db.importRow.update({ where: { id: r.id }, data: { rawData: toJson({ ...raw, nature: input.nature }) } });
+    }
+  });
+  await publishEvent(ctx.householdId, "import.changed", batchId);
+  return { ...(await getImportPreview(ctx, batchId)), updatedRows: targets.length };
+}

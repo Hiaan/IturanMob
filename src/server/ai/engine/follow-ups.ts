@@ -11,6 +11,7 @@ import { normalizeForNlu } from "../nlu/text";
 import { findMentions, matchCategory, parseLocally } from "../nlu/local-parser";
 import { closeClarification, openClarification } from "./clarifications";
 import { parseExclusionCommand } from "./report-exclusion";
+import { setTransactionNature } from "../../modules/transactions/nature";
 import type { HouseholdContext } from "./context";
 
 /**
@@ -23,7 +24,7 @@ import type { HouseholdContext } from "./context";
  * A categoria respondida vira uma regra da família ("feijoada" → Almoço), visível em Categorias → Regras.
  */
 
-export type FollowUpField = "category" | "account";
+export type FollowUpField = "nature" | "category" | "account";
 
 interface FollowUp {
   transactionId: string;
@@ -49,14 +50,29 @@ export interface FollowUpAnswer {
   transactionIds: string[];
 }
 
-type TxRow = { id: string; type: string; description: string; amountCents: number; categoryId: string | null; accountId: string | null; creditCardId: string | null; status: string; deletedAt: Date | null };
+type TxRow = {
+  id: string;
+  type: string;
+  description: string;
+  amountCents: number;
+  categoryId: string | null;
+  accountId: string | null;
+  creditCardId: string | null;
+  status: string;
+  deletedAt: Date | null;
+  natureReview: boolean;
+  excludedFromReports: boolean;
+};
 
-const TX_SELECT = { id: true, type: true, description: true, amountCents: true, categoryId: true, accountId: true, creditCardId: true, status: true, deletedAt: true } as const;
+const TX_SELECT = { id: true, type: true, description: true, amountCents: true, categoryId: true, accountId: true, creditCardId: true, status: true, deletedAt: true, natureReview: true, excludedFromReports: true } as const;
 
 function stillMissing(tx: TxRow | null, field: FollowUpField, hc: HouseholdContext): boolean {
   if (!tx || tx.deletedAt || tx.status !== "CONFIRMED") return false;
   if (tx.type !== "EXPENSE" && tx.type !== "INCOME") return false;
-  if (field === "category") return !tx.categoryId;
+  // Natureza pedida por regra (ex.: anúncio que pode ser da empresa, de cliente ou pessoal).
+  if (field === "nature") return tx.natureReview && !tx.excludedFromReports;
+  // Repasse (desconsiderado) não precisa de categoria.
+  if (field === "category") return !tx.categoryId && !tx.excludedFromReports;
   if (hc.accounts.length < 2) return false;
   return tx.type === "EXPENSE" ? !tx.accountId && !tx.creditCardId : !tx.accountId;
 }
@@ -69,7 +85,7 @@ export async function planFollowUps(householdId: string, transactionIds: string[
   const out: FollowUp[] = [];
   for (const id of transactionIds) {
     const tx = byId.get(id) ?? null;
-    for (const field of ["category", "account"] as const) if (stillMissing(tx, field, hc)) out.push({ transactionId: id, field });
+    for (const field of ["nature", "category", "account"] as const) if (stillMissing(tx, field, hc)) out.push({ transactionId: id, field });
   }
   return out;
 }
@@ -95,6 +111,9 @@ async function suggestedCategories(householdId: string, hc: HouseholdContext, ki
 
 async function questionFor(ctx: ServiceContext, hc: HouseholdContext, tx: TxRow, field: FollowUpField): Promise<string> {
   const label = `*${tx.description}* (${formatBRL(tx.amountCents)})`;
+  if (field === "nature") {
+    return `🏢 ${label} é da *empresa*, de *cliente* (repasse) ou *pessoal*?\nResponda empresa, cliente (ou "cliente Fulano") ou pessoal. Para decidir depois, *pular* (fica em Pendências).`;
+  }
   if (field === "category") {
     const examples = await suggestedCategories(ctx.householdId, hc, tx.type === "INCOME" ? "INCOME" : "EXPENSE");
     return `🏷️ Qual a categoria de ${label}?${examples.length ? `\nEx.: ${examples.join(", ")}.` : ""}\nPode ser uma categoria nova. Para deixar sem, responda *pular*.`;
@@ -310,7 +329,33 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
   }
   if (SKIP.test(norm) && norm.split(" ").length <= 4) {
     await closeClarification(open.id);
+    if (current.field === "nature") return next([`Ok, a natureza de *${tx!.description}* fica para depois (em Pendências, no painel).`]);
     return next([`Ok, *${tx!.description}* ficou sem ${current.field === "category" ? "categoria" : "conta"}. Dá para ajustar depois no painel.`]);
+  }
+  if (current.field === "nature") {
+    const nature = natureAnswer(norm);
+    if (!nature) {
+      if (looksLikeNewMessage(opts.text, hc)) {
+        await closeClarification(open.id, "CANCELLED");
+        return null;
+      }
+      return retry(open, payload);
+    }
+    const res = await setTransactionNature(
+      ctx,
+      { transactionIds: [tx!.id], nature: nature.nature, ...(nature.nature === "PASSTHROUGH" ? { reason: "CLIENT_PASSTHROUGH" as const, party: nature.party } : {}) },
+      { reason: "Natureza respondida no WhatsApp (saldo e fatura não mudam)" },
+    );
+    await closeClarification(open.id);
+    const label = `*${tx!.description}* (${formatBRL(tx!.amountCents)})`;
+    const said =
+      nature.nature === "BUSINESS"
+        ? `🏢 ${label} ficou como *Empresa* (sai dos relatórios pessoais).`
+        : nature.nature === "PASSTHROUGH"
+          ? `🚫 ${label} ficou como *Repasse de cliente*${nature.party ? ` (${nature.party})` : ""}: fora dos relatórios. Saldo e fatura não mudam.`
+          : `🏠 ${label} ficou como *Pessoal*.`;
+    if (!res.updated && res.skipped.length) return next([res.skipped[0]!.reason]);
+    return next([said]);
   }
   if (looksLikeNewMessage(opts.text, hc)) {
     await closeClarification(open.id, "CANCELLED");
@@ -356,6 +401,19 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
   await updateTransaction(ctx, tx!.id, { accountId: account.id, creditCardId: null });
   await closeClarification(open.id);
   return next([`✅ ${label} ${tx!.type === "INCOME" ? "entrou em" : "saiu de"} *${account.name}*.`]);
+}
+
+/** "empresa" / "cliente Fulano" / "repasse" / "pessoal". */
+function natureAnswer(norm: string): { nature: "PERSONAL" | "BUSINESS" | "PASSTHROUGH"; party: string | null } | null {
+  const t = norm.replace(/^(e|eh|foi|e da|eh da|foi da|da|de|do|um|uma)\s+/, "").trim();
+  if (/\b(cliente|repasse|reembolso)\b/.test(t)) {
+    const m = /\bcliente\s+([a-z][a-z0-9]*(?:\s+(?:de|da|do|dos|das|e)?\s*[a-z][a-z0-9]*){0,3})/.exec(t);
+    const party = m ? m[1]!.split(" ").filter(Boolean).map((w, i) => (i > 0 && ["de", "da", "do", "das", "dos", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(" ").slice(0, 80) : null;
+    return { nature: "PASSTHROUGH", party };
+  }
+  if (/\b(empresa|trabalho|agencia|firma|negocio)\b/.test(t)) return { nature: "BUSINESS", party: null };
+  if (/\b(pessoal|particular|meu|minha|nosso|nossa|casa|familia)\b/.test(t)) return { nature: "PERSONAL", party: null };
+  return null;
 }
 
 /** Resposta não entendida: repete a pergunta uma vez; na segunda, desiste (o lançamento continua em Pendências). */

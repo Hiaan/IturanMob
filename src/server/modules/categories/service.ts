@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { parsePatch } from "../../validation";
 import { assertExclusionRuleCompatible } from "../transactions/report-exclusion";
+
+/** Uma regra define uma única natureza: Repasse (desconsiderar), Pessoal/Empresa ou perguntar. */
+function assertNatureRuleCompatible(rule: { setExcludeFromReports?: boolean | null; setScope?: string | null; askNature?: boolean | null; setTransferAccountId?: string | null }) {
+  const count = [rule.setExcludeFromReports, rule.setScope, rule.askNature].filter(Boolean).length;
+  if (count > 1) throw new ValidationError("Escolha uma só natureza na regra: Pessoal/Empresa, Repasse (desconsiderar) ou perguntar.", { field: "setScope" });
+  if (count && rule.setTransferAccountId) throw new ValidationError("Regra de transferência não define natureza (transferência não entra nos relatórios).", { field: "setScope" });
+}
 import { prisma, withTransaction } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -196,6 +203,9 @@ export const ruleSchema = z.object({
     .max(80)
     .transform((v) => v || null)
     .nullish(),
+  /** Natureza definida pela regra (Pessoal/Empresa) ou pedir para escolher. */
+  setScope: z.enum(["PERSONAL", "BUSINESS"]).nullish(),
+  askNature: z.boolean().default(false),
   /** Condições opcionais: só lançamentos desta conta / deste cartão. */
   matchAccountId: z.string().nullish(),
   matchCreditCardId: z.string().nullish(),
@@ -241,6 +251,7 @@ async function validateRuleRefs(ctx: ServiceContext, data: Partial<z.output<type
     throw new ValidationError("Escolha uma conta ou um cartão na condição, não os dois.", { field: "matchCreditCardId" });
   }
   assertExclusionRuleCompatible(data);
+  assertNatureRuleCompatible(data);
   if (data.setExcludeFromReports && !data.setExclusionReason) data.setExclusionReason = "CLIENT_PASSTHROUGH";
   if (data.setExcludeFromReports === false) {
     data.setExclusionReason = null;
@@ -278,10 +289,14 @@ export async function updateRule(ctx: ServiceContext, id: string, input: Partial
   const current = await prisma.financialRule.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!current) throw new NotFoundError("Regra");
   await validateRuleRefs(ctx, { ...data, matchType: data.matchType ?? current.matchType, pattern: data.pattern ?? current.pattern });
-  assertExclusionRuleCompatible({
+  const merged = {
     setExcludeFromReports: data.setExcludeFromReports ?? current.setExcludeFromReports,
     setTransferAccountId: data.setTransferAccountId === undefined ? current.setTransferAccountId : data.setTransferAccountId,
-  });
+    setScope: data.setScope === undefined ? current.setScope : data.setScope,
+    askNature: data.askNature ?? current.askNature,
+  };
+  assertExclusionRuleCompatible(merged);
+  assertNatureRuleCompatible(merged);
   if (data.matchAccountId && current.matchCreditCardId && data.matchCreditCardId === undefined) data.matchCreditCardId = null;
   if (data.matchCreditCardId && current.matchAccountId && data.matchAccountId === undefined) data.matchAccountId = null;
   if (data.setTransferAccountId) {
@@ -323,6 +338,8 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
     if (res.converted) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: res.converted } } });
     return { applied: res.converted };
   }
+  // Contagem acumulada: uma regra pode definir natureza/desconsiderar e também a categoria.
+  let natureApplied = 0;
   if (rule.setExcludeFromReports) {
     // Desconsiderar: marca os lançamentos anteriores que casam com a regra (saldo e fatura não mudam).
     const { findMatchingRule } = await import("../rules/matcher");
@@ -345,7 +362,35 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
       );
       applied += res.updated;
     }
+    natureApplied += applied;
     // A mesma regra também classifica? Segue para a categoria abaixo.
+    if (!rule.setCategoryId) {
+      if (applied) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: applied } } });
+      return { applied };
+    }
+  }
+  if (rule.setScope || rule.askNature) {
+    // Natureza: Pessoal/Empresa nos anteriores que casam, ou pedido para escolher.
+    const { findMatchingRule } = await import("../rules/matcher");
+    const { requestNatureReview, setTransactionNature } = await import("../transactions/nature");
+    const candidates = await prisma.transaction.findMany({
+      where: { householdId: ctx.householdId, deletedAt: null, excludedFromReports: false, type: rule.transactionType ?? { in: ["EXPENSE", "INCOME"] } },
+      include: { merchant: { select: { name: true } } },
+      orderBy: { date: "desc" },
+      take: 5000,
+    });
+    const ids = candidates
+      .filter((t) => (rule.setScope ? t.scope !== rule.setScope : true))
+      .filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type, accountId: t.accountId, creditCardId: t.creditCardId }))
+      .map((t) => t.id);
+    let applied = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      applied += rule.setScope
+        ? (await setTransactionNature(ctx, { transactionIds: chunk, nature: rule.setScope }, { reason: `Regra: ${rule.name}` })).updated
+        : await requestNatureReview(ctx, chunk, `Regra "${rule.name}"`);
+    }
+    natureApplied += applied;
     if (!rule.setCategoryId) {
       if (applied) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: applied } } });
       return { applied };
@@ -373,5 +418,6 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
     applied++;
   }
   if (applied) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: applied } } });
-  return { applied };
+  // Regra que desconsidera/define natureza e também classifica: soma os dois efeitos.
+  return { applied: applied + natureApplied };
 }

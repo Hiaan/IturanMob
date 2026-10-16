@@ -27,6 +27,8 @@ export const periodQuerySchema = z.object({
   accountId: z.string().optional(),
   creditCardId: z.string().optional(),
   categoryIds: qs.list(z.string()),
+  /** Natureza: Pessoal, Empresa ou Tudo (padrão da família quando não informado). */
+  scope: z.enum(["PERSONAL", "BUSINESS", "ALL"]).optional(),
 });
 
 export type PeriodQuery = z.output<typeof periodQuerySchema>;
@@ -36,5 +38,5 @@ export function periodFromQuery(q: { preset: PeriodPreset; start?: string; end?:
 }
 
 export function filtersFromQuery(q: PeriodQuery) {
-  return { memberId: q.memberId, accountId: q.accountId, creditCardId: q.creditCardId, categoryIds: q.categoryIds };
+  return { memberId: q.memberId, accountId: q.accountId, creditCardId: q.creditCardId, categoryIds: q.categoryIds, scope: q.scope };
 }

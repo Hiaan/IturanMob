@@ -36,6 +36,8 @@ const fields = {
   creditCardId: idSchema.nullish(),
   ownership: z.enum(["SHARED", "INDIVIDUAL"]),
   responsibleMemberId: idSchema.nullish(),
+  /** Natureza dos lançamentos gerados: Pessoal ou Empresa. */
+  scope: z.enum(["PERSONAL", "BUSINESS"]),
   frequency: z.enum(RECURRENCE_FREQUENCIES),
   interval: z.number().int().min(1).max(366),
   dayOfMonth: z.number().int().min(1).max(31).nullish(),
@@ -50,6 +52,7 @@ export const recurringCreateSchema = z.object({
   type: fields.type.default("EXPENSE"),
   isVariableAmount: fields.isVariableAmount.default(false),
   ownership: fields.ownership.default("SHARED"),
+  scope: fields.scope.default("PERSONAL"),
   frequency: fields.frequency.default("MONTHLY"),
   interval: fields.interval.default(1),
   startDate: isoDateSchema.optional(),
@@ -86,6 +89,7 @@ interface NormalizedRecurring {
   creditCardId: string | null;
   ownership: "SHARED" | "INDIVIDUAL";
   responsibleMemberId: string | null;
+  scope: "PERSONAL" | "BUSINESS";
   frequency: (typeof RECURRENCE_FREQUENCIES)[number];
   interval: number;
   dayOfMonth: number | null;
@@ -112,6 +116,7 @@ async function normalizeRecurring(db: Db, ctx: ServiceContext, input: Omit<Recur
     creditCardId: input.creditCardId ?? null,
     ownership: input.ownership,
     responsibleMemberId: input.responsibleMemberId ?? null,
+    scope: input.scope ?? "PERSONAL",
     frequency: input.frequency,
     interval: input.frequency === "CUSTOM_DAYS" || input.frequency === "CUSTOM_MONTHS" ? input.interval : 1,
     dayOfMonth: MONTH_BASED.has(input.frequency) ? input.dayOfMonth ?? null : null,
@@ -290,6 +295,8 @@ export interface RecurringDTO {
   creditCard: { id: string; name: string; color: string } | null;
   ownership: string;
   responsible: { id: string; displayName: string; color: string } | null;
+  /** Natureza: Pessoal ou Empresa. */
+  scope: "PERSONAL" | "BUSINESS";
   frequency: string;
   frequencyLabel: string;
   scheduleLabel: string;
@@ -325,6 +332,7 @@ function toDTO(rec: RecurringRow, next: { date: string | null; scheduledPaymentI
     creditCard: rec.creditCard,
     ownership: rec.ownership,
     responsible: rec.responsible,
+    scope: rec.scope,
     frequency: rec.frequency,
     frequencyLabel: RECURRENCE_FREQUENCY_LABELS[rec.frequency],
     scheduleLabel: describeRecurrence(rule),
@@ -523,6 +531,7 @@ export async function updateRecurring(ctx: ServiceContext, id: string, input: Re
       creditCardId: patch.creditCardId !== undefined ? patch.creditCardId : current.creditCardId,
       ownership: patch.ownership ?? current.ownership,
       responsibleMemberId: patch.responsibleMemberId !== undefined ? patch.responsibleMemberId : current.responsibleMemberId,
+      scope: patch.scope ?? current.scope,
       frequency: patch.frequency ?? current.frequency,
       interval: patch.interval ?? current.interval,
       dayOfMonth: patch.dayOfMonth !== undefined ? patch.dayOfMonth : current.dayOfMonth,
@@ -654,6 +663,7 @@ export async function autoPostOccurrence(ctx: ServiceContext, scheduledPaymentId
         responsibleMemberId: rec.ownership === "INDIVIDUAL" ? rec.responsibleMemberId : null,
         payerMemberId: rec.responsibleMemberId,
         status: sp.isEstimate ? "PENDING" : "CONFIRMED",
+        nature: rec.scope,
       },
       { source: "RECURRING", recurringTransactionId: rec.id, scheduledPaymentId: sp.id, checkDuplicates: false, db },
     );

@@ -496,7 +496,7 @@ export async function markPaid(ctx: ServiceContext, id: string, input: BillPayIn
     const rec = sp.recurringTransactionId
       ? await db.recurringTransaction.findUnique({
           where: { id: sp.recurringTransactionId },
-          select: { categoryId: true, subcategoryId: true, paymentMethod: true, ownership: true, responsibleMemberId: true, merchant: { select: { name: true } } },
+          select: { categoryId: true, subcategoryId: true, paymentMethod: true, ownership: true, responsibleMemberId: true, scope: true, merchant: { select: { name: true } } },
         })
       : null;
 
@@ -522,6 +522,7 @@ export async function markPaid(ctx: ServiceContext, id: string, input: BillPayIn
         creditCardId,
         ownership: rec?.ownership ?? "SHARED",
         responsibleMemberId: rec?.ownership === "INDIVIDUAL" ? rec.responsibleMemberId : null,
+        ...(rec?.scope ? { nature: rec.scope } : {}),
       },
       { scheduledPaymentId: id, source: "MANUAL", checkDuplicates: false, db },
     );

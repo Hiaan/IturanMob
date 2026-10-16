@@ -82,6 +82,20 @@ enum PaymentMethod {
   OTHER
 }
 
+/// Natureza econômica do lançamento: da família (pessoal) ou da empresa. Só afeta relatórios e
+/// análises — saldo, ledger, fatura e projeção de caixa nunca mudam por causa dela.
+enum TransactionScope {
+  PERSONAL
+  BUSINESS
+}
+
+/// Recorte padrão dos relatórios da família (Pessoal, Empresa ou Tudo).
+enum ReportScope {
+  PERSONAL
+  BUSINESS
+  ALL
+}
+
 /// Por que um lançamento foi desconsiderado nos relatórios (continua no saldo, no ledger e na fatura).
 enum ReportExclusionReason {
   /// Repasse de cliente: o dinheiro recebido/gasto é de outra pessoa (ex.: anúncios pagos no cartão).
@@ -321,6 +335,8 @@ enum PendingType {
   IMPORT_DIVERGENCE
   INSTALLMENT_INCONSISTENT
   CLARIFICATION
+  /// Uma regra pediu para escolher a natureza (Pessoal/Empresa/Repasse).
+  NATURE_REVIEW
 }
 
 enum PendingStatus {
@@ -510,6 +526,8 @@ model HouseholdSettings {
   whatsappReplies         Boolean          @default(true)
   /// Responder consultas financeiras no grupo do WhatsApp.
   whatsappAnswerQueries   Boolean          @default(true)
+  /// Recorte padrão do painel, relatórios, orçamentos e assistente: Pessoal, Empresa ou Tudo.
+  defaultReportScope      ReportScope      @default(PERSONAL)
   updatedAt               DateTime         @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -780,6 +798,10 @@ model FinancialRule {
   setExcludeFromReports  Boolean                @default(false)
   setExclusionReason     ReportExclusionReason?
   setExclusionParty      String?
+  /// Natureza definida pela regra (Pessoal/Empresa).
+  setScope               TransactionScope?
+  /// Perguntar a natureza (ex.: anúncios que podem ser da empresa, de cliente ou pessoais).
+  askNature              Boolean                @default(false)
   /// Condições opcionais: só lançamentos desta conta / deste cartão.
   matchAccountId         String?
   matchCreditCardId      String?
@@ -857,6 +879,10 @@ model Transaction {
   aiMetadata             Json?
   /// Impressão digital para detecção de duplicidade (valor+data+estabelecimento).
   fingerprint            String?
+  /// Pessoal (família) ou da empresa. Só afeta relatórios — saldo, ledger e fatura não mudam.
+  scope                  TransactionScope       @default(PERSONAL)
+  /// Uma regra pediu para confirmar a natureza (Pessoal/Empresa/Repasse); some ao escolher.
+  natureReview           Boolean                @default(false)
   /// Desconsiderado nos relatórios (receitas/despesas, categorias, orçamentos, assistente).
   /// Continua no saldo, no ledger, na fatura do cartão e na projeção de caixa.
   excludedFromReports    Boolean                @default(false)
@@ -909,6 +935,7 @@ model Transaction {
   @@index([householdId, deletedAt])
   @@index([householdId, fingerprint])
   @@index([householdId, excludedFromReports])
+  @@index([householdId, scope])
   @@index([accountId])
   @@index([destinationAccountId])
   @@index([creditCardId])
@@ -991,6 +1018,8 @@ model RecurringTransaction {
   accountId           String?
   creditCardId        String?
   ownership           Ownership           @default(SHARED)
+  /// Natureza dos lançamentos gerados (Pessoal/Empresa).
+  scope               TransactionScope    @default(PERSONAL)
   responsibleMemberId String?
   frequency           RecurrenceFrequency @default(MONTHLY)
   /// Intervalo para frequências personalizadas (dias ou meses).

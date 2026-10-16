@@ -45,6 +45,12 @@ export interface TransactionDTO {
   updatedAt: string;
   deletedAt: string | null;
   goalId: string | null;
+  /** Pessoal (família) ou da empresa. */
+  scope: "PERSONAL" | "BUSINESS";
+  /** Natureza exibida: Pessoal, Empresa ou Repasse (= desconsiderado nos relatórios). */
+  nature: "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
+  /** Uma regra pediu para escolher a natureza. */
+  natureReview: boolean;
   /** Desconsiderado nos relatórios: continua no saldo, no ledger e na fatura. */
   excludedFromReports: boolean;
   exclusion: {
@@ -96,6 +102,9 @@ export function serializeTransaction(tx: TransactionWithRelations): TransactionD
     updatedAt: tx.updatedAt.toISOString(),
     deletedAt: tx.deletedAt?.toISOString() ?? null,
     goalId: tx.goalId,
+    scope: tx.scope,
+    nature: tx.excludedFromReports ? "PASSTHROUGH" : tx.scope === "BUSINESS" ? "BUSINESS" : "PERSONAL",
+    natureReview: tx.natureReview,
     excludedFromReports: tx.excludedFromReports,
     exclusion: tx.excludedFromReports
       ? {

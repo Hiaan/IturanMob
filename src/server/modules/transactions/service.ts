@@ -1,4 +1,4 @@
-import { Prisma, type Transaction, type TransactionSource } from "@prisma/client";
+import { Prisma, type FinancialRule, type Transaction, type TransactionScope, type TransactionSource } from "@prisma/client";
 import { parsePatch } from "../../validation";
 import { prisma, withTransaction, type Db } from "../../db";
 import type { ServiceContext } from "../../auth/context";
@@ -13,7 +13,8 @@ import { createPendingItem, resolvePendingWhere } from "../pending/service";
 import { getSettings } from "../households/service";
 import { getVisibilityScope, visibleTransactionWhere } from "../visibility/scope";
 import { findMatchingRule } from "../rules/matcher";
-import { canExcludeType, exclusionFromRule, type ExclusionFields } from "./report-exclusion";
+import { canExcludeType, exclusionFields, exclusionFromRule, type ExclusionFields } from "./report-exclusion";
+import { natureFields } from "./nature";
 import { buildInstallmentPlan } from "../cards/billing";
 import { ensureStatement, resolvePaymentStatement } from "../cards/statements";
 import { buildLedgerPostings, isPostable } from "./postings";
@@ -64,6 +65,9 @@ type Normalized = TransactionFields & {
   amountBrlCents: number | null;
   /** Desconsiderar nos relatórios (definido por regra na criação). */
   exclusion?: ExclusionFields | null;
+  /** Natureza Pessoal/Empresa (regra ou informada) e pedido de confirmação da natureza. */
+  scope?: TransactionScope;
+  natureReview?: boolean;
 };
 
 // -----------------------------------------------------------------------------
@@ -257,24 +261,33 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
   return data;
 }
 
-async function applyRules(db: Db, ctx: ServiceContext, data: Normalized, merchantName: string | null | undefined): Promise<string | null> {
+async function applyRules(db: Db, ctx: ServiceContext, data: Normalized, merchantName: string | null | undefined, opts: { skipNature?: boolean } = {}): Promise<string | null> {
   if (data.type !== "EXPENSE" && data.type !== "INCOME") return null;
   // Regras de transferência (aplicação/resgate) não mexem em categoria.
   const rules = await db.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setTransferAccountId: null } });
   if (!rules.length) return null;
   const subject = { description: data.description, merchant: merchantName ?? null, amountCents: data.amountCents, type: data.type, accountId: data.accountId, creditCardId: data.creditCardId };
-  // Desconsiderar nos relatórios (repasse/reembolso): vale mesmo quando a categoria já veio definida.
-  const excludeRule = findMatchingRule(
-    rules.filter((r) => r.setExcludeFromReports),
-    subject,
-  );
-  if (excludeRule) {
-    data.exclusion = exclusionFromRule(ctx, excludeRule);
-    await db.financialRule.update({ where: { id: excludeRule.id }, data: { timesApplied: { increment: 1 } } });
+  // Natureza (vale mesmo quando a categoria já veio definida; natureza informada tem prioridade):
+  // Repasse (desconsiderar) > Pessoal/Empresa definida > perguntar.
+  let excludeRule: FinancialRule | null = null;
+  if (!opts.skipNature) {
+    excludeRule = findMatchingRule(
+      rules.filter((r) => r.setExcludeFromReports),
+      subject,
+    );
+    const scopeRule = excludeRule ? null : findMatchingRule(rules.filter((r) => r.setScope), subject);
+    const askRule = excludeRule || scopeRule ? null : findMatchingRule(rules.filter((r) => r.askNature), subject);
+    if (excludeRule) data.exclusion = exclusionFromRule(ctx, excludeRule);
+    if (scopeRule?.setScope) data.scope = scopeRule.setScope;
+    if (askRule) data.natureReview = true;
+    const natureRule = excludeRule ?? scopeRule ?? askRule;
+    if (natureRule) await db.financialRule.update({ where: { id: natureRule.id }, data: { timesApplied: { increment: 1 } } });
+    excludeRule = natureRule;
   }
   if (data.categoryId) return excludeRule?.id ?? null;
-  // Regra que só desconsidera não decide categoria (deixa a próxima regra classificar).
-  const categoryRules = rules.filter((r) => !r.setExcludeFromReports || r.setCategoryId || r.setPaymentMethod || r.setAccountId || r.setOwnership);
+  // Regra que só define natureza não decide categoria (deixa a próxima regra classificar).
+  const onlyNature = (r: FinancialRule) => (r.setExcludeFromReports || r.setScope || r.askNature) && !r.setCategoryId && !r.setPaymentMethod && !r.setAccountId && !r.setOwnership;
+  const categoryRules = rules.filter((r) => !onlyNature(r));
   const rule = findMatchingRule(categoryRules, subject);
   if (!rule) return excludeRule?.id ?? null;
   if (rule.setCategoryId) {
@@ -438,7 +451,14 @@ export async function createTransaction(
     }
 
     const data = await normalize(db, ctx, input);
-    const ruleId = opts.applyRules === false ? null : await applyRules(db, ctx, data, input.merchantName);
+    const ruleId = opts.applyRules === false ? null : await applyRules(db, ctx, data, input.merchantName, { skipNature: Boolean(input.nature) });
+    if (input.nature && canExcludeType(data.type)) {
+      // Natureza informada (API, importação, WhatsApp): vale sobre as regras.
+      const f = natureFields(ctx, input.nature, { scope: "PERSONAL" });
+      data.scope = f.scope;
+      data.natureReview = false;
+      data.exclusion = input.nature === "PASSTHROUGH" ? exclusionFields(ctx, true, f.exclusionReason, f.exclusionParty, f.exclusionNote) : null;
+    }
     const settings = await getSettings(ctx.householdId, db);
 
     let duplicates: DuplicateCandidate[] = [];
@@ -498,6 +518,8 @@ export async function createTransaction(
         fingerprint: transactionFingerprint({ ...data, merchantName: input.merchantName }),
         createdByMemberId: ctx.memberId,
         ...(data.exclusion && canExcludeType(data.type) ? data.exclusion : {}),
+        scope: canExcludeType(data.type) ? (data.scope ?? "PERSONAL") : "PERSONAL",
+        natureReview: canExcludeType(data.type) && Boolean(data.natureReview),
         allocations: data.allocations.length ? { create: data.allocations } : undefined,
       },
       include: { allocations: true },
@@ -505,6 +527,17 @@ export async function createTransaction(
 
     await repostTransaction(db, tx.id);
     const pendingTypes = await syncAutomaticPending(db, ctx, tx);
+    if (tx.natureReview) {
+      await createPendingItem(db, {
+        householdId: ctx.householdId,
+        type: "NATURE_REVIEW",
+        title: `Escolher natureza: ${tx.description}`,
+        description: "Uma regra pede para confirmar se este lançamento é Pessoal, da Empresa ou Repasse de cliente. Saldo e fatura não mudam.",
+        transactionId: tx.id,
+        dedupeKey: `nature:${tx.id}`,
+      });
+      pendingTypes.push("NATURE_REVIEW");
+    }
 
     if (duplicates.length) {
       const top = duplicates[0]!;
@@ -700,7 +733,7 @@ export async function updateTransaction(
         goalId: data.goalId,
         fingerprint: transactionFingerprint({ ...data, merchantName: merged.merchantName }),
         // Só receita/despesa pode ficar desconsiderada (virou transferência/pagamento: volta ao normal).
-        ...(canExcludeType(data.type) ? {} : { excludedFromReports: false, exclusionReason: null, exclusionParty: null, exclusionNote: null, excludedAt: null, excludedByMemberId: null }),
+        ...(canExcludeType(data.type) ? {} : { excludedFromReports: false, exclusionReason: null, exclusionParty: null, exclusionNote: null, excludedAt: null, excludedByMemberId: null, natureReview: false, scope: "PERSONAL" as const }),
         version: { increment: 1 },
         allocations: { deleteMany: {}, create: data.allocations },
       },
@@ -708,6 +741,9 @@ export async function updateTransaction(
     });
     await repostTransaction(db, id);
     await syncAutomaticPending(db, ctx, updated);
+    if (!canExcludeType(updated.type)) {
+      await resolvePendingWhere(db, { householdId: ctx.householdId, type: "NATURE_REVIEW", transactionId: id }, "Não é receita nem despesa", ctx.memberId ?? null);
+    }
 
     const before = snapshot(current);
     const after = snapshot(updated);
@@ -821,6 +857,8 @@ export async function buildTransactionWhere(ctx: ServiceContext, raw: Transactio
   if (f.deleted === "only") and.push({ deletedAt: { not: null } });
   if (f.excluded === "hide") and.push({ excludedFromReports: false });
   if (f.excluded === "only") and.push({ excludedFromReports: true });
+  if (f.scope) and.push({ scope: f.scope });
+  if (f.natureReview) and.push({ natureReview: true });
   if (f.start) and.push({ [f.dateField]: { gte: isoToDate(f.start) } });
   if (f.end) and.push({ [f.dateField]: { lte: isoToDate(f.end) } });
   if (f.types?.length) and.push({ type: { in: f.types } });
@@ -850,6 +888,8 @@ export async function buildTransactionWhere(ctx: ServiceContext, raw: Transactio
       { merchant: { name: { contains: term, mode: "insensitive" } } },
       { category: { name: { contains: term, mode: "insensitive" } } },
       { subcategory: { name: { contains: term, mode: "insensitive" } } },
+      // Cliente do repasse/reembolso ("Agência Alfa").
+      { exclusionParty: { contains: term, mode: "insensitive" } },
     ];
     if (Number.isFinite(asNumber) && asNumber > 0) or.push({ amountCents: Math.round(asNumber * 100) });
     and.push({ OR: or });

@@ -6,6 +6,7 @@ import { assertCan } from "../../auth/permissions";
 import { ValidationError } from "../../errors";
 import { publishEvent } from "../../events";
 import { audit } from "../audit/service";
+import { resolvePendingWhere } from "../pending/service";
 import { dateToISO, isoToDate } from "@/lib/dates";
 import { getVisibilityScope, visibleTransactionWhere } from "../visibility/scope";
 import { idSchema, isoDateSchema } from "./schemas";
@@ -141,7 +142,7 @@ export async function setReportExclusion(ctx: ServiceContext, raw: ReportExclusi
             input.note === undefined ? t.exclusionNote : input.note,
           )
         : exclusionFields(ctx, false);
-      await db.transaction.update({ where: { id: t.id }, data: { ...fields, version: { increment: 1 } } });
+      await db.transaction.update({ where: { id: t.id }, data: { ...fields, ...(input.excluded ? { natureReview: false } : {}), version: { increment: 1 } } });
       await audit(
         ctx,
         {
@@ -156,9 +157,15 @@ export async function setReportExclusion(ctx: ServiceContext, raw: ReportExclusi
       );
     }
   };
+  const runAll = async (db: Db) => {
+    await run(db);
+    if (input.excluded && toUpdate.length) {
+      await resolvePendingWhere(db, { householdId: ctx.householdId, type: "NATURE_REVIEW", transactionId: { in: toUpdate.map((t) => t.id) } }, "Natureza definida: Repasse", ctx.memberId ?? null);
+    }
+  };
   if (toUpdate.length) {
-    if (opts.db) await run(opts.db);
-    else await withTransaction(run);
+    if (opts.db) await runAll(opts.db);
+    else await withTransaction(runAll);
     if (!opts.db) {
       await publishEvent(ctx.householdId, "transaction.changed");
     }

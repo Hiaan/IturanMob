@@ -45,7 +45,10 @@ export const transactionFieldsSchema = z.object({
   goalId: idSchema.nullish(),
 });
 
-export const transactionCreateSchema = transactionFieldsSchema;
+export const transactionCreateSchema = transactionFieldsSchema.extend({
+  /** Natureza: Pessoal (padrão), Empresa ou Repasse (desconsiderado nos relatórios). Sem informar, valem as regras. */
+  nature: z.enum(["PERSONAL", "BUSINESS", "PASSTHROUGH"]).nullish(),
+});
 export type TransactionCreateInput = z.input<typeof transactionCreateSchema>;
 export type TransactionFields = z.output<typeof transactionFieldsSchema>;
 
@@ -78,6 +81,10 @@ export const transactionListSchema = z.object({
   deleted: z.enum(["exclude", "include", "only"]).default("exclude"),
   /** Desconsiderados nos relatórios: mostrar junto (padrão), ocultar ou só eles. */
   excluded: z.enum(["all", "hide", "only"]).default("all"),
+  /** Natureza Pessoal/Empresa (repasses: ver `excluded`). */
+  scope: z.enum(["PERSONAL", "BUSINESS"]).optional(),
+  /** Só os que uma regra pediu para escolher a natureza. */
+  natureReview: z.boolean().optional(),
   sort: z.enum(["date_desc", "date_asc", "amount_desc", "amount_asc", "created_desc"]).default("date_desc"),
   page: z.number().int().min(1).default(1),
   pageSize: z.number().int().min(1).max(500).default(50),

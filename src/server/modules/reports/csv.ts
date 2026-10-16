@@ -25,8 +25,8 @@ export interface ExportTransactionRow {
   status: string;
   installmentCount: number;
   deleted: boolean;
-  /** "" ou "Desconsiderado (Repasse de cliente · Cliente X)": fora dos relatórios, mas no saldo/fatura. */
-  reports: string;
+  /** Pessoal, Empresa, "Repasse · Cliente X" ou "Desconsiderado (Reembolso)" — este fora dos relatórios. */
+  nature: string;
 }
 
 function signedAmount(t: TransactionDTO): number {
@@ -71,13 +71,19 @@ export function toExportRow(t: TransactionDTO): ExportTransactionRow {
     status: t.deletedAt ? "Excluída" : t.status === "PENDING" ? "Aguardando confirmação" : "Confirmada",
     installmentCount: t.installmentCount,
     deleted: Boolean(t.deletedAt),
-    reports: t.exclusion ? `Desconsiderado (${EXCLUSION_LABELS[t.exclusion.reason] ?? "Outro"}${t.exclusion.party ? ` · ${t.exclusion.party}` : ""})` : "",
+    nature: natureLabel(t),
   };
 }
 
-const EXCLUSION_LABELS: Record<string, string> = { CLIENT_PASSTHROUGH: "Repasse de cliente", REIMBURSEMENT: "Reembolso", OTHER: "Outro" };
+const EXCLUSION_LABELS: Record<string, string> = { CLIENT_PASSTHROUGH: "Repasse", REIMBURSEMENT: "Desconsiderado (Reembolso)", OTHER: "Desconsiderado" };
 
-export const CSV_HEADERS = ["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Relatórios"];
+function natureLabel(t: { type: string; nature?: string; scope?: string; exclusion?: { reason: string; party: string | null } | null }): string {
+  if (t.type !== "EXPENSE" && t.type !== "INCOME") return "";
+  if (t.exclusion) return `${EXCLUSION_LABELS[t.exclusion.reason] ?? "Desconsiderado"}${t.exclusion.party ? ` · ${t.exclusion.party}` : ""}`;
+  return t.scope === "BUSINESS" ? "Empresa" : "Pessoal";
+}
+
+export const CSV_HEADERS = ["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Natureza"];
 
 /** Evita que planilhas interpretem textos como fórmulas (injeção de fórmulas em CSV). */
 export function safeCsvText(value: string): string {
@@ -102,7 +108,7 @@ export function renderTransactionsCsv(rows: ExportTransactionRow[]): Buffer {
     safeCsvText(r.accountOrCard),
     safeCsvText(r.responsible),
     r.status,
-    safeCsvText(r.reports),
+    safeCsvText(r.nature),
   ]);
   const text = Papa.unparse({ fields: CSV_HEADERS, data }, { delimiter: ";", newline: "\r\n", quotes: false, header: true });
   return Buffer.from(`﻿${text}\r\n`, "utf8");

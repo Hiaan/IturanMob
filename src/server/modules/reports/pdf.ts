@@ -407,6 +407,13 @@ function monthlyBody(w: PdfWriter, d: MonthlyReportData) {
     { label: "Despesas", value: formatBRL(d.totals.expenseCents), color: C.expense, sub: `Mês anterior: ${formatBRL(cmp.previousExpenseCents)} (${pct(cmp.expenseChangePct, true)})` },
     { label: "Resultado do mês", value: formatBRL(d.totals.resultCents, { signed: true }), color: d.totals.resultCents >= 0 ? C.primary : C.expense, sub: `${d.recognizedTransactions} lançamento(s)` },
   ]);
+  if (d.business && d.natureScope !== "BUSINESS") {
+    w.kpis([
+      { label: "Empresa · receitas", value: formatBRL(d.business.incomeCents), color: C.income, sub: d.natureScope === "ALL" ? "Natureza Empresa (incluída nos totais acima)" : "Natureza Empresa (fora dos totais acima)" },
+      { label: "Empresa · despesas", value: formatBRL(d.business.expenseCents), color: C.expense, sub: "Saldo e faturas não mudam pela natureza" },
+      { label: "Resultado da empresa", value: formatBRL(d.business.resultCents, { signed: true }), color: d.business.resultCents >= 0 ? C.primary : C.expense, sub: "Receitas − despesas da empresa" },
+    ]);
+  }
   w.kpis([
     { label: `Saldo disponível em ${formatDateBR(d.balance.asOf)}`, value: formatBRL(d.balance.availableCents), color: C.primaryDark, sub: d.balance.investmentsCents ? `Investimentos: ${formatBRL(d.balance.investmentsCents)}` : "Contas incluídas nos totais" },
     {

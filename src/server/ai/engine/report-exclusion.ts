@@ -5,6 +5,7 @@ import { formatBRL } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
 import { dateToISO } from "@/lib/dates";
 import { EXCLUSION_REASON_LABELS, passthroughSummary, setReportExclusion } from "../../modules/transactions/report-exclusion";
+import { setTransactionNature } from "../../modules/transactions/nature";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { closeClarification, openClarification } from "./clarifications";
@@ -20,7 +21,8 @@ import type { HouseholdContext } from "./context";
  */
 
 export interface ExclusionCommand {
-  action: "EXCLUDE" | "INCLUDE";
+  /** EXCLUDE = Repasse (desconsiderar); INCLUDE = desfazer; BUSINESS/PERSONAL = natureza Empresa/Pessoal. */
+  action: "EXCLUDE" | "INCLUDE" | "BUSINESS" | "PERSONAL";
   reason: ReportExclusionReason;
   /** Cliente/pessoa citada ("pix do Fulano", "repasse do cliente X"). */
   party: string | null;
@@ -38,6 +40,13 @@ const MARK_RE = /\b(marca(r)?|marque|considera(r)?|considere|trata(r)?|trate|col
 const NEW_TX_VERB = /\b(gastei|gastou|gastamos|paguei|pagou|pagamos|comprei|comprou|compramos|recebi|recebemos|recebeu|ganhei|entrou|entraram|caiu|cairam|transferi|fiz um pix|fiz pix|mandei)\b/;
 
 const CONNECTORS = new Set(["de", "da", "do", "das", "dos", "e"]);
+
+/** "isso é da empresa", "marca como empresa", "é empresa". */
+const BUSINESS_RE = /\b(e|eh|foi|era|sao|foram)\s+((da|de|pra|para a|p\/ a)\s+)?empresa\b|\b(marca\w*|marque|considera\w*|considere|coloca\w*|coloque|passa\w*|passe|trata\w*|trate|joga\w*|joga)\s+(como|na|pra|para a|para)\s+(da\s+)?empresa\b|\b(gasto|despesa|custo|receita|pagamento|conta)\s+da\s+empresa\b/;
+/** "isso é pessoal", "não é da empresa", "marca como pessoal". */
+const PERSONAL_RE = /\b(e|eh|foi|era)\s+(pessoal|particular|meu|minha|nosso|nossa|da familia|de casa)\b|\b(marca\w*|marque|considera\w*|considere|coloca\w*|coloque|volta\w*|passa\w*)\s+(como|pra|para|no)\s+pessoal\b|\bnao\s+(e|eh|foi|era)\s+(da\s+)?empresa\b/;
+/** Lançamento novo com a natureza no fim: "paguei 750 pro Ícaro, empresa". */
+const BUSINESS_MARKER_RE = /[,;-]\s*(da\s+|pra\s+|para a\s+)?empresa\s*[.!]?$|\b(e|eh|foi)\s+(da\s+)?empresa\b|\b(pra|para a|da)\s+empresa\s*[.!]?$/;
 
 function titleCase(s: string): string {
   return s
@@ -69,10 +78,14 @@ export function parseExclusionCommand(text: string): ExclusionCommand | null {
   if (!norm || norm.length > 300) return null;
   // "desconsidera a mensagem anterior" é desfazer o que foi enviado (exclusão), não repasse.
   if (/\bmensage(m|ns)\b/.test(norm) && !/\b(repasse|reembolso|relatorios?)\b/.test(norm)) return null;
-  const include = INCLUDE_RE.test(norm);
-  const exclude = !include && (DESCONSIDERA_RE.test(norm) || COPULA_RE.test(norm) || MARK_RE.test(norm));
-  if (!include && !exclude) return null;
+  const personal = PERSONAL_RE.test(norm);
+  const business = !personal && BUSINESS_RE.test(norm);
+  const include = !personal && !business && INCLUDE_RE.test(norm);
+  const exclude = !personal && !business && !include && (DESCONSIDERA_RE.test(norm) || COPULA_RE.test(norm) || MARK_RE.test(norm));
+  if (!include && !exclude && !personal && !business) return null;
   const amounts = extractAmounts(text);
+  // "paguei 750 pro Ícaro, empresa" é lançamento novo (natureza vai junto no registro).
+  if ((business || personal) && amounts.length && NEW_TX_VERB.test(norm)) return null;
   // "recebi 500 do Fulano, é repasse" é um lançamento novo: quem trata é o fluxo normal.
   if (exclude && amounts.length && NEW_TX_VERB.test(norm)) return null;
 
@@ -86,28 +99,49 @@ export function parseExclusionCommand(text: string): ExclusionCommand | null {
   // Texto-alvo: o que sobra tirando os termos do comando e palavras de ligação.
   const rest = norm
     .replace(INCLUDE_RE, " ")
+    .replace(PERSONAL_RE, " ")
+    .replace(BUSINESS_RE, " ")
+    .replace(/\b(empresa|pessoal|particular)\b/g, " ")
     .replace(/\bdesconsider\w*\b|\b(e|eh|foi|era|sao|foram)\s+(um\s+|uma\s+)?(repasse|reembolso)\b|\b(marca\w*|marque|considera\w*|considere|trata\w*|trate|coloca\w*|coloque)\s+(como|de)\s+(repasse|reembolso)\b/g, " ")
     .replace(/\b(repasse|reembolso|de cliente|do cliente|da cliente|cliente|nos relatorios|no relatorio|relatorios?|esse|este|essa|esta|isso|isto|aqui|ai|o|a|os|as|um|uma|lancamento|por favor|pf|pfv|favor|tambem|de novo|novamente)\b/g, " ")
     .replace(/[.,!?:;]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const targetText = party ? normalizeText(party) : rest.length >= 3 && !/^\d+$/.test(rest) ? rest : null;
-  return { action: include ? "INCLUDE" : "EXCLUDE", reason, party, targetText, targetAmountCents: amounts[0]?.cents ?? null, targetType };
+  const action: ExclusionCommand["action"] = personal ? "PERSONAL" : business ? "BUSINESS" : include ? "INCLUDE" : "EXCLUDE";
+  return {
+    action,
+    reason,
+    party: action === "EXCLUDE" || action === "INCLUDE" ? party : null,
+    targetText: action === "EXCLUDE" || action === "INCLUDE" ? targetText : rest.length >= 3 && !/^\d+$/.test(rest) ? rest : null,
+    targetAmountCents: amounts[0]?.cents ?? null,
+    targetType,
+  };
 }
 
 /** Tira o marcador ("é repasse", "desconsidera") do texto do lançamento novo (não vira descrição). */
 const MARKER_STRIP =
   /(^|[\s,;.!])(?:(?:é|e|eh|foi|era|são|sao|foram)\s+(?:um\s+|uma\s+)?(?:repasse|reembolso)|(?:marca|marcar|marque|considera|considerar|considere|trata|tratar|trate)\s+(?:como|de)\s+(?:repasse|reembolso)|desconsider(?:a|ar|e)(?:\s+(?:esse|este|isso|nos relat[óo]rios))?)(?:\s+(?:de|do|da)\s+cliente)?(?=$|[\s,;.!])/giu;
+const BUSINESS_STRIP = /(?:[,;-]\s*(?:da\s+|pra\s+|para a\s+)?empresa\s*[.!]?$|(^|[\s,;.!])(?:é|e|eh|foi)\s+(?:da\s+)?empresa(?=$|[\s,;.!])|\s+(?:pra|para a)\s+empresa\s*[.!]?$)/giu;
 export function stripExclusionMarker(text: string): string {
-  return text.replace(MARKER_STRIP, "$1").replace(/[\s,;.!-]+$/u, "").replace(/\s{2,}/g, " ").trim();
+  return text
+    .replace(MARKER_STRIP, "$1")
+    .replace(BUSINESS_STRIP, "$1")
+    .replace(/[\s,;.!-]+$/u, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** Marcador de repasse/reembolso numa mensagem que também cria o lançamento. */
 export function hasExclusionMarker(text: string): ExclusionCommand | null {
-  const norm = normalizeForNlu(text);
-  if (!(COPULA_RE.test(norm) || MARK_RE.test(norm) || DESCONSIDERA_RE.test(norm))) return null;
+  const norm = normalizeForNlu(text).trim();
+  const isBusiness = BUSINESS_MARKER_RE.test(norm);
+  if (!(isBusiness || COPULA_RE.test(norm) || MARK_RE.test(norm) || DESCONSIDERA_RE.test(norm))) return null;
   // Só em mensagem de lançamento novo (verbo + valor); "desconsidera a mensagem anterior" segue o fluxo normal.
   if (/\bmensage(m|ns)\b/.test(norm) || !NEW_TX_VERB.test(norm) || !extractAmounts(text).length) return null;
+  if (isBusiness && !COPULA_RE.test(norm) && !MARK_RE.test(norm)) {
+    return { action: "BUSINESS", reason: "OTHER", party: null, targetText: null, targetAmountCents: null, targetType: null };
+  }
   const reason: ReportExclusionReason = /\breembolso\b/.test(norm) ? "REIMBURSEMENT" : /\b(repasse|cliente)\b/.test(norm) ? "CLIENT_PASSTHROUGH" : "OTHER";
   return { action: "EXCLUDE", reason, party: extractParty(norm), targetText: null, targetAmountCents: null, targetType: null };
 }
@@ -121,8 +155,8 @@ export interface QuotedRef {
   externalId: string;
 }
 
-type Candidate = { id: string; description: string; amountCents: number; date: Date; type: string; excludedFromReports: boolean; exclusionParty: string | null; createdByMemberId: string | null };
-const CANDIDATE_SELECT = { id: true, description: true, amountCents: true, date: true, type: true, excludedFromReports: true, exclusionParty: true, createdByMemberId: true } as const;
+type Candidate = { id: string; description: string; amountCents: number; date: Date; type: string; excludedFromReports: boolean; exclusionParty: string | null; createdByMemberId: string | null; scope: string; natureReview: boolean };
+const CANDIDATE_SELECT = { id: true, description: true, amountCents: true, date: true, type: true, excludedFromReports: true, exclusionParty: true, createdByMemberId: true, scope: true, natureReview: true } as const;
 
 /** Lançamentos da mensagem citada (a do próprio lançamento ou a confirmação do robô). */
 async function fromQuoted(ctx: ServiceContext, quoted: QuotedRef): Promise<Candidate[] | null> {
@@ -211,6 +245,21 @@ async function partyBalanceLine(ctx: ServiceContext, party: string | null): Prom
 
 /** Aplica o comando aos lançamentos escolhidos e monta a resposta. */
 export async function applyExclusion(ctx: ServiceContext, hc: HouseholdContext, cmd: Pick<ExclusionCommand, "action" | "reason" | "party">, ids: string[]): Promise<ExclusionOutcome> {
+  if (cmd.action === "BUSINESS" || cmd.action === "PERSONAL") {
+    const res = await setTransactionNature(ctx, { transactionIds: ids, nature: cmd.action }, { reason: `Natureza via WhatsApp: ${cmd.action === "BUSINESS" ? "Empresa" : "Pessoal"} (saldo e fatura não mudam)` });
+    if (!res.updated) return { status: "PROCESSED", intent: "REPORT_EXCLUSION", replies: [res.skipped[0]?.reason ?? "Nada a alterar."], transactionIds: [], detail: "nada alterado" };
+    const lines = res.items.map((t) => `• ${t.description} — ${formatBRL(t.amountCents)} (${relativeDate(t.date, hc.today)})`).join("\n");
+    return {
+      status: "PROCESSED",
+      intent: "REPORT_EXCLUSION",
+      replies: [
+        cmd.action === "BUSINESS"
+          ? `🏢 Marcado como *Empresa*:\n${lines}\nSai dos relatórios pessoais e entra no resultado da empresa. Saldo e fatura não mudam.`
+          : `🏠 Marcado como *Pessoal*:\n${lines}\nVolta a contar nos relatórios da família. Saldo e fatura não mudam.`,
+      ],
+      transactionIds: res.items.map((t) => t.id),
+    };
+  }
   const res = await setReportExclusion(
     ctx,
     cmd.action === "EXCLUDE" ? { transactionIds: ids, excluded: true, reason: cmd.reason, ...(cmd.party ? { party: cmd.party } : {}) } : { transactionIds: ids, excluded: false },
@@ -269,6 +318,14 @@ export async function handleExclusionCommand(
     }
   }
   if (!candidates.length) candidates = await searchCandidates(ctx, cmd, hc);
+  if (cmd.action === "BUSINESS" || cmd.action === "PERSONAL") {
+    const want = cmd.action === "BUSINESS" ? "BUSINESS" : "PERSONAL";
+    const pending = candidates.filter((c) => c.excludedFromReports || c.scope !== want || c.natureReview);
+    if (candidates.length && !pending.length) {
+      return { status: "PROCESSED", intent: "REPORT_EXCLUSION", replies: [`Já está como ${want === "BUSINESS" ? "Empresa" : "Pessoal"}: ${candidates.map((c) => line(c, hc)).join("; ")}.`], transactionIds: [] };
+    }
+    candidates = pending;
+  }
   if (cmd.action === "EXCLUDE") {
     // Já desconsiderado com o mesmo cliente não precisa de nova marcação.
     const pending = candidates.filter((c) => !c.excludedFromReports || (cmd.party && c.exclusionParty !== cmd.party));
@@ -292,7 +349,9 @@ export async function handleExclusionCommand(
 
   const shown = candidates.slice(0, 6);
   const question = [
-    `Encontrei ${candidates.length} lançamentos${cmd.party ? ` de ${cmd.party}` : ""}. Qual você quer ${cmd.action === "INCLUDE" ? "voltar a considerar" : "desconsiderar"}?`,
+    `Encontrei ${candidates.length} lançamentos${cmd.party ? ` de ${cmd.party}` : ""}. Qual você quer ${
+      cmd.action === "INCLUDE" ? "voltar a considerar" : cmd.action === "BUSINESS" ? "marcar como Empresa" : cmd.action === "PERSONAL" ? "marcar como Pessoal" : "desconsiderar"
+    }?`,
     ...shown.map((c, i) => `${i + 1}. ${line(c, hc)}`),
     `Responda com o número${shown.length > 1 ? " ou *todos*" : ""}.`,
   ].join("\n");
@@ -316,7 +375,7 @@ export async function answerExclusionChoice(
   open: { id: string; payload: unknown },
   norm: string,
 ): Promise<ExclusionOutcome | null> {
-  const payload = open.payload as { candidates?: string[]; exclusion?: { action: "EXCLUDE" | "INCLUDE"; reason: ReportExclusionReason; party: string | null } };
+  const payload = open.payload as { candidates?: string[]; exclusion?: { action: ExclusionCommand["action"]; reason: ReportExclusionReason; party: string | null } };
   const candidates = payload.candidates ?? [];
   const cmd = payload.exclusion;
   if (!cmd || !candidates.length) return null;

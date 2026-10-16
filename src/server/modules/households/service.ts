@@ -143,6 +143,8 @@ export const settingsUpdateSchema = z
     duplicateWindowHours: z.number().int().min(1).max(24 * 30),
     whatsappReplies: z.boolean(),
     whatsappAnswerQueries: z.boolean(),
+    /** Recorte padrão (painel, relatórios, orçamentos, assistente): Pessoal, Empresa ou Tudo. */
+    defaultReportScope: z.enum(["PERSONAL", "BUSINESS", "ALL"]),
   })
   .partial();
 

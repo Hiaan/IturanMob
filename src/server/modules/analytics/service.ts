@@ -54,6 +54,16 @@ export interface AnalyticsFilters {
   accountId?: string | null;
   creditCardId?: string | null;
   categoryIds?: string[] | null;
+  /** Natureza: Pessoal, Empresa ou Tudo. Sem informar, vale o padrão da família. */
+  scope?: "PERSONAL" | "BUSINESS" | "ALL" | null;
+}
+
+export type ReportScopeValue = "PERSONAL" | "BUSINESS" | "ALL";
+
+/** Recorte de natureza em uso (informado ou o padrão da família). */
+export async function resolveScope(ctx: ServiceContext, scope?: ReportScopeValue | null): Promise<ReportScopeValue> {
+  if (scope) return scope;
+  return (await getSettings(ctx.householdId)).defaultReportScope;
 }
 
 interface RawRow {
@@ -92,6 +102,9 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
   const scope = await getVisibilityScope(ctx);
   const vis = visibleTransactionSql(scope, "t");
   const extra = filterSql(filters);
+  // Natureza: Pessoal / Empresa / Tudo (repasses ficam sempre de fora — ver `base`).
+  const nature = await resolveScope(ctx, filters.scope);
+  const scopeSql = nature === "ALL" ? Prisma.sql`TRUE` : Prisma.sql`t.scope = ${nature}::"TransactionScope"`;
   const start = isoToDate(period.start);
   const end = isoToDate(period.end);
   const cols = Prisma.sql`t.id AS "transactionId", t.type::text AS type, t."categoryId", t."subcategoryId", t."merchantId", t.description,
@@ -99,7 +112,7 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
     t.ownership::text AS ownership, t."installmentCount"`;
   // Receitas/despesas em moeda estrangeira entram em reais (PTAX da data); sem cotação ainda, ficam de fora.
   // Desconsiderados (repasse de cliente, reembolso) ficam fora de todo relatório — saldo e fatura não mudam.
-  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND t."excludedFromReports" = false AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
+  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND t."excludedFromReports" = false AND ${scopeSql} AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
   const amountBrl = Prisma.sql`(CASE WHEN t.currency = 'BRL' THEN t."amountCents" ELSE t."amountBrlCents" END)`;
 
   let rows: RawRow[];
@@ -164,6 +177,11 @@ export async function dashboardSummary(ctx: ServiceContext, params: { period: Pe
 
   const income = sumBy(rows, "INCOME");
   const expense = sumBy(rows, "EXPENSE");
+  // Resultado da empresa (receitas − despesas de natureza Empresa) no mesmo período, se houver.
+  const scope = await resolveScope(ctx, params.filters?.scope);
+  const businessRows = scope === "BUSINESS" ? rows : await recognizedRows(ctx, params.period, regime, { ...params.filters, scope: "BUSINESS" });
+  const businessIncome = sumBy(businessRows, "INCOME");
+  const businessExpense = sumBy(businessRows, "EXPENSE");
   const prevIncome = sumBy(prevRows, "INCOME");
   const prevExpense = sumBy(prevRows, "EXPENSE");
 
@@ -204,7 +222,9 @@ export async function dashboardSummary(ctx: ServiceContext, params: { period: Pe
 
   return {
     regime,
+    scope,
     period: params.period,
+    business: businessRows.length ? { incomeCents: businessIncome, expenseCents: businessExpense, resultCents: businessIncome - businessExpense } : null,
     availableBalanceCents: availableBalance,
     incomeCents: income,
     expenseCents: expense,

@@ -46,10 +46,10 @@ function setWidths(ws: ExcelJS.Worksheet, widths: number[]) {
 /** Planilha de transações (reutilizada na exportação avulsa). */
 export function addTransactionsSheet(wb: ExcelJS.Workbook, rows: ExportTransactionRow[], name = "Transações do período") {
   const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
-  const header = ws.addRow(["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Relatórios"]);
+  const header = ws.addRow(["Data", "Descrição", "Categoria", "Subcategoria", "Tipo", "Valor", "Forma de pagamento", "Conta/Cartão", "Responsável", "Situação", "Natureza"]);
   styleHeader(header);
   for (const r of rows) {
-    const row = ws.addRow([isoToDate(r.date), r.description, r.category, r.subcategory, r.typeLabel, reais(r.signedAmountCents), r.paymentMethod, r.accountOrCard, r.responsible, r.status, r.reports]);
+    const row = ws.addRow([isoToDate(r.date), r.description, r.category, r.subcategory, r.typeLabel, reais(r.signedAmountCents), r.paymentMethod, r.accountOrCard, r.responsible, r.status, r.nature]);
     row.getCell(1).numFmt = DATE_FORMAT;
     row.getCell(6).numFmt = BRL_FORMAT;
     if (r.deleted) row.font = { color: { argb: "FF94A3B8" }, strike: true };
