@@ -2,7 +2,7 @@
 
 export type ImportRowStatus = "NEW" | "DUPLICATE" | "MATCHED" | "DIVERGENT" | "SKIPPED" | "IMPORTED" | "ERROR";
 export type ImportBatchStatus = "PREVIEW" | "IMPORTED" | "UNDONE" | "FAILED";
-export type ImportFormat = "CSV" | "OFX" | "XLSX";
+export type ImportFormat = "CSV" | "OFX" | "XLSX" | "PDF";
 export type DateFormat = "auto" | "dmy" | "ymd" | "mdy";
 
 export interface ColumnMapping {
@@ -32,7 +32,25 @@ export interface ImportBatchDTO {
   importedAt: string | null;
   undoneAt: string | null;
   warnings: string[];
-  statement: { kind: "BANK" | "CREDIT_CARD"; bankId: string | null; accountIdMasked: string | null; startDate: string | null; endDate: string | null; ledgerBalanceCents: number | null } | null;
+  statement: StatementInfoDTO | null;
+  /** PDF cujo tipo (extrato/fatura) não bate com o destino escolhido: nenhuma linha vem selecionada; warnings[0] explica. */
+  scopeMismatch?: boolean;
+  /** Linhas que a confirmação marcou como duplicadas (já criadas por outro arquivo ou registradas depois da prévia). */
+  duplicatesAtCommit?: number;
+  origin?: "WHATSAPP" | null;
+}
+
+/** Dados do extrato (OFX e PDF). Em PDFs, `bank` traz o banco identificado e alguns campos podem faltar. */
+export interface StatementInfoDTO {
+  kind: "BANK" | "CREDIT_CARD" | (string & {});
+  bank?: string | null;
+  /** PDF: lido do texto do arquivo ou pela IA (PDF digitalizado). */
+  source?: "TEXT" | "AI" | null;
+  bankId?: string | null;
+  accountIdMasked?: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  ledgerBalanceCents?: number | null;
 }
 
 export interface ImportRowDTO {
@@ -85,4 +103,24 @@ export interface RowUpdate {
   selected?: boolean;
   categoryId?: string | null;
   forceNew?: boolean;
+}
+
+/** Resultado de POST /api/v1/imports/bulk-commit. */
+export interface BulkCommitFileResult {
+  batchId: string;
+  fileName: string;
+  ok: boolean;
+  created: number;
+  matched: number;
+  divergent: number;
+  duplicatesAtCommit: number;
+  errors: number;
+  /** O lote já tinha sido confirmado antes (por exemplo, na revisão individual): nada novo foi gravado. */
+  alreadyImported?: boolean;
+  error?: string;
+}
+
+export interface BulkCommitResponse {
+  results: BulkCommitFileResult[];
+  totals: { created: number; matched: number; divergent: number; duplicatesAtCommit: number; errors: number; files?: number; ok?: number };
 }

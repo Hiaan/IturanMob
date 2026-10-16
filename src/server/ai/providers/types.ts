@@ -1,6 +1,10 @@
 import type { AIProviderType, AITask } from "@prisma/client";
 
-export type UserContentPart = { type: "text"; text: string } | { type: "image"; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; base64: string };
+export type UserContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; base64: string }
+  /** PDF inteiro (ex.: extrato digitalizado). Só para provedores com supportsDocuments. */
+  | { type: "document"; mediaType: "application/pdf"; base64: string; filename?: string };
 
 export interface StructuredRequest {
   task: AITask;
@@ -37,6 +41,8 @@ export interface LLMProvider {
   type: AIProviderType;
   model: string;
   supportsVision: boolean;
+  /** Aceita PDF como entrada (leitura de extratos digitalizados). */
+  supportsDocuments?: boolean;
   structured(req: StructuredRequest): Promise<{ json: unknown; usage: Usage }>;
   runTools(req: ToolLoopRequest): Promise<{ text: string; toolCalls: Array<{ name: string; input: unknown; ok: boolean }>; usage: Usage }>;
 }

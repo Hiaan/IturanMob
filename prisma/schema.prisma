@@ -272,6 +272,8 @@ enum ImportFormat {
   CSV
   OFX
   XLSX
+  /// Extrato ou fatura em PDF (texto lido localmente; digitalizado, pela IA quando autorizada).
+  PDF
 }
 
 enum ImportStatus {
@@ -352,6 +354,8 @@ enum ClarificationKind {
   CONFIRM_DELETE
   /// Lançamento já registrado; a pergunta completa um dado (categoria ou conta).
   COMPLETE_TRANSACTION
+  /// Prévias de importação (PDFs enviados pelo WhatsApp) aguardando confirmação.
+  CONFIRM_IMPORT
 }
 
 enum ClarificationStatus {

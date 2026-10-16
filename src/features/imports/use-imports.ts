@@ -1,12 +1,16 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import type { ColumnMapping, ImportBatchDTO, ImportPreview, Reconciliation, RowUpdate } from "./types";
+import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate } from "./types";
 
-export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+/** Espelha IMPORT_MAX_BYTES do servidor (15 MB por arquivo). */
+export const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
+export const MAX_IMPORT_MB = MAX_IMPORT_BYTES / 1024 / 1024;
+/** Limite de arquivos por lote (POST /api/v1/imports/bulk-commit aceita até 20). */
+export const MAX_BULK_FILES = 20;
 
 const FINANCE_KEYS = ["imports", "transactions", "accounts", "cards", "analytics", "pending", "budgets", "bills", "me"];
 
@@ -23,6 +27,13 @@ export function useImportPreview(batchId: string | null) {
   return useQuery({ queryKey: qk.imports({ batch: batchId }), queryFn: () => api.get<ImportPreview>(`/api/v1/imports/${batchId}`), enabled: Boolean(batchId) });
 }
 
+/** Prévias de vários lotes (tela do lote com vários arquivos). Reaproveita o cache preenchido no envio. */
+export function useImportPreviews(batchIds: string[]) {
+  return useQueries({
+    queries: batchIds.map((id) => ({ queryKey: qk.imports({ batch: id }), queryFn: () => api.get<ImportPreview>(`/api/v1/imports/${id}`) })),
+  });
+}
+
 export function useReconciliation(batchId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: qk.imports({ reconciliation: batchId }),
@@ -34,12 +45,12 @@ export function useReconciliation(batchId: string | null, enabled: boolean) {
 export interface UploadOptions {
   accountId?: string | null;
   creditCardId?: string | null;
-  format?: "CSV" | "OFX" | "XLSX" | null;
+  format?: ImportFormat | null;
   invertSigns?: boolean;
 }
 
-/** Envio multipart (aceita arquivos de até 5 MB, acima do limite das requisições JSON). */
-async function uploadImport(file: File, opts: UploadOptions): Promise<ImportPreview> {
+/** Envio multipart (um arquivo por requisição, até 15 MB — acima do limite das requisições JSON). */
+export async function uploadImport(file: File, opts: UploadOptions): Promise<ImportPreview> {
   const form = new FormData();
   form.append("file", file, file.name);
   form.append("fileName", file.name);
@@ -146,6 +157,29 @@ export function useCommitImport(batchId: string, onDone?: (data: ImportPreview) 
       onDone?.(data);
     },
     onError: (e) => toast.error(errorMessage(e)),
+  });
+}
+
+/**
+ * Confirma vários lotes em PREVIEW de uma vez. O servidor grava um arquivo por vez e, antes de cada um,
+ * confere de novo as duplicidades com o que os anteriores já criaram.
+ */
+export function useBulkCommit(onDone?: (data: BulkCommitResponse) => void) {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: (batchIds: string[]) => api.post<BulkCommitResponse>("/api/v1/imports/bulk-commit", { batchIds }),
+    onSuccess: (data) => {
+      const t = data.totals;
+      const ok = data.results.filter((r) => r.ok).length;
+      const failed = data.results.length - ok;
+      const description = `${t.created} lançamento(s) criado(s) em ${ok} arquivo(s) · ${t.duplicatesAtCommit} duplicado(s) evitado(s) na confirmação${t.errors ? ` · ${t.errors} linha(s) com erro` : ""}.`;
+      if (failed) toast.warning(`${failed} de ${data.results.length} arquivo(s) não foram importados`, { description });
+      else toast.success("Lote importado", { description });
+      onDone?.(data);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+    // Mesmo com falha no meio do caminho, parte dos arquivos pode ter sido gravada: recarrega tudo.
+    onSettled: () => invalidate(),
   });
 }
 

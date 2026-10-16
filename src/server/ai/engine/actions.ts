@@ -15,6 +15,7 @@ import { findMatchingScheduledPayment } from "../../modules/bills/service";
 import { checkBudgetAlerts } from "../../modules/budgets/service";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
+import { answerImportConfirmation } from "./statement-import";
 import { findMentions, matchCategory, detectPaymentMethod, parseLocally } from "../nlu/local-parser";
 import { CONFIRM_HINT, createdLine, kindVerb, missingQuestion, relativeDate } from "./replies";
 import { closeClarification, findOpenClarification, openClarification } from "./clarifications";
@@ -520,7 +521,7 @@ async function handleRestore(ctx: ServiceContext, hc: HouseholdContext): Promise
 // Respostas a esclarecimentos
 // -----------------------------------------------------------------------------
 
-const YES = /^(sim|s|isso|isso mesmo|confirmo|confirmado|confirma|pode|pode sim|ok|okay|certo|correto|exato|positivo|beleza|blz|uhum|aham|claro|perfeito|e novo|novo|mantem|mantenha|👍)\b/;
+const YES = /^(sim|s|isso|isso mesmo|confirmo|confirmado|confirmar|confirma|pode|pode sim|ok|okay|certo|correto|exato|positivo|beleza|blz|uhum|aham|claro|perfeito|e novo|novo|mantem|mantenha|👍)\b/;
 const NO = /^(nao|n|negativo|errado|errada|cancela|cancelar|descarta|descartar|apaga|nada disso)\b/;
 
 /**
@@ -549,6 +550,10 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
       return { status: "PROCESSED", intent: "REJECTION", replies: ["Ok, descartado."], transactionIds: ids };
     }
     return null;
+  }
+
+  if (open.kind === "CONFIRM_IMPORT") {
+    return answerImportConfirmation(ctx, opts.chatId, opts.text, open);
   }
 
   if (open.kind === "COMPLETE_TRANSACTION") {

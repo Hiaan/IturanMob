@@ -46,8 +46,8 @@ export async function createWaFamily(name = "Família Teste"): Promise<WaFamily>
 
 export interface SendInput {
   text?: string;
-  type?: "TEXT" | "AUDIO" | "IMAGE";
-  media?: { bytes: Buffer; mimeType: string };
+  type?: "TEXT" | "AUDIO" | "IMAGE" | "DOCUMENT";
+  media?: { bytes: Buffer; mimeType: string; fileName?: string };
   /** Reenvio do mesmo evento do provedor (mesmo id externo). */
   externalId?: string;
 }
@@ -69,7 +69,7 @@ export async function sendMessage(wa: WaFamily, input: SendInput) {
       type,
       text: type === "TEXT" ? (input.text ?? null) : null,
       caption: type === "TEXT" ? null : (input.text ?? null),
-      media: media ? { mimeType: media.mimeType, sizeBytes: media.bytes.length, download: async () => media.bytes } : null,
+      media: media ? { mimeType: media.mimeType, sizeBytes: media.bytes.length, fileName: media.fileName, download: async () => media.bytes } : null,
     },
   );
   if (!res.accepted || !res.messageId) throw new Error(`mensagem não aceita: ${res.reason ?? "?"}`);

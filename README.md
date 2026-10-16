@@ -37,7 +37,8 @@ responde perguntas sobre os dados da família.
   comparativos com a origem do cálculo, gastos atípicos, projeção de fluxo de caixa, busca
   inteligente e central de pendências.
 - **Relatórios e dados**: relatórios semanais e mensais (PDF, CSV, XLSX), agendamento, importação de
-  extratos (CSV, OFX, XLSX) com conciliação, exportação integral e backups verificáveis.
+  extratos e faturas (CSV, OFX, XLSX e PDF — também pelo WhatsApp), vários arquivos de uma vez com
+  deduplicação entre eles, conciliação, exportação integral e backups verificáveis.
 - **Segurança e LGPD**:
   - sessões seguras, CSRF, rate limit e papéis (proprietário, administrador, membro, visualizador);
   - contas privadas;

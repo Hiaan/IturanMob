@@ -234,6 +234,19 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
    PROCESSED` ou `FAILED` com o motivo), aplica o prefixo do bot e o limite de 1 msg/s e 30 msg/h por
    família (excedente é adiado, não descartado).
 
+**Extratos e faturas em PDF.** Um PDF enviado no grupo é lido como extrato/fatura
+(`src/server/ai/engine/statement-import.ts`):
+
+1. Gera a mesma prévia de importação do site (leitura local; IA só para PDF digitalizado, se autorizada).
+2. A conta/cartão vem da legenda ("fatura do cartão ultravioleta") ou do banco identificado no PDF,
+   quando há uma única opção. Na dúvida, o bot manda o link da prévia no site para escolher o destino.
+3. O bot responde com o resumo (novos, já registrados, repetidos, pagamentos de fatura) e pergunta
+   *confirmar* / *cancelar*. Vários PDFs enviados em sequência entram na **mesma confirmação**, e o que se
+   repete entre eles entra uma vez só. "confirmar importação" funciona mesmo depois de outra pergunta.
+4. PDF com senha → pede o arquivo sem senha. PDF que parece comprovante → segue a regra de comprovantes
+   (lidos em imagem). PDF sem lançamentos reconhecíveis → pendência com o motivo.
+5. Reprocessar a mesma mensagem reaproveita a prévia já criada.
+
 Status da conexão: `DISCONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`, `LOGGED_OUT`.
 Eventos (`WhatsAppConnectionEvent`): `CONNECTED`, `DISCONNECTED`, `QR`, `ERROR`, `LOGGED_OUT`.
 

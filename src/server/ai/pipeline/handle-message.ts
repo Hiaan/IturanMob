@@ -17,6 +17,8 @@ import type { RawDraft } from "../engine/schemas";
 import { transcribeAudio } from "../transcription";
 import { extractReceipt } from "../vision/receipt";
 import { extractAmounts } from "../nlu/numbers";
+import { normalizeForNlu } from "../nlu/text";
+import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
 import type { InboundMessageResult } from "./types";
 
 /**
@@ -83,6 +85,10 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   const exec = { channel: "WHATSAPP" as const, chatId: opts.chatId, messageId: opts.messageId, source: opts.source, attachmentId: opts.attachmentId ?? null, answerQueries: opts.answerQueries, text };
   const answered = await tryAnswerClarification(ctx, hc, exec);
   if (answered) return answered;
+  if (opts.source === "WHATSAPP_TEXT" && EXPLICIT_IMPORT_CONFIRM.test(normalizeForNlu(text))) {
+    const imported = await answerImportConfirmation(ctx, opts.chatId, text, null);
+    if (imported) return imported;
+  }
   const result = await interpretText(ctx, text, { senderMemberId: ctx.memberId, messageId: opts.messageId, hc });
   return executeInterpretation(ctx, result, exec);
 }
@@ -142,6 +148,27 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
   }
 
   const captionHasAmount = extractAmounts(caption).length > 0;
+  // PDF de extrato/fatura → prévia de importação. Legenda com valor ("50 mercado") sem menção a
+  // extrato/fatura indica comprovante: segue o fluxo de texto + anexo abaixo.
+  if (message.type === "DOCUMENT" && isPdfAttachment(att) && (!captionHasAmount || /\b(extrato|fatura)\b/.test(normalizeForNlu(caption)))) {
+    if (!att.storageKey) {
+      return failWithPending(ctx, message, "PROCESSING_FAILED", "PDF indisponível", "O arquivo não está mais armazenado.", "Não consegui acessar o PDF. Envie novamente.");
+    }
+    // Extrato/fatura em PDF → prévia de importação com confirmação pela conversa.
+    const statement = await processPdfStatement(ctx, message, att, caption, (title, description, reply) =>
+      failWithPending(ctx, message, "PROCESSING_FAILED", title, description, reply, att.id),
+    );
+    if (statement) return statement;
+    return failWithPending(
+      ctx,
+      message,
+      "UNREADABLE_RECEIPT",
+      "Comprovante em PDF",
+      "Comprovantes em PDF não são lidos automaticamente.",
+      "📎 Este PDF parece um comprovante. Comprovantes eu leio em imagem: envie um print/foto ou escreva o valor e o estabelecimento (ex.: \"mercado 120,50 no débito\").",
+      att.id,
+    );
+  }
   if (captionHasAmount) {
     // Texto + comprovante da mesma compra → um único lançamento, com o comprovante vinculado.
     return processText(ctx, caption, { messageId: message.id, chatId: message.chatId, source: "WHATSAPP_IMAGE", answerQueries, attachmentId: att.id });
@@ -151,7 +178,7 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
     return failWithPending(ctx, message, "UNREADABLE_RECEIPT", "Comprovante indisponível", "A imagem não está mais armazenada.", "Não consegui acessar a imagem. Envie novamente.");
   }
   if (message.type === "DOCUMENT" && !att.mimeType.startsWith("image/")) {
-    return failWithPending(ctx, message, "UNREADABLE_RECEIPT", "Documento não suportado", `Formato ${att.mimeType} não é lido automaticamente.`, "Recebi o documento, mas só consigo ler comprovantes em imagem. Informe o valor e o estabelecimento por texto.");
+    return failWithPending(ctx, message, "UNREADABLE_RECEIPT", "Documento não suportado", `Formato ${att.mimeType} não é lido automaticamente.`, "Recebi o documento, mas só leio comprovantes em imagem e extratos/faturas em PDF. Informe o valor e o estabelecimento por texto.");
   }
 
   const image = await readStoredFile(att.storageKey);

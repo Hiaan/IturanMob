@@ -8,7 +8,7 @@ import { publishEvent } from "../../events";
 import { errorInfo, logger } from "../../logger";
 import { sha256Hex } from "../../crypto";
 import { readStoredFile, storeFile, storedFileExists } from "../../storage";
-import { addDays, dateToISO, formatDateBR, instantToISO, isoToDate } from "@/lib/dates";
+import { addDays, dateToISO, formatDateBR, instantToISO, isoToDate, todayISO } from "@/lib/dates";
 import { formatBRL, MAX_AMOUNT_CENTS } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
 import { audit } from "../audit/service";
@@ -18,6 +18,8 @@ import { getVisibilityScope, visibleAccountWhere, visibleCardWhere, visibleTrans
 import { parseCsv } from "./csv";
 import { isOfx, ofxDescription, parseOfx, type OfxStatement } from "./ofx";
 import { parseXlsx } from "./xlsx";
+import { bankMatches, type PdfRow, type PdfStatementKind } from "./pdf";
+import { readPdfForImport } from "./pdf-import";
 import { applyMapping, columnMappingSchema, detectMapping, mappingProblems } from "./mapping";
 import { descriptionSimilarity, detectInstallment, importRowFingerprint, looksLikeCardBillPayment, looksLikeCardCredit } from "./matching";
 import type { ColumnMapping, ImportFileFormat, ParsedImportRow, ParsedTable } from "./types";
@@ -26,7 +28,8 @@ import type { ColumnMapping, ImportFileFormat, ParsedImportRow, ParsedTable } fr
 // Limites e schemas
 // -----------------------------------------------------------------------------
 
-export const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+export const IMPORT_MAX_MB = 15;
+export const IMPORT_MAX_BYTES = IMPORT_MAX_MB * 1024 * 1024;
 export const IMPORT_MAX_ROWS = 5_000;
 /** Janela (dias) para considerar uma transação existente como correspondente. */
 export const MATCH_WINDOW_DAYS = 3;
@@ -37,7 +40,7 @@ const COMMIT_STALE_MS = 10 * 60_000;
 const idSchema = z.string().min(1).max(64);
 
 const previewOptionsSchema = z.object({
-  format: z.enum(["CSV", "OFX", "XLSX"]).optional(),
+  format: z.enum(["CSV", "OFX", "XLSX", "PDF"]).optional(),
   accountId: idSchema.nullish(),
   creditCardId: idSchema.nullish(),
   mapping: columnMappingSchema.nullish(),
@@ -48,7 +51,7 @@ const previewOptionsSchema = z.object({
 export const importPreviewSchema = previewOptionsSchema
   .extend({
     fileName: z.string().trim().min(1).max(200),
-    /** Conteúdo do arquivo em base64 (até 5 MB). */
+    /** Conteúdo do arquivo em base64 (limitado pelo tamanho das requisições JSON; arquivos maiores, via multipart). */
     contentBase64: z.string().min(1).max(Math.ceil((IMPORT_MAX_BYTES * 4) / 3) + 16),
   })
   .refine((d) => !(d.accountId && d.creditCardId), { message: "Escolha uma conta OU um cartão, não ambos.", path: ["creditCardId"] });
@@ -99,6 +102,10 @@ interface ImportScope {
 
 interface StatementInfo {
   kind: "BANK" | "CREDIT_CARD";
+  /** Banco identificado no PDF. */
+  bank?: string | null;
+  /** PDF: lido do texto (local) ou pela IA (digitalizado). */
+  source?: "TEXT" | "AI";
   bankId: string | null;
   accountIdMasked: string | null;
   startDate: string | null;
@@ -127,6 +134,14 @@ export interface ImportBatchMeta {
   statement: StatementInfo | null;
   warnings: string[];
   storageKey: string | null;
+  /** PDF lido pela IA: guarda as linhas para reprocessar a prévia sem nova chamada. */
+  pdfAi?: { kind: PdfStatementKind; bank: string | null; rows: PdfRow[] } | null;
+  /** Duplicados encontrados na confirmação (linhas de outros arquivos importados depois da prévia). */
+  duplicatesAtCommit?: number;
+  /** PDF cujo tipo (extrato × fatura) não bate com o destino escolhido: exige revisão no site. */
+  scopeMismatch?: boolean;
+  /** Prévia criada a partir de um PDF enviado no WhatsApp (confirmação pela conversa). */
+  origin?: { channel: "WHATSAPP"; chatId: string; messageId: string } | null;
   commit?: {
     created: number;
     matched: number;
@@ -183,10 +198,13 @@ const MIME: Record<ImportFileFormat, string> = {
   CSV: "text/csv",
   OFX: "application/x-ofx",
   XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  PDF: "application/pdf",
 };
 
 export function detectImportFormat(fileName: string, content: Buffer): ImportFileFormat {
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
+  if (content.subarray(0, 1024).includes("%PDF-")) return "PDF";
+  if (ext === "pdf") throw new ValidationError("O arquivo tem extensão .pdf, mas não é um PDF válido.");
   if (content.length >= 2 && content[0] === 0x50 && content[1] === 0x4b) return "XLSX";
   if (ext === "xls") throw new ValidationError("Planilhas .xls (Excel 97-2003) não são suportadas. Salve o arquivo como .xlsx ou CSV.");
   if (ext === "ofx" || ext === "qfx") return "OFX";
@@ -280,6 +298,32 @@ async function loadBatch(ctx: ServiceContext, batchId: string) {
   return batch;
 }
 
+/**
+ * Conta (extrato) ou cartão (fatura) do banco identificado no PDF. Só sugere quando há exatamente
+ * uma opção compatível entre as visíveis para quem importa; com dúvida, devolve null.
+ */
+export async function suggestPdfScope(
+  ctx: ServiceContext,
+  kind: PdfStatementKind,
+  bank: string | null,
+): Promise<{ accountId: string | null; creditCardId: string | null; label: string } | null> {
+  if (!bank || kind === "UNKNOWN") return null;
+  if (kind === "CREDIT_CARD") {
+    const cards = await prisma.creditCard.findMany({ where: { ...visibleCardWhere(ctx), archivedAt: null }, select: { id: true, name: true, issuer: true } });
+    const hits = cards.filter((c) => bankMatches(bank, normalizeText(`${c.name} ${c.issuer ?? ""}`)));
+    return hits.length === 1 ? { accountId: null, creditCardId: hits[0]!.id, label: hits[0]!.name } : null;
+  }
+  const accounts = await prisma.account.findMany({
+    where: { ...visibleAccountWhere(ctx), archivedAt: null, type: { in: ["CHECKING", "DIGITAL", "SAVINGS", "OTHER"] } },
+    select: { id: true, name: true, institution: true, type: true },
+  });
+  const hits = accounts.filter((a) => bankMatches(bank, normalizeText(`${a.name} ${a.institution ?? ""}`)));
+  // Conta corrente/digital antes de poupança do mesmo banco.
+  const main = hits.filter((a) => a.type === "CHECKING" || a.type === "DIGITAL");
+  const pick = main.length === 1 ? main[0] : hits.length === 1 ? hits[0] : null;
+  return pick ? { accountId: pick.id, creditCardId: null, label: pick.name } : null;
+}
+
 // -----------------------------------------------------------------------------
 // Leitura do arquivo
 // -----------------------------------------------------------------------------
@@ -287,17 +331,25 @@ async function loadBatch(ctx: ServiceContext, batchId: string) {
 interface ParseOptions {
   mapping?: ColumnMapping | null;
   headerRowIndex?: number | null;
+  /** PDF: família (para a leitura por IA, quando autorizada), data de referência e nome do arquivo. */
+  householdId?: string | null;
+  timezone?: string;
+  fileName?: string;
+  messageId?: string | null;
+  pdfAi?: ImportBatchMeta["pdfAi"];
 }
 
 interface ParseResult {
   rows: ParsedImportRow[];
-  meta: Pick<ImportBatchMeta, "mapping" | "headers" | "headerRowIndex" | "delimiter" | "sheetName" | "statement" | "warnings">;
+  meta: Pick<ImportBatchMeta, "mapping" | "headers" | "headerRowIndex" | "delimiter" | "sheetName" | "statement" | "warnings" | "pdfAi">;
   ofxKind: "BANK" | "CREDIT_CARD" | null;
+  /** PDF: tipo identificado pelo conteúdo (heurística; divergência com a conta escolhida vira aviso). */
+  pdf: { kind: PdfStatementKind; bank: string | null; classification: "STATEMENT" | "RECEIPT" | "OTHER" } | null;
 }
 
 function tableRowsLimit(table: ParsedTable) {
   if (table.rows.length > IMPORT_MAX_ROWS) {
-    throw new ValidationError(`O arquivo tem ${table.rows.length.toLocaleString("pt-BR")} linhas. O limite é de 5.000 linhas por importação — divida o arquivo em partes.`);
+    throw new ValidationError(`O arquivo tem ${table.rows.length.toLocaleString("pt-BR")} linhas. O limite é de ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} linhas por importação — divida o arquivo em partes.`);
   }
 }
 
@@ -327,6 +379,41 @@ function parseTableRows(table: ParsedTable, opts: ParseOptions, warnings: string
 
 async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: ParseOptions): Promise<ParseResult> {
   const warnings: string[] = [];
+  if (format === "PDF") {
+    const pdf = await readPdfForImport(content, {
+      today: todayISO(opts.timezone),
+      householdId: opts.householdId,
+      fileName: opts.fileName,
+      messageId: opts.messageId,
+      aiRows: opts.pdfAi?.rows ?? null,
+      aiMeta: opts.pdfAi ?? null,
+      maxRows: IMPORT_MAX_ROWS,
+    });
+    return {
+      rows: pdf.rows,
+      ofxKind: null,
+      pdf: { kind: pdf.kind, bank: pdf.bank, classification: pdf.classification },
+      meta: {
+        mapping: null,
+        headers: [],
+        headerRowIndex: null,
+        delimiter: null,
+        sheetName: null,
+        statement: {
+          kind: pdf.kind === "CREDIT_CARD" ? "CREDIT_CARD" : "BANK",
+          bank: pdf.bank,
+          source: pdf.source,
+          bankId: null,
+          accountIdMasked: null,
+          startDate: pdf.startDate,
+          endDate: pdf.endDate,
+          ledgerBalanceCents: null,
+        },
+        warnings: pdf.warnings,
+        pdfAi: pdf.aiRows ? { kind: pdf.kind, bank: pdf.bank, rows: pdf.aiRows } : null,
+      },
+    };
+  }
   if (format === "OFX") {
     let st: OfxStatement;
     try {
@@ -334,7 +421,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
     } catch (err) {
       throw new ValidationError((err as Error).message || "Arquivo OFX inválido.");
     }
-    if (st.transactions.length > IMPORT_MAX_ROWS) throw new ValidationError("O arquivo tem mais de 5.000 lançamentos. Divida o período em partes.");
+    if (st.transactions.length > IMPORT_MAX_ROWS) throw new ValidationError(`O arquivo tem mais de ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} lançamentos. Divida o período em partes.`);
     if (st.currency && st.currency.toUpperCase() !== "BRL") warnings.push(`O extrato está em ${st.currency}; os valores serão importados como reais (BRL).`);
     const rows = st.transactions.map<ParsedImportRow>((t, rowIndex) => {
       const raw: Record<string, string> = {};
@@ -365,6 +452,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
     return {
       rows,
       ofxKind: st.kind,
+      pdf: null,
       meta: {
         mapping: null,
         headers: [],
@@ -380,6 +468,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
           ledgerBalanceCents: st.ledgerBalanceCents,
         },
         warnings,
+        pdfAi: null,
       },
     };
   }
@@ -398,6 +487,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
   return {
     rows,
     ofxKind: null,
+    pdf: null,
     meta: {
       mapping,
       headers: table.headers,
@@ -406,6 +496,7 @@ async function parseImportFile(format: ImportFileFormat, content: Buffer, opts: 
       sheetName: table.sheetName ?? null,
       statement: null,
       warnings,
+      pdfAi: null,
     },
   };
 }
@@ -796,25 +887,47 @@ async function buildRows(
   scope: ImportScope,
   format: ImportFileFormat,
   content: Buffer,
-  opts: { mapping?: ColumnMapping | null; headerRowIndex?: number | null; invertSigns: boolean; excludeBatchId?: string },
+  opts: {
+    mapping?: ColumnMapping | null;
+    headerRowIndex?: number | null;
+    invertSigns: boolean;
+    excludeBatchId?: string;
+    /** Arquivo já lido (PDF: evita ler/chamar a IA duas vezes). */
+    parsed?: ParseResult;
+    fileName?: string;
+    pdfAi?: ImportBatchMeta["pdfAi"];
+  },
 ) {
-  const parsed = await parseImportFile(format, content, opts);
+  const parsed = opts.parsed ?? (await parseImportFile(format, content, { ...opts, householdId: ctx.householdId, timezone: ctx.timezone }));
   if (parsed.ofxKind === "CREDIT_CARD" && scope.accountId) throw new ValidationError("Este OFX é de cartão de crédito. Selecione o cartão correspondente em vez de uma conta.");
   if (parsed.ofxKind === "BANK" && scope.creditCardId) throw new ValidationError("Este OFX é de conta bancária. Selecione a conta correspondente em vez de um cartão.");
   if (!parsed.rows.length) throw new ValidationError("Nenhum lançamento foi encontrado no arquivo.");
-  if (parsed.rows.length > IMPORT_MAX_ROWS) throw new ValidationError("O arquivo tem mais de 5.000 linhas. Divida o arquivo em partes.");
+  if (parsed.rows.length > IMPORT_MAX_ROWS) throw new ValidationError(`O arquivo tem mais de ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} linhas. Divida o arquivo em partes.`);
   const warnings = [...parsed.meta.warnings];
   if (!scope.accountId && !scope.creditCardId) {
     warnings.push("Nenhuma conta ou cartão foi escolhido: os lançamentos não alterarão saldos e ficarão pendentes de forma de pagamento.");
   }
+  // PDF: o tipo vem de heurística. Se não bate com o destino escolhido, avisa e não deixa nada
+  // selecionado (valor de fatura não pode virar movimentação da conta por engano).
+  const pdfMismatch =
+    parsed.pdf?.kind === "CREDIT_CARD" && scope.accountId
+      ? "Este PDF parece uma FATURA DE CARTÃO, mas foi escolhida uma conta bancária. Refaça a prévia escolhendo o cartão. Se for mesmo o extrato da conta, selecione as linhas e confira os sinais (entrada/saída) antes de importar."
+      : parsed.pdf?.kind === "BANK" && scope.creditCardId
+        ? "Este PDF parece um EXTRATO DE CONTA, mas foi escolhido um cartão. Refaça a prévia escolhendo a conta. Se for mesmo a fatura do cartão, selecione as linhas antes de importar."
+        : null;
   const prepared = await prepareRows(ctx, scope, parsed.rows, { invertSigns: opts.invertSigns, warnings });
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
+  if (pdfMismatch) {
+    warnings.unshift(pdfMismatch);
+    for (const r of rows) r.selected = false;
+  }
   const meta: ImportBatchMeta = {
     ...emptyMeta(),
     ...parsed.meta,
     warnings,
     invertSigns: opts.invertSigns,
     cardPurchasesPositive: prepared.cardPurchasesPositive,
+    scopeMismatch: Boolean(pdfMismatch),
   };
   return { rows, meta };
 }
@@ -822,6 +935,24 @@ async function buildRows(
 // -----------------------------------------------------------------------------
 // Prévia
 // -----------------------------------------------------------------------------
+
+/** Aviso quando outra prévia ainda não confirmada (mesma conta/cartão) tem as mesmas linhas. */
+async function overlappingPreviews(ctx: ServiceContext, scope: ImportScope, rows: PreparedRow[]): Promise<string | null> {
+  const fingerprints = [...new Set(rows.filter((r) => r.selected && r.fingerprint).map((r) => r.fingerprint!))];
+  if (!fingerprints.length) return null;
+  const overlap = await prisma.importRow.findMany({
+    where: {
+      householdId: ctx.householdId,
+      fingerprint: { in: fingerprints },
+      batch: { status: "PREVIEW", accountId: scope.accountId, creditCardId: scope.creditCardId, createdAt: { gt: new Date(Date.now() - 24 * 3600_000) } },
+    },
+    select: { fingerprint: true, batch: { select: { fileName: true } } },
+    distinct: ["fingerprint"],
+  });
+  if (!overlap.length) return null;
+  const names = [...new Set(overlap.map((o) => `"${o.batch.fileName.slice(0, 60)}"`))].slice(0, 3).join(", ");
+  return `${overlap.length} lançamento(s) também aparecem em ${names} (prévia ainda não confirmada). Se você confirmar os dois arquivos, eles entram uma única vez.`;
+}
 
 export async function createImportPreview(ctx: ServiceContext, rawInput: ImportPreviewInput) {
   assertCan(ctx, "data:import");
@@ -834,20 +965,42 @@ export async function createImportPreview(ctx: ServiceContext, rawInput: ImportP
 }
 
 /** Prévia a partir do conteúdo binário (upload multipart). */
-export async function createImportPreviewFromBuffer(ctx: ServiceContext, input: { fileName: string; content: Buffer } & ImportPreviewFileOptions) {
+export async function createImportPreviewFromBuffer(
+  ctx: ServiceContext,
+  input: { fileName: string; content: Buffer; messageId?: string | null; origin?: ImportBatchMeta["origin"] } & ImportPreviewFileOptions,
+) {
   assertCan(ctx, "data:import");
   const opts = importPreviewFileSchema.parse(input);
   const fileName = input.fileName.trim().slice(0, 200) || "extrato";
   const content = input.content;
   if (!content.length) throw new ValidationError("O arquivo está vazio.");
-  if (content.length > IMPORT_MAX_BYTES) throw new ValidationError("O arquivo excede o limite de 5 MB.");
-  const scope = await resolveScope(ctx, opts.accountId, opts.creditCardId);
+  if (content.length > IMPORT_MAX_BYTES) throw new ValidationError(`O arquivo excede o limite de ${IMPORT_MAX_MB} MB.`);
+  let scope = await resolveScope(ctx, opts.accountId, opts.creditCardId);
   const format = opts.format ?? detectImportFormat(fileName, content);
+  let parsed: ParseResult | undefined;
+  let autoScope: string | null = null;
+  if (format === "PDF") {
+    parsed = await parseImportFile("PDF", content, { householdId: ctx.householdId, timezone: ctx.timezone, fileName, messageId: input.messageId });
+    // Sem destino escolhido: usa a conta/cartão do banco identificado no PDF, quando há só uma opção.
+    if (!scope.accountId && !scope.creditCardId && parsed.pdf) {
+      const suggestion = await suggestPdfScope(ctx, parsed.pdf.kind, parsed.pdf.bank);
+      if (suggestion) {
+        scope = await resolveScope(ctx, suggestion.accountId, suggestion.creditCardId);
+        autoScope = `${suggestion.creditCardId ? "Cartão" : "Conta"} escolhid${suggestion.creditCardId ? "o" : "a"} automaticamente pelo banco do PDF (${parsed.pdf.bank}): ${scope.label}. Se não for ${suggestion.creditCardId ? "este" : "esta"}, envie de novo escolhendo o destino.`;
+      }
+    }
+  }
   const { rows, meta } = await buildRows(ctx, scope, format, content, {
     mapping: opts.mapping ?? null,
     headerRowIndex: opts.headerRowIndex ?? null,
     invertSigns: opts.invertSigns,
+    parsed,
+    fileName,
   });
+  if (autoScope) meta.warnings.unshift(autoScope);
+  meta.origin = input.origin ?? null;
+  const overlap = await overlappingPreviews(ctx, scope, rows);
+  if (overlap) meta.warnings.push(overlap);
 
   const sha = sha256Hex(content);
   const previous = await prisma.importBatch.findFirst({
@@ -944,6 +1097,10 @@ function batchDTO(
     undoneAt: b.undoneAt?.toISOString() ?? null,
     warnings: meta.warnings,
     statement: meta.statement,
+    /** PDF cujo tipo não bate com o destino: nenhuma linha vem selecionada. */
+    scopeMismatch: meta.scopeMismatch ?? false,
+    duplicatesAtCommit: meta.duplicatesAtCommit ?? 0,
+    origin: meta.origin?.channel ?? null,
   };
 }
 
@@ -1035,7 +1192,7 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
   const batch = await loadBatch(ctx, batchId);
   if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída e não pode mais ser alterada.");
   const meta = readMeta(batch.mapping);
-  if (batch.format === "OFX" && input.mapping) throw new ValidationError("Arquivos OFX não usam mapeamento de colunas.");
+  if ((batch.format === "OFX" || batch.format === "PDF") && input.mapping) throw new ValidationError(`Arquivos ${batch.format} não usam mapeamento de colunas.`);
   if (!meta.storageKey || !(await storedFileExists(meta.storageKey))) throw new ValidationError("O arquivo original não está mais disponível. Envie o arquivo novamente.");
   const content = await readStoredFile(meta.storageKey);
   const scope = await resolveScope(ctx, batch.accountId, batch.creditCardId);
@@ -1045,10 +1202,13 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
     headerRowIndex: input.headerRowIndex ?? meta.headerRowIndex,
     invertSigns: input.invertSigns ?? meta.invertSigns,
     excludeBatchId: batchId,
+    fileName: batch.fileName,
+    pdfAi: meta.pdfAi ?? null,
   });
   newMeta.storageKey = meta.storageKey;
-  const fileWarning = meta.warnings.find((w) => w.startsWith("Este arquivo já foi importado"));
-  if (fileWarning) newMeta.warnings.unshift(fileWarning);
+  newMeta.origin = meta.origin ?? null;
+  const kept = meta.warnings.filter((w) => w.startsWith("Este arquivo já foi importado") || /escolhid[oa] automaticamente pelo banco do PDF/.test(w));
+  if (kept.length) newMeta.warnings.unshift(...kept);
   await withTransaction(async (db) => {
     await db.importRow.deleteMany({ where: { batchId } });
     await db.importRow.createMany({ data: rows.map((r) => rowCreateData(ctx.householdId, batchId, r)) });
@@ -1063,11 +1223,93 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
 // Efetivação e desfazer
 // -----------------------------------------------------------------------------
 
+/**
+ * Revalida duplicidade no momento da confirmação: outros arquivos da mesma conta/cartão podem ter
+ * sido confirmados depois desta prévia (importação em massa, extratos com períodos sobrepostos, o
+ * mesmo extrato em PDF e em OFX). Linhas já importadas por eles são desmarcadas como duplicadas.
+ */
+async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; createdAt: Date }, scope: ImportScope): Promise<number> {
+  const rows = await prisma.importRow.findMany({
+    where: { batchId: batch.id, selected: true, status: "NEW", createdTransactionId: null },
+    select: { id: true, externalId: true, fingerprint: true, amountCents: true, date: true, rawData: true },
+    orderBy: { rowIndex: "asc" },
+  });
+  if (!rows.length) return 0;
+  const marks = new Map<string, string>();
+
+  // 1) Mesma linha (FITID ou impressão digital) em lotes já confirmados.
+  const externalIds = [...new Set(rows.map((r) => r.externalId).filter(Boolean) as string[])];
+  const fingerprints = [...new Set(rows.map((r) => r.fingerprint).filter(Boolean) as string[])];
+  if (externalIds.length || fingerprints.length) {
+    const previous = await prisma.importRow.findMany({
+      where: {
+        householdId: ctx.householdId,
+        batchId: { not: batch.id },
+        batch: { status: "IMPORTED", accountId: scope.accountId, creditCardId: scope.creditCardId },
+        OR: [...(externalIds.length ? [{ externalId: { in: externalIds } }] : []), ...(fingerprints.length ? [{ fingerprint: { in: fingerprints } }] : [])],
+      },
+      select: { externalId: true, fingerprint: true, amountCents: true, batch: { select: { fileName: true } } },
+    });
+    const byExternal = new Map(previous.filter((p) => p.externalId).map((p) => [p.externalId!, p]));
+    const byFingerprint = new Map(previous.filter((p) => p.fingerprint).map((p) => [p.fingerprint!, p]));
+    for (const r of rows) {
+      const sameId = r.externalId ? byExternal.get(r.externalId) : undefined;
+      const prev = (sameId && sameId.amountCents === r.amountCents ? sameId : undefined) || (r.fingerprint ? byFingerprint.get(r.fingerprint) : undefined);
+      if (prev) marks.set(r.id, `Duplicado: já importado pelo arquivo "${prev.batch.fileName.slice(0, 60)}".`);
+    }
+  }
+
+  // 2) Lançamentos criados por outra importação depois desta prévia (mesmo extrato em outro formato):
+  //    mesma conta/cartão, mesma data e mesmo valor; cada lançamento cobre uma linha só.
+  const rest = rows.filter((r) => !marks.has(r.id) && r.date && r.amountCents);
+  if (rest.length && (scope.accountId || scope.creditCardId)) {
+    const dates = rest.map((r) => r.date!.getTime());
+    const txs = await prisma.transaction.findMany({
+      where: {
+        householdId: ctx.householdId,
+        deletedAt: null,
+        source: "IMPORT",
+        importBatchId: { not: batch.id },
+        createdAt: { gt: batch.createdAt },
+        date: { gte: new Date(Math.min(...dates)), lte: new Date(Math.max(...dates)) },
+        ...(scope.creditCardId ? { creditCardId: scope.creditCardId, type: "EXPENSE" as const } : { accountId: scope.accountId, type: { in: ["EXPENSE", "INCOME", "CARD_PAYMENT"] as Array<"EXPENSE" | "INCOME" | "CARD_PAYMENT"> } }),
+      },
+      select: { id: true, type: true, amountCents: true, date: true, importBatch: { select: { fileName: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    const used = new Set<string>();
+    for (const r of rest) {
+      const abs = Math.abs(r.amountCents!);
+      const outflow = r.amountCents! < 0;
+      const inst = readRaw(r.rawData).installment;
+      const hit = txs.find(
+        (t) =>
+          !used.has(t.id) &&
+          t.date.getTime() === r.date!.getTime() &&
+          (t.amountCents === abs || (inst && inst.number === 1 && t.amountCents === abs * inst.total)) &&
+          (outflow ? t.type !== "INCOME" : t.type === "INCOME"),
+      );
+      if (!hit) continue;
+      used.add(hit.id);
+      marks.set(r.id, `Duplicado: o mesmo lançamento acabou de ser importado pelo arquivo "${(hit.importBatch?.fileName ?? "outro arquivo").slice(0, 60)}".`);
+    }
+  }
+
+  if (!marks.size) return 0;
+  await withTransaction(async (db) => {
+    for (const [id, message] of marks) {
+      await db.importRow.updateMany({ where: { id, status: "NEW", createdTransactionId: null }, data: { status: "DUPLICATE", selected: false, message } });
+    }
+    await refreshCounters(db, batch.id);
+  });
+  return marks.size;
+}
+
 export async function commitImport(ctx: ServiceContext, batchId: string) {
   assertCan(ctx, "data:import");
   assertCan(ctx, "transactions:write");
   const batch = await loadBatch(ctx, batchId);
-  if (batch.status === "IMPORTED") return { ...(await getImportPreview(ctx, batchId)), result: { alreadyImported: true, created: 0, matched: 0, divergent: 0, errors: 0 } };
+  if (batch.status === "IMPORTED") return { ...(await getImportPreview(ctx, batchId)), result: { alreadyImported: true, created: 0, matched: 0, divergent: 0, errors: 0, duplicatesAtCommit: 0 } };
   if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação foi desfeita. Envie o arquivo novamente para gerar uma nova prévia.");
 
   const claim = await prisma.importBatch.updateMany({
@@ -1083,8 +1325,10 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
   let divergent = 0;
   let errors = 0;
   const fills: ReconciledFill[] = [...(meta.commit?.reconciledFills ?? [])];
+  let duplicatesAtCommit = 0;
 
   try {
+    duplicatesAtCommit = await markDuplicatesAtCommit(ctx, batch, scope);
     const rows = await prisma.importRow.findMany({
       where: { batchId, selected: true, status: { in: ["NEW", "MATCHED", "DIVERGENT"] } },
       orderBy: { rowIndex: "asc" },
@@ -1178,6 +1422,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
     }
 
     meta.commit = { created, matched, divergent, errors, reconciledFills: fills };
+    meta.duplicatesAtCommit = (meta.duplicatesAtCommit ?? 0) + duplicatesAtCommit;
     await withTransaction(async (db) => {
       await refreshCounters(db, batchId);
       await db.importBatch.update({ where: { id: batchId }, data: { status: "IMPORTED", importedAt: new Date(), mapping: toJson(meta) } });
@@ -1187,7 +1432,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
           action: "IMPORT",
           entityType: "ImportBatch",
           entityId: batchId,
-          after: { fileName: batch.fileName, format: batch.format, created, matched, divergent, errors },
+          after: { fileName: batch.fileName, format: batch.format, created, matched, divergent, errors, duplicatesAtCommit },
           metadata: { accountId: batch.accountId, creditCardId: batch.creditCardId },
         },
         db,
@@ -1199,12 +1444,98 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
     throw err;
   }
 
-  logger.info({ householdId: ctx.householdId, batchId, created, matched, divergent, errors }, "imports: lote importado");
+  logger.info({ householdId: ctx.householdId, batchId, created, matched, divergent, errors, duplicatesAtCommit }, "imports: lote importado");
   await publishEvent(ctx.householdId, "import.changed", batchId);
   await publishEvent(ctx.householdId, "transaction.changed");
   await publishEvent(ctx.householdId, "account.changed");
   await publishEvent(ctx.householdId, "pending.changed");
-  return { ...(await getImportPreview(ctx, batchId)), result: { alreadyImported: false, created, matched, divergent, errors } };
+  return { ...(await getImportPreview(ctx, batchId)), result: { alreadyImported: false, created, matched, divergent, errors, duplicatesAtCommit } };
+}
+
+export const bulkCommitSchema = z.object({ batchIds: z.array(idSchema).min(1).max(20) });
+
+/**
+ * Confirma várias prévias de uma vez ("confirmar todos"), em ordem. Cada arquivo é confirmado
+ * isoladamente: um erro não impede os demais. A deduplicação entre os arquivos acontece na
+ * confirmação de cada um (linhas já importadas pelos anteriores viram duplicadas).
+ */
+export async function bulkCommitImports(ctx: ServiceContext, rawInput: z.input<typeof bulkCommitSchema>) {
+  assertCan(ctx, "data:import");
+  assertCan(ctx, "transactions:write");
+  const { batchIds } = bulkCommitSchema.parse(rawInput);
+  const unique = [...new Set(batchIds)];
+  const results: Array<{
+    batchId: string;
+    fileName: string;
+    ok: boolean;
+    alreadyImported: boolean;
+    created: number;
+    matched: number;
+    divergent: number;
+    duplicatesAtCommit: number;
+    errors: number;
+    error?: string;
+  }> = [];
+  for (const batchId of unique) {
+    let fileName = "";
+    try {
+      const batch = await loadBatch(ctx, batchId);
+      fileName = batch.fileName;
+      const res = await commitImport(ctx, batchId);
+      results.push({ batchId, fileName, ok: true, ...res.result });
+    } catch (err) {
+      results.push({
+        batchId,
+        fileName,
+        ok: false,
+        alreadyImported: false,
+        created: 0,
+        matched: 0,
+        divergent: 0,
+        duplicatesAtCommit: 0,
+        errors: 0,
+        error: err instanceof AppError ? err.message : "Não foi possível confirmar este arquivo.",
+      });
+      if (!(err instanceof AppError)) logger.warn({ householdId: ctx.householdId, batchId, err: errorInfo(err).name }, "imports: falha na confirmação em massa");
+    }
+  }
+  const sum = (k: "created" | "matched" | "divergent" | "duplicatesAtCommit" | "errors") => results.reduce((s, r) => s + r[k], 0);
+  return {
+    results,
+    totals: { files: results.length, ok: results.filter((r) => r.ok).length, created: sum("created"), matched: sum("matched"), divergent: sum("divergent"), duplicatesAtCommit: sum("duplicatesAtCommit"), errors: sum("errors") },
+  };
+}
+
+/**
+ * Prévias criadas pelo WhatsApp por quem envia, nesta conversa, ainda não confirmadas.
+ * `ready`: têm conta/cartão e nenhuma divergência de tipo — podem ser confirmadas pela conversa.
+ */
+export async function listWhatsAppPreviews(ctx: ServiceContext, chatId: string, sinceMs: number) {
+  const batches = await prisma.importBatch.findMany({
+    where: {
+      ...batchVisibilityWhere(ctx),
+      createdById: ctx.memberId,
+      status: "PREVIEW",
+      createdAt: { gt: new Date(Date.now() - sinceMs) },
+      mapping: { path: ["origin", "chatId"], equals: chatId },
+    },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, fileName: true, accountId: true, creditCardId: true, mapping: true, newRows: true, matchedRows: true },
+  });
+  return batches.map((b) => ({
+    id: b.id,
+    fileName: b.fileName,
+    ready: Boolean(b.accountId || b.creditCardId) && !readMeta(b.mapping).scopeMismatch,
+  }));
+}
+
+/** Prévia já criada para esta mensagem do WhatsApp (reprocessamento não cria outra). */
+export async function findBatchByOriginMessage(ctx: ServiceContext, messageId: string) {
+  return prisma.importBatch.findFirst({
+    where: { householdId: ctx.householdId, mapping: { path: ["origin", "messageId"], equals: messageId } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true, fileName: true },
+  });
 }
 
 /** Desfaz a importação: exclusão lógica (auditada) das transações criadas pelo lote. */

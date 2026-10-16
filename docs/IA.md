@@ -152,6 +152,19 @@ compatível com a API da OpenAI). Detalhes em [CONFIGURACAO.md](CONFIGURACAO.md#
 - Uma foto enviada logo depois de um lançamento por texto é **anexada** a ele, sem criar outro.
 - Valores lidos com baixa confiança vão para confirmação.
 
+### 6.1 Extratos e faturas em PDF
+
+- PDFs com texto são lidos **sem IA** (leitor local em `src/server/modules/imports/pdf.ts`).
+- A IA só entra quando o PDF não tem texto (digitalizado/foto) ou nenhum lançamento foi reconhecido no
+  texto, e somente com provedor que lê PDF (Anthropic ou OpenAI) e a autorização `aiImageAllowed`
+  (a mesma da leitura de comprovantes). O documento é tratado como **dado não confiável**: a instrução
+  manda ignorar textos escritos nele, não transcrever números completos de cartão/CPF/conta e não
+  inventar valores ilegíveis. Datas inválidas e valores zerados/absurdos são descartados; sequências
+  longas de dígitos na descrição são removidas.
+- O resultado nunca é gravado direto: vai para a prévia de importação, com o aviso "lido pela IA", e
+  só é importado após a confirmação (no site ou respondendo "confirmar" no WhatsApp).
+- O registro de uso da IA guarda só contagens (quantas linhas, tipo), nunca o conteúdo do extrato.
+
 ## 7. Assistente
 
 O assistente fica em **Assistente IA** e também responde no grupo, se a família permitir. Ele segue

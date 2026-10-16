@@ -16,6 +16,11 @@ export class OpenAIProvider implements LLMProvider {
   readonly supportsVision = true;
   private client: OpenAI;
 
+  /** PDF como entrada: só na API oficial (servidores compatíveis costumam não aceitar arquivos). */
+  get supportsDocuments(): boolean {
+    return this.type === "OPENAI";
+  }
+
   constructor(
     readonly type: "OPENAI" | "OPENAI_COMPATIBLE",
     apiKey: string,
@@ -34,9 +39,11 @@ export class OpenAIProvider implements LLMProvider {
           { role: "system", content: req.system },
           {
             role: "user",
-            content: req.user.map((p) =>
-              p.type === "text" ? { type: "text" as const, text: p.text } : { type: "image_url" as const, image_url: { url: `data:${p.mediaType};base64,${p.base64}` } },
-            ),
+            content: req.user.map((p): OpenAI.Chat.ChatCompletionContentPart => {
+              if (p.type === "text") return { type: "text", text: p.text };
+              if (p.type === "document") return { type: "file", file: { filename: p.filename ?? "documento.pdf", file_data: `data:application/pdf;base64,${p.base64}` } };
+              return { type: "image_url", image_url: { url: `data:${p.mediaType};base64,${p.base64}` } };
+            }),
           },
         ],
         response_format: { type: "json_schema", json_schema: { name: req.schemaName, schema: req.jsonSchema, strict: true } },

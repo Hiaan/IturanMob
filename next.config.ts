@@ -31,6 +31,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   devIndicators: false,
   reactStrictMode: true,
+  // O middleware copia o corpo da requisição; o padrão (10 MB) cortaria o envio de extratos de até 15 MB.
+  experimental: { middlewareClientMaxBodySize: "20mb" },
   serverExternalPackages: ["pdfkit", "exceljs", "baileys", "pino", "pino-pretty", "bullmq", "ioredis", "@prisma/client"],
   // Arquivos lidos em tempo de execução que o rastreamento do build standalone não detecta:
   // - fontes padrão do pdfkit (standard-fonts/*.cjs e métricas .afm);

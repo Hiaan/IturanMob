@@ -1,9 +1,9 @@
 /**
- * Tipos compartilhados da importação de extratos (CSV, OFX, XLSX).
+ * Tipos compartilhados da importação de extratos (CSV, OFX, XLSX, PDF).
  * Valores monetários em centavos com sinal: negativo = saída, positivo = entrada.
  */
 
-export type ImportFileFormat = "CSV" | "OFX" | "XLSX";
+export type ImportFileFormat = "CSV" | "OFX" | "XLSX" | "PDF";
 
 export type DateFormat = "auto" | "dmy" | "ymd" | "mdy";
 

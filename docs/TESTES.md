@@ -2,7 +2,7 @@
 
 | Tipo | Ferramenta | Pasta | O que cobre |
 |---|---|---|---|
-| Unitários | Vitest | `tests/unit` | Regras puras: dinheiro, faturamento de cartão, NLU em português (valores, datas, intenções), importadores (CSV/OFX/XLSX), agenda de recorrências, telefones e fronteiras do WhatsApp |
+| Unitários | Vitest | `tests/unit` | Regras puras: dinheiro, faturamento de cartão, NLU em português (valores, datas, intenções), importadores (CSV/OFX/XLSX/PDF, com layouts sintéticos de 8 bancos), agenda de recorrências, telefones e fronteiras do WhatsApp |
 | Integração | Vitest + PostgreSQL real | `tests/integration` | Serviços de domínio, pipeline de IA, WhatsApp (ingestão, fila, recuperação), relatórios, importação, backups, LGPD e rotas da API |
 | End-to-end | Playwright | `tests/e2e` | Fluxos no navegador: cadastro/login, lançamento em linguagem natural, dashboard, assistente, isolamento entre famílias, mensagem pelo simulador de WhatsApp → lançamento + resposta, e layout no celular |
 
@@ -56,7 +56,7 @@ validação, resolução de referências, serviços e banco.
 | 18 | Consultar despesas por IA | `ai-pipeline-guards.test.ts` › "'quanto gastamos com mercado este mês?' responde com o total confirmado do banco…" · e2e "assistente responde com os dados da família" |
 | 19 | Restringir acesso entre famílias | `ledger.test.ts` › "isola os dados entre famílias" · `ai-pipeline-guards.test.ts` › "mensagens da família A nunca leem nem alteram dados da família B", "referências forjadas…" · `imports.test.ts`, `goals.test.ts`, `exports.test.ts` · e2e "dados de outra família não aparecem" |
 | 20 | Recuperar processamento após falha | `whatsapp-processor.test.ts` › "falha → novas tentativas com backoff…", "recoverStuckJobs…" · `whatsapp-redis-down.test.ts` · `ai-pipeline.test.ts` › "falha transitória depois de gravar o lançamento → … sem duplicar" |
-| 21 | Conciliar registros importados | `imports.test.ts` › "OFX bancário: correspondência com lançamento do WhatsApp, divergência, novos, commit e undo…" e mais 4 |
+| 21 | Conciliar registros importados | `imports.test.ts` › "OFX bancário: correspondência com lançamento do WhatsApp, divergência, novos, commit e undo…" e mais 4 · `imports-pdf.test.ts` (PDF, destino automático, confirmar todos sem duplicar entre arquivos, senha, digitalizado com IA) · `whatsapp-pdf-import.test.ts` (PDFs pelo WhatsApp com confirmação na conversa) · `pdf-statement.test.ts` |
 | 22 | Proteger contra mensagens maliciosas | `ai-pipeline-guards.test.ts` › "motor local: injeção de instruções, SQL e 'definir saldo'…", "LLM: valor que não está na mensagem…", "LLM: … de outra família não são aceitos", "LLM: exclusão em massa…", "LLM: valor alto … não é registrado automaticamente", "LLM: saída fora do esquema…" |
 
 ## Boas práticas para novos testes

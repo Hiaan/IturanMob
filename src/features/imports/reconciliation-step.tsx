@@ -143,7 +143,7 @@ export function ReconciliationStep({ preview, onNewImport }: { preview: ImportPr
           </span>
         </SummaryTile>
         <SummaryTile label="Saldo informado pelo banco" value={<span className="tabular">{rec.totals.statementLedgerBalanceCents === null ? "—" : formatBRL(rec.totals.statementLedgerBalanceCents)}</span>}>
-          {rec.totals.statementLedgerBalanceCents === null ? "Disponível apenas em OFX" : "Compare com o saldo da conta no app"}
+          {rec.totals.statementLedgerBalanceCents === null ? "Não informado neste arquivo (OFX e alguns PDFs trazem o saldo)" : "Compare com o saldo da conta no app"}
         </SummaryTile>
       </div>
 

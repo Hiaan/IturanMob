@@ -10,11 +10,11 @@ import { AIProviderError, type LLMProvider, type StructuredRequest, type ToolLoo
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 function toContent(parts: UserContentPart[]): Anthropic.Beta.BetaContentBlockParam[] {
-  return parts.map((p) =>
-    p.type === "text"
-      ? { type: "text", text: p.text }
-      : { type: "image", source: { type: "base64", media_type: p.mediaType, data: p.base64 } },
-  );
+  return parts.map((p): Anthropic.Beta.BetaContentBlockParam => {
+    if (p.type === "text") return { type: "text", text: p.text };
+    if (p.type === "document") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: p.base64 } };
+    return { type: "image", source: { type: "base64", media_type: p.mediaType, data: p.base64 } };
+  });
 }
 
 function mapError(err: unknown): AIProviderError {
@@ -29,6 +29,7 @@ function mapError(err: unknown): AIProviderError {
 export class AnthropicProvider implements LLMProvider {
   readonly type = "ANTHROPIC" as const;
   readonly supportsVision = true;
+  readonly supportsDocuments = true;
   private client: Anthropic;
 
   constructor(

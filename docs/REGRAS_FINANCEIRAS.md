@@ -123,7 +123,7 @@ A família escolhe o regime padrão em Configurações. Todos os relatórios ace
 
 ## 10. Conciliação de extratos importados
 
-Na importação de CSV, OFX ou XLSX, cada linha é comparada com as transações existentes da mesma
+Na importação de CSV, OFX, XLSX ou PDF, cada linha é comparada com as transações existentes da mesma
 conta/cartão, numa janela de ±3 dias:
 
 | Situação | Classificação | O que acontece |
@@ -135,6 +135,29 @@ conta/cartão, numa janela de ±3 dias:
 | Pagamento de fatura no extrato bancário | **pagamento de fatura** | Vira `CARD_PAYMENT`, não despesa |
 
 Nada é gravado antes de a pessoa revisar a prévia e confirmar. Cada lote pode ser desfeito.
+
+### 10.1 PDF e importação em massa
+
+- **PDF com texto** (exportado pelo app/site do banco) é lido localmente, sem IA: linhas com data e
+  valor viram lançamentos; saldos, totais, limites, resumos e valores em dólar são ignorados. Há
+  leitura específica para os layouts mais comuns de Nubank, Itaú, Bradesco, Banco do Brasil, Caixa,
+  Santander, Inter e C6 (colunas Valor/Saldo, Débito/Crédito, Entradas/Saídas, marcação D/C, dia por
+  extenso). Quando o sinal não aparece no PDF, entrada/saída é deduzida pela descrição e a prévia avisa.
+- **Fatura × extrato:** o tipo é identificado pelo conteúdo. Se não bate com o destino escolhido
+  (fatura enviada para uma conta, por exemplo), a prévia mostra o aviso e **nenhuma linha fica
+  selecionada** — valor de cartão nunca vira movimentação de caixa por engano.
+- **Destino automático:** sem conta/cartão escolhido, o sistema usa a conta (extrato) ou o cartão
+  (fatura) do banco identificado, **somente** se houver uma única opção compatível.
+- **PDF digitalizado** (sem texto): só a IA consegue ler, e apenas se a família autorizou o envio de
+  imagens/documentos. O resultado vai para a mesma prévia, marcado como "lido pela IA".
+- **PDF com senha:** o sistema pede o arquivo sem senha; a senha nunca é pedida nem guardada.
+- **Vários arquivos de uma vez** (site ou WhatsApp): cada arquivo tem a sua prévia e "confirmar
+  todos" confirma em sequência. Na confirmação de cada arquivo, as linhas que outro arquivo acabou de
+  importar (mesma conta/cartão: mesmo identificador/linha, ou mesma data e valor de um lançamento
+  importado depois da prévia) viram **duplicadas** e não entram de novo. A prévia já avisa quando outra
+  prévia pendente tem as mesmas linhas.
+- Limites: 15 MB por arquivo, 5.000 lançamentos por arquivo, 60 páginas por PDF e 20 arquivos por
+  confirmação em massa.
 
 ## 11. Indicadores do painel
 

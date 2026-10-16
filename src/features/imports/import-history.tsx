@@ -1,13 +1,14 @@
 "use client";
 
-import { CreditCard, FileSpreadsheet, FileText, History, Landmark } from "lucide-react";
+import { CreditCard, History, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/shared/error-state";
 import { formatDateTimeBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { BatchStatusBadge } from "./status";
+import { bankLabel, statementKindLabel } from "./helpers";
+import { BatchStatusBadge, FormatTile, formatLabel } from "./status";
 import { UndoImportButton } from "./undo-dialog";
 import { useImportList } from "./use-imports";
 
@@ -36,21 +37,27 @@ export function ImportHistory({ activeId, onOpen, timezone }: { activeId: string
         ) : (
           <ul className="divide-y">
             {q.data.map((b) => {
-              const Icon = b.format === "XLSX" ? FileSpreadsheet : FileText;
+              const kind = statementKindLabel(b.statement);
+              const bank = bankLabel(b);
               const DestIcon = b.creditCard ? CreditCard : Landmark;
               return (
                 <li key={b.id} className={cn("flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between", b.id === activeId && "rounded-lg bg-accent/60 px-2")}>
                   <div className="flex min-w-0 items-start gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                      <Icon className="size-4" aria-hidden />
-                    </span>
+                    <FormatTile format={b.format} />
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-medium">{b.fileName}</span>
                         <BatchStatusBadge status={b.status} />
                       </p>
                       <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                        <span>{b.format}</span>·
+                        <span>
+                          {formatLabel(b.format)}
+                          {kind ? ` · ${kind}` : ""}
+                          {bank ? ` · ${bank}` : ""}
+                          {b.statement?.source === "AI" ? " · lido por IA" : ""}
+                          {b.origin === "WHATSAPP" ? " · via WhatsApp" : ""}
+                        </span>
+                        ·
                         <span className="inline-flex items-center gap-1">
                           <DestIcon className="size-3" aria-hidden /> {b.account?.name ?? b.creditCard?.name ?? "Sem conta"}
                         </span>

@@ -281,7 +281,7 @@ describe("importação e conciliação", () => {
     const { nubank } = await createBasicAccounts(fam.ctx);
     const viewer = { ...fam.ctx, role: "VIEWER" as const };
     await expect(createImportPreview(viewer, { fileName: "x.csv", contentBase64: b64("Data;Valor\n01/10/2026;1,00"), accountId: nubank.id })).rejects.toThrow(/permissão/);
-    await expect(createImportPreviewFromBuffer(fam.ctx, { fileName: "grande.csv", content: Buffer.alloc(5 * 1024 * 1024 + 1, 65), accountId: nubank.id })).rejects.toThrow(/5 MB/);
+    await expect(createImportPreviewFromBuffer(fam.ctx, { fileName: "grande.csv", content: Buffer.alloc(15 * 1024 * 1024 + 1, 65), accountId: nubank.id })).rejects.toThrow(/15 MB/);
     await expect(createImportPreview(other.ctx, { fileName: "x.csv", contentBase64: b64("Data;Valor\n01/10/2026;1,00"), accountId: nubank.id })).rejects.toThrow(/Conta inválida/);
     const many = ["Data;Descrição;Valor", ...Array.from({ length: 5_001 }, (_, i) => `01/10/2026;Linha ${i};-1,00`)].join("\n");
     await expect(createImportPreview(fam.ctx, { fileName: "muitas.csv", contentBase64: b64(many), accountId: nubank.id })).rejects.toThrow(/5\.000 linhas/);

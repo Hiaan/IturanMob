@@ -72,7 +72,7 @@ location / {
     proxy_set_header X-Forwarded-Proto https;
     proxy_buffering off;              # necessário para /api/v1/events
     proxy_read_timeout 1h;
-    client_max_body_size 20m;         # importações (até 5 MB em base64) e anexos
+    client_max_body_size 20m;         # importações (até 15 MB por arquivo) e anexos
 }
 ```
 
@@ -155,7 +155,8 @@ derivados de forma idempotente. Os dois também estão disponíveis na tela **Co
   filas aceitam mais concorrência via `WORKER_CONCURRENCY`.
 - O `web` é stateless (sessões no banco, eventos no Redis) e pode ter mais réplicas atrás do proxy,
   desde que compartilhe o volume `storage`.
-- Limites: corpo JSON até 2 MB, arquivos de importação até 5 MB, mídias do WhatsApp até 16 MB.
+- Limites: corpo JSON até 2 MB, arquivos de importação até 15 MB (multipart; o middleware do Next.js
+  está configurado para aceitar corpos de até 20 MB), mídias do WhatsApp até 16 MB.
 
 ## 10. Checklist de produção
 
