@@ -9,11 +9,11 @@ coverage/
 .env.*.local
 *.log
 .DS_Store
-storage/
-backups/
+/storage/
+/backups/
 test-results/
 playwright-report/
 blob-report/
 *.tsbuildinfo
 .vercel
-storage-test/
+/storage-test/
