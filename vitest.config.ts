@@ -15,6 +15,10 @@ const testEnv: Record<string, string> = {
   AI_DEFAULT_PROVIDER: "LOCAL",
   TRANSCRIPTION_PROVIDER: "none",
   ALLOW_REGISTRATION: "true",
+  // Testes nunca acessam a internet: cotações/taxas do Banco Central disparadas em segundo plano
+  // (ex.: ao criar conta em dólar) falham na hora em vez de gravar a PTAX real no banco de teste.
+  // Os testes que precisam do BCB injetam o fetch simulado.
+  BCB_SGS_URL: "http://127.0.0.1:9/dados/serie/bcdata.sgs",
 };
 
 export default defineConfig({
