@@ -63,4 +63,22 @@ describe("WhatsApp: aplicação e resgate", () => {
     const answer = await sendMessage(fam, { text: "tesouro" });
     expect(answer.reply).toContain("Itaú → Tesouro");
   });
+
+  it("conta em dólar: gasto mostra US$; transferência Wise → Itaú pergunta quanto chegou em reais", async () => {
+    const { fam, itau } = await family(false);
+    await prisma.exchangeRate.create({ data: { currency: "USD", date: new Date("2026-09-01T00:00:00Z"), rateBrl: "5.400000" } });
+    const wise = await createAccount(fam.ctx, { name: "Wise", institution: "Wise", type: "DIGITAL", currency: "USD", initialBalanceCents: 100_000, initialBalanceDate: "2026-01-01" });
+    const spent = await sendMessage(fam, { text: "gastei 20 no mercado pela wise" });
+    expect(spent.reply).toContain("US$ 20,00");
+    const exp = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, type: "EXPENSE" } });
+    expect(exp).toMatchObject({ currency: "USD", amountCents: 2000, amountBrlCents: 10_800, accountId: wise.id });
+
+    const q = await sendMessage(fam, { text: "transferi 500 da wise para o itaú" });
+    expect(q.reply).toContain("quanto chegou em Itaú (BRL)");
+    const done = await sendMessage(fam, { text: "2.700,00" });
+    expect(done.reply).toContain("Transferência registrada");
+    const t = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, type: "TRANSFER" } });
+    expect(t).toMatchObject({ accountId: wise.id, amountCents: 50_000, currency: "USD", destinationAccountId: itau.id, destinationAmountCents: 270_000 });
+    await prisma.exchangeRate.deleteMany();
+  });
 });

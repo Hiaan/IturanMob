@@ -52,7 +52,7 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
   const scope = await getVisibilityScope(ctx);
   const counterpart = await prisma.account.findFirst({
     where: { id: input.counterpartAccountId, householdId: ctx.householdId, archivedAt: null },
-    select: { id: true, name: true },
+    select: { id: true, name: true, currency: true },
   });
   if (!counterpart || scope.hiddenAccountIds.includes(counterpart.id)) throw new ValidationError("Conta inválida.", { field: "counterpartAccountId" });
 
@@ -98,6 +98,7 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
     else if (!t.accountId) skip("Lançamento sem conta: informe a conta antes de converter.");
     else if (t.accountId === counterpart.id) skip("A conta do lançamento é a mesma escolhida para o outro lado.");
     else if (t.installmentCount > 1) skip("Lançamento parcelado não pode virar transferência.");
+    else if (t.currency !== counterpart.currency) skip(`Moedas diferentes (${t.currency} × ${counterpart.currency}): registre a transferência informando o valor de cada lado.`);
     if (items[items.length - 1]?.transactionId === id) continue;
 
     const own = t.accountId!;

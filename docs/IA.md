@@ -115,6 +115,13 @@ externo classifica a mensagem como receita/despesa: a resolução corrige para t
 - A conta de movimento segue a mesma regra (única conta → usada; senão, o bot pergunta).
 - "guardei 300 para a meta viagem" continua sendo contribuição para a meta.
 
+### Conta em moeda estrangeira
+
+- O valor de um lançamento na conta em dólar (ex.: "gastei 20 no mercado pela wise") é em dólar; a
+  resposta mostra "US$ 20,00" e os relatórios usam o valor em reais pela PTAX da data.
+- "transferi 500 da wise para o itaú" (moedas diferentes): o bot pergunta quanto chegou em reais e
+  registra a transferência com os dois valores (câmbio efetivo).
+
 Correções ("na verdade foi 50", "muda a categoria para farmácia") e exclusões ("apaga o último
 lançamento") atuam sobre **um** lançamento identificado. Exclusões são lógicas e podem ser desfeitas
 ("restaura").

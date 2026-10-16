@@ -1,4 +1,4 @@
-import { formatBRL, splitEvenly } from "@/lib/money";
+import { formatBRL, formatMoney, splitEvenly } from "@/lib/money";
 import { addDays, formatDateBR } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import type { ResolvedDraft } from "./resolve";
@@ -50,7 +50,7 @@ export function kindVerb(kind: string): string {
 }
 
 export function createdLine(d: ResolvedDraft, today: string): string {
-  return `*${d.description}* — ${formatBRL(d.amountCents ?? 0)}\n${draftSummary(d, today)}`;
+  return `*${d.description}* — ${formatMoney(d.amountCents ?? 0, d.currency ?? "BRL")}\n${draftSummary(d, today)}`;
 }
 
 export function missingQuestion(d: ResolvedDraft, opts: { cards: string[]; accounts: string[]; goals: string[]; investmentAccounts?: string[]; cashAccounts?: string[] }): string {
@@ -70,6 +70,9 @@ export function missingQuestion(d: ResolvedDraft, opts: { cards: string[]; accou
       : `Para qual conta voltou o dinheiro do resgate de ${formatBRL(d.amountCents ?? 0)}? Contas: ${list}.`;
   }
   if (missing.includes("valor")) return `Não identifiquei o valor de ${label}. Quanto foi?`;
+  if (missing.includes("valor recebido")) {
+    return `As contas têm moedas diferentes: quanto chegou em ${d.labels.destinationAccount ?? "destino"} (${d.destinationCurrency ?? ""}) pela transferência de ${formatMoney(d.amountCents ?? 0, d.currency ?? "BRL")}? Responda só o valor (ex.: "2.700,00").`;
+  }
   if (missing.includes("cartão")) {
     return `Em qual cartão foi ${label}${d.amountCents ? ` (${formatBRL(d.amountCents)}${d.installmentCount > 1 ? ` em ${d.installmentCount}x` : ""})` : ""}? Opções: ${opts.cards.join(", ")}.`;
   }

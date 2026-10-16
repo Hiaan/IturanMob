@@ -41,7 +41,7 @@ export function formatMoney(cents: number | null | undefined, currency: string =
     f = new Intl.NumberFormat("pt-BR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
     moneyFormatters.set(currency, f);
   }
-  const formatted = f.format(Math.abs(cents / 100)).replace(/ /g, " ");
+  const formatted = f.format(Math.abs(cents / 100)).replace(/\u00a0/g, " ");
   if (cents < 0) return `-${formatted}`;
   if (opts?.signed && cents > 0) return `+${formatted}`;
   return formatted;

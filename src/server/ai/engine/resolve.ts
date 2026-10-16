@@ -47,6 +47,11 @@ export interface ResolvedDraft {
   ruleId: string | null;
   /** Aplicação (IN) ou resgate (OUT) de investimento. */
   investment: "IN" | "OUT" | null;
+  /** Moeda do valor (a da conta; cartão = BRL). */
+  currency?: string;
+  /** Transferência entre moedas: valor que chegou no destino (moeda da conta de destino). */
+  destinationAmountCents?: number | null;
+  destinationCurrency?: string | null;
 }
 
 function matchByName<T extends { id: string; name: string; aliases?: string[] }>(hint: string | null | undefined, list: T[]): T | null {
@@ -322,7 +327,14 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
     },
     ruleId,
     investment: raw.kind === "TRANSFER" ? investment : null,
+    currency: raw.kind === "EXPENSE" && card ? "BRL" : account?.currency ?? "BRL",
+    destinationAmountCents: null,
+    destinationCurrency: raw.kind === "TRANSFER" ? destination?.currency ?? null : null,
   };
+  // Transferência entre moedas (ex.: Wise USD → C6 BRL): o valor que chegou do outro lado é perguntado.
+  if (raw.kind === "TRANSFER" && account && destination && (account.currency ?? "BRL") !== (destination.currency ?? "BRL")) {
+    resolved.missing.push("valor recebido");
+  }
   resolved.decision = decide(resolved.confidence, missing, hc, resolved.amountCents);
   if (resolved.decision === "CONFIRM" && (resolved.amountCents ?? 0) >= LARGE_AMOUNT_CENTS) warnings.push("Valor alto: confirme antes de registrar.");
   return resolved;

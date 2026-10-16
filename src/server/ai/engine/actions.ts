@@ -150,6 +150,7 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
       paymentMethod: d.paymentMethod,
       accountId: d.accountId,
       destinationAccountId: d.destinationAccountId,
+      destinationAmountCents: d.destinationAmountCents ?? null,
       creditCardId: d.creditCardId,
       installmentCount: d.installmentCount,
       payerMemberId: d.payerMemberId,
@@ -604,6 +605,14 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
     }
     let filled = false;
     const d: ResolvedDraft = { ...first, missing: [...first.missing], warnings: [...first.warnings] };
+    if (d.missing.includes("valor recebido")) {
+      const amounts = extractAmounts(opts.text);
+      if (amounts.length === 1) {
+        d.destinationAmountCents = amounts[0]!.cents;
+        d.missing = d.missing.filter((x) => x !== "valor recebido");
+        filled = true;
+      }
+    }
     if (d.missing.includes("valor")) {
       const amounts = extractAmounts(opts.text);
       if (amounts.length === 1) {
