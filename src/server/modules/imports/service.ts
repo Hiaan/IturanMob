@@ -9,7 +9,7 @@ import { errorInfo, logger } from "../../logger";
 import { sha256Hex } from "../../crypto";
 import { readStoredFile, storeFile, storedFileExists } from "../../storage";
 import { addDays, dateToISO, formatDateBR, instantToISO, isoToDate, todayISO } from "@/lib/dates";
-import { formatBRL, MAX_AMOUNT_CENTS } from "@/lib/money";
+import { formatBRL, formatMoney, MAX_AMOUNT_CENTS } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
 import { audit } from "../audit/service";
 import { createRule } from "../categories/service";
@@ -176,6 +176,8 @@ interface RowRawData {
   transferReason?: OwnMoveKind | "RULE" | "MANUAL" | null;
   /** EXPENSE/INCOME quando a pessoa desfaz a transferência na prévia. */
   originalKind?: RowKind | null;
+  /** Transferência entre moedas: valor na moeda da outra conta (informado pela pessoa). */
+  counterpartAmountCents?: number | null;
 }
 
 interface PreparedRow {
@@ -318,6 +320,7 @@ const TRANSFER_WHY: Record<string, string> = {
   INVESTMENT: "aplicação/resgate de investimento",
   OWN_ACCOUNTS: "transferência entre contas próprias",
   RULE: "regra aprendida",
+  FOREIGN: "remessa/câmbio entre contas próprias",
   MANUAL: "marcado por você",
 };
 
@@ -326,22 +329,42 @@ function transferMessage(raw: RowRawData, amountCents: number, accountName: stri
   return `Transferência ${outflow ? "para" : "vinda de"} ${accountName} (${TRANSFER_WHY[raw.transferReason ?? "MANUAL"] ?? "transferência"}): não conta como receita nem despesa.`;
 }
 
+async function crossCurrencyMessage(r: PreparedRow, name: string, scopeCurrency: string, otherCurrency: string): Promise<string> {
+  const outflow = (r.amountCents ?? 0) < 0;
+  const { rateOn } = await import("../fx/service");
+  let hint = "";
+  if (scopeCurrency === "BRL" && r.date) {
+    const rate = await rateOn(otherCurrency, r.date);
+    if (rate) hint = ` Referência: pela PTAX de ${formatDateBR(rate.date)}, ${formatBRL(Math.abs(r.amountCents!))} ≈ ${formatMoney(Math.round(Math.abs(r.amountCents!) / rate.rate), otherCurrency)} (o valor real depende do câmbio da operação).`;
+  }
+  return `Transferência ${outflow ? "para" : "vinda de"} ${name} (${otherCurrency}): informe quanto ${outflow ? "chegou" : "saiu"} em ${otherCurrency} para importar.${hint}`;
+}
+
 /** Mensagens das linhas de transferência e linhas sem a conta do outro lado (ficam desmarcadas). */
-async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[]) {
+async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[], scopeAccountId: string | null) {
   const transfers = rows.filter((r) => r.raw.kind === "TRANSFER" && r.amountCents);
   if (!transfers.length) return;
-  const ids = [...new Set(transfers.map((r) => r.raw.transferAccountId).filter(Boolean) as string[])];
+  const ids = [...new Set([...(transfers.map((r) => r.raw.transferAccountId).filter(Boolean) as string[]), ...(scopeAccountId ? [scopeAccountId] : [])])];
   const matchedIds = transfers.filter((r) => r.matchedTransactionId).map((r) => r.matchedTransactionId!);
   const [accounts, matched, investmentAccounts] = await Promise.all([
-    prisma.account.findMany({ where: { id: { in: ids }, householdId: ctx.householdId }, select: { id: true, name: true } }),
+    prisma.account.findMany({ where: { id: { in: ids }, householdId: ctx.householdId }, select: { id: true, name: true, currency: true } }),
     matchedIds.length ? prisma.transaction.findMany({ where: { id: { in: matchedIds } }, select: { id: true, type: true } }) : Promise.resolve([]),
     prisma.account.count({ where: { ...visibleAccountWhere(ctx), archivedAt: null, type: { in: ["INVESTMENT", "SAVINGS"] } } }),
   ]);
   const names = new Map(accounts.map((a) => [a.id, a.name]));
+  const currencies = new Map(accounts.map((a) => [a.id, a.currency]));
+  const scopeCurrency = scopeAccountId ? currencies.get(scopeAccountId) ?? "BRL" : "BRL";
   const matchedType = new Map(matched.map((t) => [t.id, t.type]));
   let unresolved = 0;
   for (const r of transfers) {
     const name = r.raw.transferAccountId ? names.get(r.raw.transferAccountId) : undefined;
+    const otherCurrency = r.raw.transferAccountId ? currencies.get(r.raw.transferAccountId) ?? "BRL" : scopeCurrency;
+    if (r.status === "NEW" && name && otherCurrency !== scopeCurrency && !r.raw.counterpartAmountCents) {
+      // Entre moedas: o valor do outro lado não está neste extrato — a pessoa informa (nada é estimado).
+      r.selected = false;
+      r.message = await crossCurrencyMessage(r, name, scopeCurrency, otherCurrency);
+      continue;
+    }
     if (r.status === "NEW") {
       if (!name) {
         unresolved++;
@@ -599,7 +622,7 @@ async function prepareRows(
       ? prisma.creditCard.findMany({ where: { ...visibleCardWhere(ctx), archivedAt: null }, select: { id: true, name: true, issuer: true, last4: true } })
       : Promise.resolve([] as Array<{ id: string; name: string; issuer: string | null; last4: string | null }>),
     scope.accountId
-      ? prisma.account.findMany({ where: { ...visibleAccountWhere(ctx), archivedAt: null }, select: { id: true, name: true, institution: true, type: true } })
+      ? prisma.account.findMany({ where: { ...visibleAccountWhere(ctx), archivedAt: null }, select: { id: true, name: true, institution: true, type: true, currency: true } })
       : Promise.resolve([] as AccountLite[]),
     scope.accountId
       ? prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setTransferAccountId: { not: null } } })
@@ -839,6 +862,7 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
       description: true,
       accountId: true,
       destinationAccountId: true,
+      destinationAmountCents: true,
       creditCardId: true,
       paymentMethod: true,
       merchant: { select: { name: true } },
@@ -848,7 +872,8 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
   const candidates: Candidate[] = txs.map((t) => ({
     id: t.id,
     type: t.type,
-    amountCents: t.amountCents,
+    // Transferência entre moedas: do lado da conta do extrato, o valor é o creditado no destino.
+    amountCents: t.type === "TRANSFER" && t.destinationAmountCents !== null && t.destinationAccountId === scope.accountId ? t.destinationAmountCents : t.amountCents,
     date: dateToISO(t.date),
     description: t.description,
     merchantName: t.merchant?.name ?? null,
@@ -1001,7 +1026,7 @@ async function buildRows(
         : null;
   const prepared = await prepareRows(ctx, scope, parsed.rows, { invertSigns: opts.invertSigns, warnings });
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
-  await annotateTransfers(ctx, rows, warnings);
+  await annotateTransfers(ctx, rows, warnings, scope.accountId);
   if (pdfMismatch) {
     warnings.unshift(pdfMismatch);
     for (const r of rows) r.selected = false;
@@ -1294,6 +1319,8 @@ export const importRowsTransferSchema = z.object({
   applyToSimilar: z.boolean().default(false),
   /** Cria uma regra: próximas importações (e o WhatsApp) já tratam essas linhas como transferência. */
   remember: z.boolean().default(false),
+  /** Conta em outra moeda: valor do outro lado (só para uma linha por vez). */
+  counterpartAmountCents: z.number().int().positive().max(MAX_AMOUNT_CENTS).nullish(),
 });
 export type ImportRowsTransfer = z.input<typeof importRowsTransferSchema>;
 
@@ -1305,11 +1332,17 @@ export async function setImportRowsTransfer(ctx: ServiceContext, batchId: string
   if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída e não pode mais ser alterada.");
   if (!batch.accountId) throw new ValidationError("Transferência só vale para extrato de conta: escolha a conta da importação (faturas de cartão não têm transferências).");
   let accountName: string | null = null;
+  let otherCurrency = "BRL";
   if (input.transferAccountId) {
     if (input.transferAccountId === batch.accountId) throw new ValidationError("Escolha uma conta diferente da conta do extrato.", { field: "transferAccountId" });
-    const acc = await prisma.account.findFirst({ where: { id: input.transferAccountId, ...visibleAccountWhere(ctx), archivedAt: null }, select: { name: true } });
+    const acc = await prisma.account.findFirst({ where: { id: input.transferAccountId, ...visibleAccountWhere(ctx), archivedAt: null }, select: { name: true, currency: true } });
     if (!acc) throw new ValidationError("Conta inválida.", { field: "transferAccountId" });
     accountName = acc.name;
+    otherCurrency = acc.currency;
+  }
+  const ownCurrency = (await prisma.account.findUnique({ where: { id: batch.accountId }, select: { currency: true } }))?.currency ?? "BRL";
+  if (input.counterpartAmountCents && (input.rowIds.length !== 1 || input.applyToSimilar)) {
+    throw new ValidationError("O valor na outra moeda é informado linha a linha.", { field: "counterpartAmountCents" });
   }
   const chosen = await prisma.importRow.findMany({ where: { batchId, id: { in: input.rowIds } } });
   if (chosen.length !== new Set(input.rowIds).size) throw new NotFoundError("Linha da importação");
@@ -1333,17 +1366,22 @@ export async function setImportRowsTransfer(ctx: ServiceContext, batchId: string
           kind: "TRANSFER",
           transferAccountId: input.transferAccountId,
           transferReason: "MANUAL",
+          counterpartAmountCents: input.counterpartAmountCents ?? (raw.transferAccountId === input.transferAccountId ? raw.counterpartAmountCents ?? null : null),
         };
+        const needsAmount = otherCurrency !== ownCurrency && !next.counterpartAmountCents;
+        const message = needsAmount
+          ? await crossCurrencyMessage({ ...(r as unknown as PreparedRow), date: r.date ? dateToISO(r.date) : null, raw: next }, accountName!, ownCurrency, otherCurrency)
+          : transferMessage(next, r.amountCents!, accountName!);
         await db.importRow.update({
           where: { id: r.id },
           data: {
             rawData: toJson(next),
             categoryId: null,
-            ...(r.status === "NEW" ? { selected: true, message: transferMessage(next, r.amountCents!, accountName!) } : {}),
+            ...(r.status === "NEW" ? { selected: !needsAmount, message } : {}),
           },
         });
       } else if (raw.kind === "TRANSFER") {
-        const next: RowRawData = { ...raw, kind: raw.originalKind && raw.originalKind !== "TRANSFER" ? raw.originalKind : outflow ? "EXPENSE" : "INCOME", transferAccountId: null, transferReason: null, originalKind: null };
+        const next: RowRawData = { ...raw, kind: raw.originalKind && raw.originalKind !== "TRANSFER" ? raw.originalKind : outflow ? "EXPENSE" : "INCOME", transferAccountId: null, transferReason: null, originalKind: null, counterpartAmountCents: null };
         await db.importRow.update({ where: { id: r.id }, data: { rawData: toJson(next), ...(r.status === "NEW" ? { message: null } : {}) } });
       }
     }
@@ -1470,7 +1508,7 @@ async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; 
               ],
             }),
       },
-      select: { id: true, type: true, amountCents: true, date: true, destinationAccountId: true, importBatch: { select: { fileName: true } } },
+      select: { id: true, type: true, amountCents: true, destinationAmountCents: true, date: true, destinationAccountId: true, importBatch: { select: { fileName: true } } },
       orderBy: { createdAt: "asc" },
     });
     const used = new Set<string>();
@@ -1482,7 +1520,8 @@ async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; 
         (t) =>
           !used.has(t.id) &&
           t.date.getTime() === r.date!.getTime() &&
-          (t.amountCents === abs || (inst && inst.number === 1 && t.amountCents === abs * inst.total)) &&
+          ((t.destinationAmountCents !== null && t.destinationAccountId === scope.accountId ? t.destinationAmountCents : t.amountCents) === abs ||
+            (inst && inst.number === 1 && t.amountCents === abs * inst.total)) &&
           (t.type === "TRANSFER" ? (t.destinationAccountId === scope.accountId) === !outflow : outflow ? t.type !== "INCOME" : t.type === "INCOME"),
       );
       if (!hit) continue;
@@ -1543,6 +1582,21 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
           await prisma.importRow.update({ where: { id: row.id }, data: { status: "ERROR", message: "Transferência sem a conta do outro lado: escolha a conta na prévia." } });
           continue;
         }
+        let crossAmounts: { amountCents: number; destinationAmountCents: number } | null = null;
+        if (raw.kind === "TRANSFER") {
+          const pair = await prisma.account.findMany({ where: { id: { in: [scope.accountId!, raw.transferAccountId!] } }, select: { id: true, currency: true } });
+          const own = pair.find((a) => a.id === scope.accountId)?.currency ?? "BRL";
+          const other = pair.find((a) => a.id === raw.transferAccountId)?.currency ?? "BRL";
+          if (own !== other) {
+            if (!raw.counterpartAmountCents) {
+              errors++;
+              await prisma.importRow.update({ where: { id: row.id }, data: { status: "ERROR", message: `Transferência entre moedas: informe o valor em ${other} na prévia.` } });
+              continue;
+            }
+            // Saída: o extrato tem a origem; entrada: o extrato tem o destino.
+            crossAmounts = outflow ? { amountCents: amount, destinationAmountCents: raw.counterpartAmountCents } : { amountCents: raw.counterpartAmountCents, destinationAmountCents: amount };
+          }
+        }
         const fields =
           raw.kind === "CARD_PAYMENT"
             ? { type: "CARD_PAYMENT" as const, creditCardId: raw.cardPaymentCardId ?? null, accountId: scope.accountId, paymentMethod: raw.suggestedPaymentMethod ?? "BANK_TRANSFER" }
@@ -1571,6 +1625,7 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
               {
                 ...fields,
                 amountCents: installment ? amount * installment.total : amount,
+                ...(crossAmounts ?? {}),
                 description: row.description || "Lançamento importado",
                 notes: raw.memo && row.description && !row.description.includes(raw.memo) ? raw.memo.slice(0, 500) : null,
                 date: dateToISO(row.date!),

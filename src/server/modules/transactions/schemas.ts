@@ -32,6 +32,8 @@ export const transactionFieldsSchema = z.object({
   paymentMethod: z.enum(PAYMENT_METHODS).nullish(),
   accountId: idSchema.nullish(),
   destinationAccountId: idSchema.nullish(),
+  /** Transferência entre contas de moedas diferentes: valor creditado no destino (na moeda dele). */
+  destinationAmountCents: amountCentsSchema.nullish(),
   creditCardId: idSchema.nullish(),
   statementId: idSchema.nullish(),
   installmentCount: z.number().int().min(1).max(72).default(1),

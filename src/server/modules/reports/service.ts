@@ -425,8 +425,8 @@ export async function buildMonthlyReport(ctx: ServiceContext, month: string, opt
     topExpenses: topExpenseItems(top.items),
     recognizedTransactions: new Set(rows.map((r) => r.transactionId)).size,
     balance: {
-      availableCents: included.filter((a) => a.type !== "INVESTMENT").reduce((s, a) => s + a.balanceCents, 0),
-      investmentsCents: included.filter((a) => a.type === "INVESTMENT").reduce((s, a) => s + a.balanceCents, 0),
+      availableCents: included.filter((a) => a.type !== "INVESTMENT").reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0),
+      investmentsCents: included.filter((a) => a.type === "INVESTMENT").reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0),
       asOf: balanceAsOf,
       certainty: "CONFIRMED",
     },

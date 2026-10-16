@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Lock, Users } from "lucide-react";
+import { Info, Lock, TrendingUp, Users } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -13,31 +13,58 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MoneyInput } from "@/components/shared/money-input";
 import { errorMessage } from "@/lib/client/api";
-import { todayISO } from "@/lib/dates";
+import { isISODate, todayISO } from "@/lib/dates";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useMembers } from "@/features/finance/hooks";
 import { useMe } from "@/features/me/use-me";
 import type { AccountDTO } from "@/features/finance/types";
 import { ACCOUNT_COLORS, ACCOUNT_TYPE_ICON, AccountIcon, ColorSwatches } from "./account-icon";
-import { useAccountMutations } from "./use-account-mutations";
+import { useAccountMutations, type AccountInput } from "./use-account-mutations";
+import { YIELD_INDEXES, YIELD_RATE_UNIT, bpsToPercentText, isPercentOfIndex, percentTextToBps, supportsYield, type YieldIndex } from "./yield";
 
 const NONE = "__none__";
 
-const schema = z.object({
-  name: z.string().trim().min(1, "Informe o nome da conta").max(60, "Use no máximo 60 caracteres"),
-  institution: z.string().trim().max(60, "Use no máximo 60 caracteres"),
-  type: z.enum(["CHECKING", "SAVINGS", "WALLET", "INVESTMENT", "DIGITAL", "OTHER"]),
-  visibility: z.enum(["SHARED", "PRIVATE"]),
-  ownerMemberId: z.string(),
-  initialBalanceCents: z.number().int(),
-  initialBalanceDate: z.string().length(10, "Informe a data do saldo inicial"),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida"),
-  includeInTotals: z.boolean(),
-});
+const schema = z
+  .object({
+    name: z.string().trim().min(1, "Informe o nome da conta").max(60, "Use no máximo 60 caracteres"),
+    institution: z.string().trim().max(60, "Use no máximo 60 caracteres"),
+    type: z.enum(["CHECKING", "SAVINGS", "WALLET", "INVESTMENT", "DIGITAL", "OTHER"]),
+    visibility: z.enum(["SHARED", "PRIVATE"]),
+    ownerMemberId: z.string(),
+    initialBalanceCents: z.number().int(),
+    initialBalanceDate: z.string().length(10, "Informe a data do saldo inicial"),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida"),
+    includeInTotals: z.boolean(),
+    yieldEnabled: z.boolean(),
+    yieldIndex: z.enum(["CDI", "SELIC", "IPCA", "PREFIXED"]),
+    yieldRate: z.string(),
+    yieldStartDate: z.string(),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.yieldEnabled || !supportsYield(v.type)) return;
+    const bps = percentTextToBps(v.yieldRate);
+    if (!v.yieldRate.trim()) ctx.addIssue({ code: "custom", path: ["yieldRate"], message: isPercentOfIndex(v.yieldIndex) ? "Informe o percentual (ex.: 100)" : "Informe a taxa ao ano" });
+    else if (bps === null) ctx.addIssue({ code: "custom", path: ["yieldRate"], message: "Use um número com até 2 casas decimais (ex.: 101,5)" });
+    else if (bps < 1 || bps > 100_000) ctx.addIssue({ code: "custom", path: ["yieldRate"], message: "Informe uma taxa entre 0,01 e 1.000" });
+    if (!isISODate(v.yieldStartDate)) ctx.addIssue({ code: "custom", path: ["yieldStartDate"], message: "Informe a data de início do rendimento" });
+  });
 type Values = z.infer<typeof schema>;
 
-function defaults(account: AccountDTO | null | undefined, today: string): Values {
+/** Taxa padrão ao trocar de indexador: volta à da conta se for do mesmo tipo; senão 100% (CDI/Selic) ou vazio. */
+function rateFor(index: YieldIndex, account: AccountDTO | null | undefined): string {
+  if (account?.yieldIndex && isPercentOfIndex(account.yieldIndex) === isPercentOfIndex(index)) return bpsToPercentText(account.yieldRateBps);
+  return isPercentOfIndex(index) ? "100" : "";
+}
+
+function defaults(account: AccountDTO | null | undefined, today: string, enableYield = false): Values {
+  const yieldIndex: YieldIndex = account?.yieldIndex ?? "CDI";
+  const yieldValues = {
+    yieldEnabled: Boolean(account?.yieldIndex) || enableYield,
+    yieldIndex,
+    yieldRate: rateFor(yieldIndex, account),
+    yieldStartDate: account?.yieldStartDate ?? account?.initialBalanceDate ?? today,
+  };
   return account
     ? {
         name: account.name,
@@ -49,53 +76,125 @@ function defaults(account: AccountDTO | null | undefined, today: string): Values
         initialBalanceDate: account.initialBalanceDate,
         color: account.color,
         includeInTotals: account.includeInTotals,
+        ...yieldValues,
       }
-    : { name: "", institution: "", type: "CHECKING", visibility: "SHARED", ownerMemberId: NONE, initialBalanceCents: 0, initialBalanceDate: today, color: ACCOUNT_COLORS[0]!, includeInTotals: true };
+    : { name: "", institution: "", type: "CHECKING", visibility: "SHARED", ownerMemberId: NONE, initialBalanceCents: 0, initialBalanceDate: today, color: ACCOUNT_COLORS[0]!, includeInTotals: true, ...yieldValues };
 }
 
-export function AccountFormDialog({ open, onOpenChange, account }: { open: boolean; onOpenChange: (o: boolean) => void; account?: AccountDTO | null }) {
+const YIELD_FIELDS = ["yieldIndex", "yieldRateBps", "yieldStartDate"] as const;
+
+/**
+ * Corpo do PATCH na edição. Os campos básicos vão sempre (a rota ainda aplica os padrões do schema
+ * aos campos ausentes); os do rendimento só quando mudam, porque alterá-los reapura os meses.
+ * `null` quando nada mudou.
+ */
+function editPayload(account: AccountDTO, next: AccountInput): Partial<AccountInput> | null {
+  const before: AccountInput = {
+    name: account.name,
+    institution: account.institution,
+    type: account.type,
+    visibility: account.visibility as AccountInput["visibility"],
+    ownerMemberId: account.ownerMemberId,
+    initialBalanceCents: account.initialBalanceCents,
+    initialBalanceDate: account.initialBalanceDate,
+    color: account.color,
+    icon: account.icon,
+    includeInTotals: account.includeInTotals,
+    yieldIndex: account.yieldIndex,
+    yieldRateBps: account.yieldRateBps,
+    yieldStartDate: account.yieldStartDate,
+  };
+  const changed = (Object.keys(next) as Array<keyof AccountInput>).filter((k) => next[k] !== before[k]);
+  if (!changed.length) return null;
+  const out: Partial<AccountInput> = { ...next };
+  for (const k of YIELD_FIELDS) if (!changed.includes(k)) delete out[k];
+  // Desligar basta enviar o indexador nulo: taxa e início são limpos pelo servidor.
+  if (next.yieldIndex === null && changed.includes("yieldIndex")) {
+    delete out.yieldRateBps;
+    delete out.yieldStartDate;
+  }
+  return out;
+}
+
+export function AccountFormDialog({
+  open,
+  onOpenChange,
+  account,
+  focusYield = false,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  account?: AccountDTO | null;
+  /** Abre já com o rendimento automático ligado e o foco na taxa (atalho do detalhe da conta). */
+  focusYield?: boolean;
+}) {
   const me = useMe();
   const members = useMembers();
   const { save } = useAccountMutations();
   const today = todayISO(me.data?.household.timezone);
   const [serverError, setServerError] = useState<string | null>(null);
-  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults(account, today) });
-  const { control, register, handleSubmit, reset, formState } = form;
+  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults(account, today, focusYield) });
+  const { control, register, handleSubmit, reset, setValue, formState } = form;
   const e = formState.errors;
-  const [type, color, visibility, initial, name] = useWatch({ control, name: ["type", "color", "visibility", "initialBalanceCents", "name"] });
+  const [type, color, visibility, initial, name, initialDate, yieldEnabled, yieldIndex] = useWatch({
+    control,
+    name: ["type", "color", "visibility", "initialBalanceCents", "name", "initialBalanceDate", "yieldEnabled", "yieldIndex"],
+  });
+  const yieldSectionRef = useRef<HTMLElement | null>(null);
+  const yieldRateRef = useRef<HTMLInputElement | null>(null);
+  // Início do rendimento acompanha a data do saldo inicial até a pessoa escolher outra.
+  const startTouched = useRef(false);
+  const yieldEligible = supportsYield(type);
+  const unit = YIELD_RATE_UNIT[yieldIndex];
 
   useEffect(() => {
-    if (open) {
-      reset(defaults(account, today));
-      setServerError(null);
-    }
-  }, [open, account, today, reset]);
+    if (!open) return;
+    reset(defaults(account, today, focusYield));
+    setServerError(null);
+    startTouched.current = Boolean(account?.yieldStartDate);
+    if (!focusYield) return;
+    const t = window.setTimeout(() => {
+      yieldSectionRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      yieldRateRef.current?.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [open, account, today, reset, focusYield]);
+
+  useEffect(() => {
+    if (open && !startTouched.current && isISODate(initialDate)) setValue("yieldStartDate", initialDate);
+  }, [open, initialDate, setValue]);
+
+  const { ref: yieldRateRegisterRef, ...yieldRateField } = register("yieldRate");
+  const { onChange: onStartChange, ...yieldStartField } = register("yieldStartDate");
 
   const submit = handleSubmit((v) => {
     setServerError(null);
-    save.mutate(
-      {
-        id: account?.id,
-        input: {
-          name: v.name,
-          institution: v.institution.trim() || null,
-          type: v.type,
-          visibility: v.visibility,
-          ownerMemberId: v.ownerMemberId === NONE ? null : v.ownerMemberId,
-          initialBalanceCents: v.initialBalanceCents,
-          initialBalanceDate: v.initialBalanceDate,
-          color: v.color,
-          icon: ACCOUNT_TYPE_ICON[v.type]?.name ?? "landmark",
-          includeInTotals: v.includeInTotals,
-        },
-      },
-      { onSuccess: () => onOpenChange(false), onError: (err) => setServerError(errorMessage(err)) },
-    );
+    const yieldOn = v.yieldEnabled && supportsYield(v.type);
+    const full: AccountInput = {
+      name: v.name,
+      institution: v.institution.trim() || null,
+      type: v.type,
+      visibility: v.visibility,
+      ownerMemberId: v.ownerMemberId === NONE ? null : v.ownerMemberId,
+      initialBalanceCents: v.initialBalanceCents,
+      initialBalanceDate: v.initialBalanceDate,
+      color: v.color,
+      icon: account && account.type === v.type ? account.icon : (ACCOUNT_TYPE_ICON[v.type]?.name ?? "landmark"),
+      includeInTotals: v.includeInTotals,
+      ...(yieldOn
+        ? { yieldIndex: v.yieldIndex, yieldRateBps: percentTextToBps(v.yieldRate), yieldStartDate: v.yieldStartDate }
+        : account
+          ? { yieldIndex: null, yieldRateBps: null, yieldStartDate: null }
+          : {}),
+    };
+    const input = account ? editPayload(account, full) : full;
+    if (!input) return onOpenChange(false);
+    save.mutate({ id: account?.id, input }, { onSuccess: () => onOpenChange(false), onError: (err) => setServerError(errorMessage(err)) });
   });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl" onOpenAutoFocus={focusYield ? (ev) => ev.preventDefault() : undefined}>
         <DialogHeader>
           <DialogTitle>{account ? "Editar conta" : "Nova conta"}</DialogTitle>
           <DialogDescription>Contas bancárias, carteiras e investimentos. O saldo é calculado a partir do saldo inicial e das movimentações.</DialogDescription>
@@ -220,6 +319,105 @@ export function AccountFormDialog({ open, onOpenChange, account }: { open: boole
             </span>
             <Controller control={control} name="includeInTotals" render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} aria-label="Incluir nos totais" />} />
           </label>
+
+          {yieldEligible ? (
+            <section ref={yieldSectionRef} aria-labelledby="acc-yield-title" className={cn("grid gap-4 rounded-xl border p-3", yieldEnabled && "border-brand/40 bg-accent/20")}>
+              <label className="flex items-start justify-between gap-4 text-sm">
+                <span>
+                  <span id="acc-yield-title" className="flex items-center gap-1.5 font-medium">
+                    <TrendingUp className="size-4 text-brand" aria-hidden /> Rendimento automático
+                  </span>
+                  <span className="block text-xs text-muted-foreground">Lança todo mês o rendimento pelo CDI, Selic, IPCA+ ou taxa prefixada.</span>
+                </span>
+                <Controller control={control} name="yieldEnabled" render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} aria-label="Rendimento automático" />} />
+              </label>
+              {yieldEnabled ? (
+                <>
+                  <div className="grid items-start gap-4 sm:grid-cols-2">
+                    <Field label="Indexador" htmlFor="acc-yield-index">
+                      <Controller
+                        control={control}
+                        name="yieldIndex"
+                        render={({ field }) => (
+                          <Select
+                            value={field.value}
+                            onValueChange={(raw) => {
+                              const v = raw as YieldIndex;
+                              if (isPercentOfIndex(v) !== isPercentOfIndex(field.value)) setValue("yieldRate", rateFor(v, account));
+                              field.onChange(v);
+                            }}
+                          >
+                            <SelectTrigger id="acc-yield-index">
+                              <SelectValue>{YIELD_INDEXES.find((i) => i.value === field.value)?.label}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {YIELD_INDEXES.map((i) => (
+                                <SelectItem key={i.value} value={i.value}>
+                                  {i.label}
+                                  <span className="text-xs text-muted-foreground"> · {i.hint}</span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </Field>
+                    <Field label={unit.label} htmlFor="acc-yield-rate" error={e.yieldRate?.message} hint={unit.example} required>
+                      <div
+                        className={cn(
+                          "flex h-10 items-center rounded-lg border border-input bg-card text-sm shadow-xs focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/25",
+                          e.yieldRate && "border-destructive",
+                        )}
+                      >
+                        {unit.prefix && <span className="shrink-0 whitespace-nowrap pl-3 text-muted-foreground">{unit.prefix}</span>}
+                        <input
+                          id="acc-yield-rate"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder={isPercentOfIndex(yieldIndex) ? "100" : "0,00"}
+                          className="w-full min-w-0 bg-transparent px-3 text-right outline-none tabular placeholder:text-muted-foreground/70"
+                          aria-invalid={Boolean(e.yieldRate)}
+                          {...yieldRateField}
+                          ref={(el) => {
+                            yieldRateRegisterRef(el);
+                            yieldRateRef.current = el;
+                          }}
+                        />
+                        <span className="shrink-0 whitespace-nowrap pr-3 text-muted-foreground">{unit.suffix}</span>
+                      </div>
+                    </Field>
+                    <Field label="Início do rendimento" htmlFor="acc-yield-start" error={e.yieldStartDate?.message} hint="Rende sobre o saldo de cada dia útil a partir desta data" required>
+                      <Input
+                        id="acc-yield-start"
+                        type="date"
+                        aria-invalid={Boolean(e.yieldStartDate)}
+                        {...yieldStartField}
+                        onChange={(ev) => {
+                          startTouched.current = true;
+                          return onStartChange(ev);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <p className="flex gap-2 rounded-lg bg-info/10 px-3 py-2 text-xs text-info">
+                    <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                    <span>
+                      O sistema busca as taxas oficiais no Banco Central e lança o rendimento bruto todo mês em Investimentos › Rendimentos. Confira com o extrato e ajuste se houver diferença.
+                      {account?.yieldIndex && " Ao alterar a configuração, os meses já lançados são recalculados."}
+                    </span>
+                  </p>
+                </>
+              ) : (
+                account?.yieldIndex && <p className="text-xs text-muted-foreground">Ao salvar, o rendimento automático será desligado. Os rendimentos já lançados continuam na conta.</p>
+              )}
+            </section>
+          ) : (
+            account?.yieldIndex && (
+              <p className="flex gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />O rendimento automático só vale para investimento e poupança: com este tipo, ele será desligado ao salvar. Os rendimentos já lançados continuam na conta.
+              </p>
+            )
+          )}
 
           {serverError && (
             <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

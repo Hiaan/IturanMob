@@ -57,6 +57,12 @@ const envSchema = z.object({
   WHATSAPP_CLOUD_API_VERSION: z.string().default("v21.0"),
   WHATSAPP_CLOUD_HOUSEHOLD_ID: z.string().optional(),
 
+  // Notificações push (Web Push). Gere as chaves no servidor com `pnpm vapid:generate`.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  /** Contato do responsável pelo envio (mailto: ou https:), exigido pelos serviços de push. */
+  VAPID_SUBJECT: z.string().optional(),
+
   // Rendimento automático de investimentos (taxas públicas do Banco Central, sem credencial)
   INVESTMENT_YIELD_ENABLED: bool(true),
   BCB_SGS_URL: z.string().url().default("https://api.bcb.gov.br/dados/serie/bcdata.sgs"),

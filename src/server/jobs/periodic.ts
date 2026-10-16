@@ -11,7 +11,7 @@ export interface PeriodicTask {
 }
 
 export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
-  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments] = await Promise.all([
+  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx] = await Promise.all([
     import("../modules/recurring/jobs"),
     import("../modules/budgets/jobs"),
     import("../modules/bills/jobs"),
@@ -22,6 +22,7 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     import("../auth/session"),
     import("./maintenance"),
     import("../modules/investments/service"),
+    import("../modules/fx/service"),
   ]);
   return [
     { name: "recurring:generate", everySeconds: 15 * 60, run: () => recurring.runRecurringJobs() },
@@ -36,5 +37,7 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     { name: "clarifications:expire", everySeconds: 10 * 60, run: () => jobs.expireClarifications() },
     // Taxas do Banco Central + rendimento das contas de investimento (BCB fora → tenta na próxima).
     { name: "investments:yield", everySeconds: 3 * 60 * 60, run: () => investments.runInvestmentYieldJobs() },
+    // Cotação PTAX das moedas das contas estrangeiras (BCB fora → tenta na próxima).
+    { name: "fx:rates", everySeconds: 3 * 60 * 60, run: () => fx.runFxJobs() },
   ];
 }

@@ -57,7 +57,7 @@ export type WhatsAppDelivery = "IMMEDIATE" | "DIGEST";
 
 const HOUR_MS = 3_600_000;
 
-type PrefShape = Pick<NotificationPreference, "memberId" | "type" | "inApp" | "whatsapp" | "email" | "frequency" | "quietStart" | "quietEnd">;
+type PrefShape = Pick<NotificationPreference, "memberId" | "type" | "inApp" | "whatsapp" | "email" | "push" | "frequency" | "quietStart" | "quietEnd">;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,7 +105,7 @@ async function loadPreferences(memberIds: string[], type: NotificationType): Pro
   const map = new Map<string, PrefShape>();
   for (const id of memberIds) {
     const row = rows.find((r) => r.memberId === id);
-    map.set(id, row ?? { memberId: id, type, inApp: true, whatsapp: false, email: false, frequency: "IMMEDIATE", quietStart: null, quietEnd: null });
+    map.set(id, row ?? { memberId: id, type, inApp: true, whatsapp: false, email: false, push: true, frequency: "IMMEDIATE", quietStart: null, quietEnd: null });
   }
   return map;
 }
@@ -165,6 +165,33 @@ export async function notify(input: NotifyInput): Promise<{ created: number }> {
       skipDuplicates: true,
     });
     created += res.count;
+  }
+
+  // Push: uma notificação por destinatário com aparelho inscrito (enviada pelo despachante, que
+  // respeita o horário silencioso). Resumo diário não vira push.
+  const pushRecipients = recipients.filter((id) => {
+    const p = prefs.get(id)!;
+    return p.frequency === "IMMEDIATE" && p.push;
+  });
+  if (pushRecipients.length) {
+    const withDevices = await prisma.pushSubscription.findMany({ where: { memberId: { in: pushRecipients } }, select: { memberId: true }, distinct: ["memberId"] });
+    if (withDevices.length) {
+      const res = await prisma.notification.createMany({
+        data: withDevices.map(({ memberId }) => ({
+          householdId: input.householdId,
+          recipientMemberId: memberId,
+          type: input.type,
+          channel: "PUSH" as const,
+          status: "PENDING" as const,
+          title,
+          body,
+          data: input.data ?? undefined,
+          dedupeKey: input.dedupeKey ? `${input.dedupeKey}:push:${memberId}` : null,
+        })),
+        skipDuplicates: true,
+      });
+      created += res.count;
+    }
   }
 
   const whatsappPrefs = recipients.map((id) => prefs.get(id)!).filter((p) => p.frequency !== "OFF" && p.whatsapp);
@@ -307,6 +334,7 @@ export const preferenceItemSchema = z.object({
   inApp: z.boolean().optional(),
   whatsapp: z.boolean().optional(),
   email: z.boolean().optional(),
+  push: z.boolean().optional(),
   frequency: z.enum(NOTIFICATION_FREQUENCIES).optional(),
   quietStart: hhmm.nullish(),
   quietEnd: hhmm.nullish(),
@@ -323,6 +351,7 @@ export interface PreferenceDTO {
   inApp: boolean;
   whatsapp: boolean;
   email: boolean;
+  push: boolean;
   frequency: NotificationFrequency;
   quietStart: string | null;
   quietEnd: string | null;
@@ -345,6 +374,7 @@ export async function getPreferences(ctx: ServiceContext): Promise<PreferenceDTO
       inApp: r?.inApp ?? true,
       whatsapp: r?.whatsapp ?? false,
       email: r?.email ?? false,
+      push: r?.push ?? true,
       frequency: r?.frequency ?? "IMMEDIATE",
       quietStart: r?.quietStart ?? null,
       quietEnd: r?.quietEnd ?? null,
@@ -368,6 +398,7 @@ export async function updatePreferences(ctx: ServiceContext, rawItems: Preferenc
       inApp: item.inApp ?? current.inApp,
       whatsapp: item.whatsapp ?? current.whatsapp,
       email: item.email ?? current.email,
+      push: item.push ?? current.push,
       frequency: item.frequency ?? current.frequency,
       quietStart: quietStart ?? null,
       quietEnd: quietEnd ?? null,

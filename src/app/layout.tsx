@@ -7,8 +7,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "Finance AI", template: "%s · Finance AI" },
   description: "Gestão financeira familiar inteligente, com registro pelo WhatsApp.",
-  applicationName: "Finance AI",
+  applicationName: "Finanças",
   robots: { index: false, follow: false },
+  appleWebApp: { capable: true, title: "Finanças", statusBarStyle: "black-translucent" },
+  formatDetection: { telephone: false },
+  // iOS anteriores ao 16.4 ainda olham esta meta (o Next 15 só gera a versão sem "apple-").
+  other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 export const viewport: Viewport = {

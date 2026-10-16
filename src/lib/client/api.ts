@@ -63,6 +63,8 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, { body: body ?? {} }),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, { body: body ?? {} }),
   delete: <T>(path: string, params?: Params) => request<T>("DELETE", path, { params }),
+  /** DELETE com corpo JSON (rotas que identificam o recurso no corpo, ex.: inscrição de push). */
+  deleteJson: <T>(path: string, body: unknown) => request<T>("DELETE", path, { body }),
   url: buildUrl,
 };
 

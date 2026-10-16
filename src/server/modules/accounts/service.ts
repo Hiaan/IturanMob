@@ -22,6 +22,8 @@ export const accountSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#0f766e"),
   icon: z.string().max(40).default("landmark"),
   includeInTotals: z.boolean().default(true),
+  /** Moeda da conta (BRL, USD, EUR, GBP). Não muda depois que a conta tem movimentos. */
+  currency: z.enum(["BRL", "USD", "EUR", "GBP"]).default("BRL"),
   /** Rendimento automático (investimento/poupança): indexador, taxa (centésimos) e início. */
   yieldIndex: z.enum(["CDI", "SELIC", "IPCA", "PREFIXED"]).nullish(),
   yieldRateBps: z.number().int().min(1).max(100_000).nullish(),
@@ -31,8 +33,9 @@ export const accountSchema = z.object({
 export const accountUpdateSchema = accountSchema.partial().extend({ archived: z.boolean().optional() });
 
 /** Rendimento automático só em conta de investimento/poupança e com taxa e início informados. */
-function validateYield(type: string, data: { yieldIndex?: string | null; yieldRateBps?: number | null; yieldStartDate?: string | null }) {
+function validateYield(type: string, data: { yieldIndex?: string | null; yieldRateBps?: number | null; yieldStartDate?: string | null; currency?: string }) {
   if (!data.yieldIndex) return;
+  if (data.currency && data.currency !== "BRL") throw new ValidationError("Rendimento automático (CDI, Selic, IPCA) é só para contas em reais.", { field: "yieldIndex" });
   if (type !== "INVESTMENT" && type !== "SAVINGS") throw new ValidationError("Rendimento automático é só para contas de investimento ou poupança.", { field: "yieldIndex" });
   if (!data.yieldRateBps) throw new ValidationError(data.yieldIndex === "CDI" || data.yieldIndex === "SELIC" ? "Informe o percentual do indexador (ex.: 100% do CDI)." : "Informe a taxa anual.", { field: "yieldRateBps" });
   if (!data.yieldStartDate) throw new ValidationError("Informe a data de início do rendimento.", { field: "yieldStartDate" });
@@ -66,6 +69,12 @@ export interface AccountDTO {
   yieldIndex: string | null;
   yieldRateBps: number | null;
   yieldStartDate: string | null;
+  /** Moeda da conta; saldo e lançamentos ficam nela. */
+  currency: string;
+  /** Saldo em reais (contas em moeda estrangeira: pela última PTAX; sem cotação: null). */
+  balanceBrlCents: number | null;
+  /** Cotação usada (contas em moeda estrangeira). */
+  fx: { rate: number; date: string } | null;
 }
 
 /** Saldo = saldo inicial + soma dos movimentos do ledger (fonte única da verdade). */
@@ -87,7 +96,21 @@ export async function listAccounts(ctx: ServiceContext, opts: { includeArchived?
   ]);
   const sumMap = new Map(sums.map((s) => [s.accountId, s._sum.amountCents ?? 0]));
   const countMap = new Map(counts.map((c) => [c.accountId, c._count._all]));
-  return accounts.map((a) => ({
+  // Contas em moeda estrangeira: saldo em reais pela PTAX (da data pedida ou a mais recente).
+  const { isForeign, latestRates, rateOn } = await import("../fx/service");
+  const foreign = [...new Set(accounts.map((a) => a.currency).filter(isForeign))];
+  const rates = new Map<string, { rate: number; date: string }>();
+  if (foreign.length) {
+    if (opts.asOf) for (const c of foreign) {
+      const r = await rateOn(c, opts.asOf);
+      if (r) rates.set(c, r);
+    }
+    else for (const [c, r] of await latestRates(foreign)) rates.set(c, r);
+  }
+  return accounts.map((a) => {
+    const balanceCents = a.initialBalanceCents + (sumMap.get(a.id) ?? 0);
+    const fx = isForeign(a.currency) ? rates.get(a.currency) ?? null : null;
+    return {
     id: a.id,
     name: a.name,
     institution: a.institution,
@@ -97,7 +120,7 @@ export async function listAccounts(ctx: ServiceContext, opts: { includeArchived?
     ownerName: a.owner?.displayName ?? null,
     initialBalanceCents: a.initialBalanceCents,
     initialBalanceDate: dateToISO(a.initialBalanceDate),
-    balanceCents: a.initialBalanceCents + (sumMap.get(a.id) ?? 0),
+    balanceCents,
     color: a.color,
     icon: a.icon,
     includeInTotals: a.includeInTotals,
@@ -106,7 +129,11 @@ export async function listAccounts(ctx: ServiceContext, opts: { includeArchived?
     yieldIndex: a.yieldIndex,
     yieldRateBps: a.yieldRateBps,
     yieldStartDate: a.yieldStartDate ? dateToISO(a.yieldStartDate) : null,
-  }));
+    currency: a.currency,
+    balanceBrlCents: !isForeign(a.currency) ? balanceCents : fx ? Math.round(balanceCents * fx.rate) : null,
+    fx,
+  };
+  });
 }
 
 export async function getAccount(ctx: ServiceContext, id: string) {
@@ -143,6 +170,7 @@ export async function createAccount(ctx: ServiceContext, input: z.input<typeof a
   await audit(ctx, { action: "CREATE", entityType: "Account", entityId: account.id, after: account });
   await publishEvent(ctx.householdId, "account.changed", account.id);
   if (account.yieldIndex) await accrueAfterChange(account.id);
+  if (account.currency !== "BRL") void import("../fx/service").then((m) => m.refreshFxRates()).catch(() => undefined);
   return getAccount(ctx, account.id);
 }
 
@@ -158,7 +186,12 @@ export async function updateAccount(ctx: ServiceContext, id: string, input: z.in
   }
   const { archived, initialBalanceDate, yieldStartDate, ...rest } = data;
   const yieldIndex = data.yieldIndex !== undefined ? data.yieldIndex : current.yieldIndex;
+  if (data.currency && data.currency !== current.currency) {
+    const used = await prisma.transaction.count({ where: { OR: [{ accountId: id }, { destinationAccountId: id }] } });
+    if (used) throw new ValidationError("A moeda não pode mudar depois que a conta tem lançamentos. Crie outra conta na nova moeda.", { field: "currency" });
+  }
   validateYield(data.type ?? current.type, {
+    currency: data.currency ?? current.currency,
     yieldIndex,
     yieldRateBps: data.yieldRateBps !== undefined ? data.yieldRateBps : current.yieldRateBps,
     yieldStartDate: yieldStartDate !== undefined ? yieldStartDate : current.yieldStartDate ? dateToISO(current.yieldStartDate) : null,
@@ -218,8 +251,13 @@ export async function adjustBalance(ctx: ServiceContext, id: string, input: { ta
 
 /** Série diária de saldo (para gráfico de evolução). */
 export async function balanceHistory(ctx: ServiceContext, params: { start: ISODate; end: ISODate; accountIds?: string[] }) {
-  const accounts = (await listAccounts(ctx)).filter((a) => a.includeInTotals && (!params.accountIds?.length || params.accountIds.includes(a.id)));
-  if (!accounts.length) return { points: [] as Array<{ date: string; balanceCents: number }> };
+  const all = (await listAccounts(ctx)).filter((a) => a.includeInTotals && (!params.accountIds?.length || params.accountIds.includes(a.id)));
+  if (!all.length) return { points: [] as Array<{ date: string; balanceCents: number }> };
+  // Contas em reais somam direto; as estrangeiras entram convertidas pela cotação de cada dia.
+  const accounts = all.filter((a) => a.currency === "BRL");
+  const foreign = all.filter((a) => a.currency !== "BRL");
+  const foreignDaily = await foreignBalanceInBrl(foreign, params.start, params.end);
+  if (!accounts.length) return { points: daysBetween(params.start, params.end).map((date) => ({ date, balanceCents: foreignDaily.get(date) ?? 0 })) };
   const ids = accounts.map((a) => a.id);
   const initial = accounts.reduce((s, a) => s + a.initialBalanceCents, 0);
   const before = await prisma.ledgerEntry.aggregate({
@@ -235,9 +273,33 @@ export async function balanceHistory(ctx: ServiceContext, params: { start: ISODa
   let running = initial + (before._sum.amountCents ?? 0);
   const points = daysBetween(params.start, params.end).map((date) => {
     running += map.get(date) ?? 0;
-    return { date, balanceCents: running };
+    return { date, balanceCents: running + (foreignDaily.get(date) ?? 0) };
   });
   return { points };
+}
+
+/** Soma diária, em reais, do saldo das contas em moeda estrangeira (PTAX vigente em cada dia). */
+async function foreignBalanceInBrl(accounts: AccountDTO[], start: ISODate, end: ISODate): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!accounts.length) return out;
+  const days = daysBetween(start, end);
+  for (const a of accounts) {
+    const [before, daily, rates] = await Promise.all([
+      prisma.ledgerEntry.aggregate({ where: { accountId: a.id, date: { lt: isoToDate(start) } }, _sum: { amountCents: true } }),
+      prisma.ledgerEntry.groupBy({ by: ["date"], where: { accountId: a.id, date: { gte: isoToDate(start), lte: isoToDate(end) } }, _sum: { amountCents: true } }),
+      prisma.exchangeRate.findMany({ where: { currency: a.currency, date: { lte: isoToDate(end) } }, orderBy: { date: "asc" }, select: { date: true, rateBrl: true } }),
+    ]);
+    const moves = new Map(daily.map((d) => [dateToISO(d.date), d._sum.amountCents ?? 0]));
+    let running = a.initialBalanceCents + (before._sum.amountCents ?? 0);
+    let ri = 0;
+    let rate: number | null = null;
+    for (const day of days) {
+      running += moves.get(day) ?? 0;
+      while (ri < rates.length && dateToISO(rates[ri]!.date) <= day) rate = Number(rates[ri++]!.rateBrl);
+      if (rate !== null) out.set(day, (out.get(day) ?? 0) + Math.round(running * rate));
+    }
+  }
+  return out;
 }
 
 /** Verificação de integridade: transferências somam zero e cada transação tem os lançamentos esperados. */
@@ -245,7 +307,8 @@ export async function verifyLedgerIntegrity(householdId: string) {
   const issues: string[] = [];
   const transfers = await prisma.ledgerEntry.groupBy({
     by: ["transactionId"],
-    where: { householdId, kind: { in: ["TRANSFER_IN", "TRANSFER_OUT"] } },
+    // Transferência entre moedas não soma zero (os dois lados estão em moedas diferentes).
+    where: { householdId, kind: { in: ["TRANSFER_IN", "TRANSFER_OUT"] }, transaction: { destinationAmountCents: null } },
     _sum: { amountCents: true },
   });
   for (const t of transfers) if ((t._sum.amountCents ?? 0) !== 0) issues.push(`Transferência ${t.transactionId} não soma zero.`);

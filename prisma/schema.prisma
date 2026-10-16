@@ -212,6 +212,8 @@ enum NotificationChannel {
   IN_APP
   WHATSAPP
   EMAIL
+  /// Web Push (app instalado no celular/computador).
+  PUSH
 }
 
 enum NotificationStatus {
@@ -462,6 +464,7 @@ model Household {
   processingJobs        MessageProcessingJob[]
   attachments           Attachment[]
   notifications         Notification[]
+  pushSubscriptions     PushSubscription[]
   auditLogs             AuditLog[]
   rules                 FinancialRule[]
   aiLogs                AIProcessingLog[]
@@ -539,6 +542,7 @@ model HouseholdMember {
   messages             WhatsAppMessage[]
   notifications        Notification[]
   notificationPrefs    NotificationPreference[]
+  pushSubscriptions    PushSubscription[]
   goalContributions    GoalContribution[]
   assistantChats       AssistantConversation[]
   clarifications       Clarification[]
@@ -586,6 +590,8 @@ model Account {
   color               String      @default("#0f766e")
   icon                String      @default("landmark")
   includeInTotals     Boolean     @default(true)
+  /// Moeda da conta (ISO 4217). Lançamentos e saldo ficam nesta moeda; os totais em reais usam a PTAX.
+  currency            String      @default("BRL")
   /// Rendimento automático (contas de investimento): indexador, taxa e início.
   yieldIndex          YieldIndex?
   /// CDI/SELIC: percentual do indexador em centésimos (10150 = 101,5% do CDI).
@@ -791,7 +797,12 @@ model Transaction {
   type                   TransactionType
   status                 TransactionStatus @default(CONFIRMED)
   amountCents            Int
+  /// Moeda de `amountCents`: a da conta de origem (cartões e contas sem moeda definida: BRL).
   currency               String            @default("BRL")
+  /// TRANSFER entre moedas diferentes: valor creditado na conta de destino, na moeda dela.
+  destinationAmountCents Int?
+  /// Receita/despesa/ajuste em moeda estrangeira: valor em reais pela PTAX da data (relatórios).
+  amountBrlCents         Int?
   description            String
   notes                  String?
   merchantId             String?
@@ -1295,6 +1306,8 @@ model NotificationPreference {
   inApp      Boolean               @default(true)
   whatsapp   Boolean               @default(false)
   email      Boolean               @default(false)
+  /// Notificação push nos aparelhos em que o membro ativou (app instalado).
+  push       Boolean               @default(true)
   frequency  NotificationFrequency @default(IMMEDIATE)
   /// Horário silencioso (HH:mm), no fuso da família.
   quietStart String?
@@ -1628,4 +1641,38 @@ model InvestmentYield {
 
   @@unique([accountId, month])
   @@index([householdId])
+}
+
+/// Inscrição de Web Push de um aparelho (uma por navegador/app instalado).
+model PushSubscription {
+  id            String    @id @default(cuid())
+  householdId   String
+  memberId      String
+  userId        String?
+  /// URL do serviço de push do navegador (Apple, Google, Mozilla…).
+  endpoint      String    @unique
+  /// Chaves públicas da inscrição (criptografadas em repouso).
+  p256dh        String
+  auth          String
+  deviceLabel   String?
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+  failureCount  Int       @default(0)
+
+  household Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member    HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+}
+
+/// Cotação PTAX (venda) do Banco Central: quantos reais vale 1 unidade da moeda na data.
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  currency  String
+  date      DateTime @db.Date
+  rateBrl   Decimal  @db.Decimal(14, 6)
+  source    String   @default("BCB-PTAX")
+  fetchedAt DateTime @default(now())
+
+  @@unique([currency, date])
 }

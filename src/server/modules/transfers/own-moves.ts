@@ -9,13 +9,14 @@ import { findMatchingRule } from "../rules/matcher";
  * Rendimento, juros e dividendos continuam sendo receita; IOF/IR/tarifas do resgate, despesa.
  */
 
-export type OwnMoveKind = "INVESTMENT" | "OWN_ACCOUNTS";
+export type OwnMoveKind = "INVESTMENT" | "OWN_ACCOUNTS" | "FOREIGN";
 
 export interface AccountLite {
   id: string;
   name: string;
   institution: string | null;
   type: AccountType;
+  currency?: string;
 }
 
 /** Impostos e tarifas sobre aplicações são despesas de verdade. */
@@ -26,6 +27,8 @@ const MOVE_VERB = /\b(resgates?|resg|resgatad[oa]s?|aplicac(ao|oes)|aplic|aplica
 // "Caixinha", "cofrinho" e "porquinho" só contam com verbo (aplicação, resgate, guardado):
 // sozinhos, podem ser a caixinha do porteiro.
 const PRODUCT = /\b(cdb|rdb|lci|lca|cdi|tesouro|poupanca|poup|fundos? (de )?(invest\w*|di|renda fixa|acoes|multimercado)|renda fixa|previdencia privada|pgbl|vgbl)\b/;
+/** Remessa/câmbio (Wise, Remitly…): só vira transferência se a família tiver conta em moeda estrangeira. */
+const FOREIGN = /\b(remessa|remittance|cambio|corretora de cambio|wise|remitly|western union|payoneer|ordem de pagamento do exterior)\b/;
 const OWN_ACCOUNTS = /\b(mesma titularidade|mesmo titular|mesma tit|entre contas|conta propria|contas proprias|transf(erencia)? (para |p\/ )?conta propria)\b/;
 
 /** Movimentação entre contas próprias pela descrição (null = receita/despesa comum). */
@@ -34,6 +37,7 @@ export function detectOwnMove(description: string): OwnMoveKind | null {
   if (!n || COSTS.test(n)) return null;
   const verb = MOVE_VERB.test(n);
   if (YIELD.test(n) && !/\b(resgates?|resg|aplic\w*)\b/.test(n)) return null;
+  if (FOREIGN.test(n)) return "FOREIGN";
   if (OWN_ACCOUNTS.test(n)) return "OWN_ACCOUNTS";
   if (verb || PRODUCT.test(n)) return "INVESTMENT";
   return null;
@@ -79,6 +83,8 @@ export function pickCounterpart(description: string, kind: OwnMoveKind, scope: A
   let candidates: AccountLite[];
   if (kind === "INVESTMENT") {
     candidates = isInvestmentAccount(scope) ? others.filter((a) => !isInvestmentAccount(a)) : others.filter(isInvestmentAccount);
+  } else if (kind === "FOREIGN") {
+    candidates = others.filter((a) => (a.currency ?? "BRL") !== (scope.currency ?? "BRL"));
   } else {
     candidates = others;
   }
@@ -117,6 +123,8 @@ export function resolveOwnMove(
   }
   const kind = detectOwnMove(description);
   if (!kind) return null;
+  // Remessa sem conta em outra moeda é recebimento comum (ex.: pagamento do exterior).
+  if (kind === "FOREIGN" && !accounts.some((a) => (a.currency ?? "BRL") !== (scope.currency ?? "BRL"))) return null;
   return { kind, counterpartId: pickCounterpart(description, kind, scope, accounts)?.id ?? null, ruleId: null };
 }
 

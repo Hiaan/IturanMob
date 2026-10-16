@@ -24,7 +24,8 @@ const INDEX_LABEL: Record<YieldIndexValue, string> = { CDI: "CDI", SELIC: "Selic
 
 export function describeYield(index: YieldIndexValue, rateBps: number): string {
   const pct = (rateBps / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
-  if (index === "CDI" || index === "SELIC") return `${pct}% do ${INDEX_LABEL[index]}`;
+  if (index === "CDI") return `${pct}% do CDI`;
+  if (index === "SELIC") return `${pct}% da Selic`;
   if (index === "IPCA") return `IPCA + ${pct}% a.a.`;
   return `${pct}% a.a. (prefixado)`;
 }
@@ -224,7 +225,11 @@ export async function getAccountYield(ctx: ServiceContext, accountId: string) {
   if (!account) throw new NotFoundError("Conta");
   const cfg = configOf(account);
   const today = todayISO(ctx.timezone);
-  const months = await prisma.investmentYield.findMany({ where: { accountId }, orderBy: { month: "asc" } });
+  // Mês com o lançamento excluído conta como "excluído" já na consulta (a apuração registra depois).
+  const months = (await prisma.investmentYield.findMany({ where: { accountId }, orderBy: { month: "asc" }, include: { transaction: { select: { deletedAt: true } } } })).map((m) => ({
+    ...m,
+    dismissed: m.dismissed || Boolean(m.transaction?.deletedAt),
+  }));
   const lastCdi = await prisma.indexRate.findFirst({ where: { index: "CDI" }, orderBy: { date: "desc" }, select: { date: true } });
   if (!cfg) return { configured: false as const, accountId, months: [], ratesThrough: lastCdi ? dateToISO(lastCdi.date) : null };
 

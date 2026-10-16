@@ -62,6 +62,7 @@ ENV NODE_ENV=production \
 FROM runtime AS web
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
+COPY --from=build --chown=app:app /app/public ./public
 USER app
 ENV PORT=3000 HOSTNAME=0.0.0.0
 EXPOSE 3000

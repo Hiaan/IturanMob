@@ -90,6 +90,29 @@ Para o webhook da **WhatsApp Cloud API**, cadastre no painel da Meta:
 - URL: `https://financas.seudominio.com.br/api/webhooks/whatsapp`
 - Token de verificação: o valor de `WHATSAPP_CLOUD_VERIFY_TOKEN`
 
+### App no celular (PWA) e notificações push
+
+O sistema é instalável como app (iPhone: Safari → Compartilhar → **Adicionar à Tela de Início**;
+Android/desktop: "Instalar app" do navegador). Exige HTTPS (`APP_URL` em `https://`).
+
+Para as notificações push, gere as chaves VAPID **no servidor** (nunca no código nem no repositório):
+
+```bash
+# com o repositório e as dependências instaladas:
+pnpm vapid:generate
+# ou, dentro do container web já em execução:
+docker compose exec web node -e "const w=require('web-push');const k=w.generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+k.publicKey+'\nVAPID_PRIVATE_KEY='+k.privateKey)"
+```
+
+Cole `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` (`mailto:` do responsável) no `.env` e
+recrie **web e worker** (`docker compose up -d`): o web registra os aparelhos e o worker envia.
+Cada pessoa ativa em Configurações → Notificações no celular (no iPhone, com o app já instalado;
+iOS 16.4 ou mais novo). Trocar as chaves invalida as inscrições: todos precisam ativar de novo.
+
+O service worker não guarda dados financeiros: `/api`, o tempo real (SSE) e as páginas vão sempre
+à rede; só arquivos estáticos e a página "Sem conexão" ficam no aparelho. A cada deploy a nova versão
+assume sozinha.
+
 ## 6. Atualizar
 
 ```bash

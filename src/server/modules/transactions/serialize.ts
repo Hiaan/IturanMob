@@ -22,6 +22,12 @@ export interface TransactionDTO {
   type: string;
   status: string;
   amountCents: number;
+  /** Moeda de amountCents (BRL, USD…). */
+  currency: string;
+  /** Transferência entre moedas: valor creditado no destino. */
+  destinationAmountCents: number | null;
+  /** Em moeda estrangeira: valor em reais pela PTAX da data. */
+  amountBrlCents: number | null;
   description: string;
   notes: string | null;
   date: string;
@@ -61,6 +67,9 @@ export function serializeTransaction(tx: TransactionWithRelations): TransactionD
     type: tx.type,
     status: tx.status,
     amountCents: tx.amountCents,
+    currency: tx.currency,
+    destinationAmountCents: tx.destinationAmountCents,
+    amountBrlCents: tx.amountBrlCents,
     description: tx.description,
     notes: tx.notes,
     date: dateToISO(tx.date),

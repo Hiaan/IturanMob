@@ -97,17 +97,19 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
   const cols = Prisma.sql`t.id AS "transactionId", t.type::text AS type, t."categoryId", t."subcategoryId", t."merchantId", t.description,
     t."paymentMethod"::text AS "paymentMethod", t."accountId", t."creditCardId", t."payerMemberId", t."responsibleMemberId",
     t.ownership::text AS ownership, t."installmentCount"`;
-  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND ${vis} AND ${extra}`;
+  // Receitas/despesas em moeda estrangeira entram em reais (PTAX da data); sem cotação ainda, ficam de fora.
+  const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
+  const amountBrl = Prisma.sql`(CASE WHEN t.currency = 'BRL' THEN t."amountCents" ELSE t."amountBrlCents" END)`;
 
   let rows: RawRow[];
   if (regime === "ACCRUAL") {
     rows = await prisma.$queryRaw<RawRow[]>`
-      SELECT ${cols}, t."competenceDate" AS rdate, t."amountCents" AS amount, NULL::int AS "installmentNumber"
+      SELECT ${cols}, t."competenceDate" AS rdate, ${amountBrl} AS amount, NULL::int AS "installmentNumber"
       FROM "Transaction" t
       WHERE ${base} AND t.type IN ('EXPENSE', 'INCOME') AND t."competenceDate" BETWEEN ${start} AND ${end}`;
   } else {
     rows = await prisma.$queryRaw<RawRow[]>`
-      SELECT ${cols}, t.date AS rdate, t."amountCents" AS amount, NULL::int AS "installmentNumber"
+      SELECT ${cols}, t.date AS rdate, ${amountBrl} AS amount, NULL::int AS "installmentNumber"
       FROM "Transaction" t
       WHERE ${base} AND (t.type = 'INCOME' OR (t.type = 'EXPENSE' AND t."creditCardId" IS NULL)) AND t.date BETWEEN ${start} AND ${end}
       UNION ALL
@@ -165,8 +167,9 @@ export async function dashboardSummary(ctx: ServiceContext, params: { period: Pe
   const prevExpense = sumBy(prevRows, "EXPENSE");
 
   const selectedAccounts = accounts.filter((a) => a.includeInTotals && (!params.accountIds?.length || params.accountIds.includes(a.id)));
-  const availableBalance = selectedAccounts.filter((a) => a.type !== "INVESTMENT").reduce((s, a) => s + a.balanceCents, 0);
-  const totalAssets = accounts.filter((a) => a.includeInTotals).reduce((s, a) => s + a.balanceCents, 0);
+  // Totais em reais: contas em moeda estrangeira entram pela PTAX mais recente.
+  const availableBalance = selectedAccounts.filter((a) => a.type !== "INVESTMENT").reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0);
+  const totalAssets = accounts.filter((a) => a.includeInTotals).reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0);
 
   // Faturas futuras: saldo em aberto de faturas que ainda vão vencer (inclui parcelas futuras).
   let futureStatements = 0;
@@ -441,7 +444,7 @@ export async function cashflowProjection(ctx: ServiceContext, days = 90) {
   const today = todayISO(ctx.timezone);
   const end = addDays(today, days);
   const accounts = await listAccounts(ctx);
-  const startBalance = accounts.filter((a) => a.includeInTotals && a.type !== "INVESTMENT").reduce((s, a) => s + a.balanceCents, 0);
+  const startBalance = accounts.filter((a) => a.includeInTotals && a.type !== "INVESTMENT").reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0);
   const events: CashflowEvent[] = [];
 
   const scheduled = await prisma.scheduledPayment.findMany({

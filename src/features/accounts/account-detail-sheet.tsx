@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { AccountDTO, TransactionList } from "@/features/finance/types";
 import { AmountText, TransactionIcon, categoryLabel } from "@/features/transactions/transaction-visuals";
 import { AccountIcon } from "./account-icon";
+import { AccountYieldPanel } from "./account-yield-panel";
 
 const RANGES = [
   ["last30", "30 dias"],
@@ -172,6 +173,8 @@ export function AccountDetailSheet({
   onOpenChange,
   onEdit,
   onAdjust,
+  onConfigureYield,
+  onAdjustBank,
   canWrite,
 }: {
   account: AccountDTO | null;
@@ -179,6 +182,8 @@ export function AccountDetailSheet({
   onOpenChange: (o: boolean) => void;
   onEdit: () => void;
   onAdjust: () => void;
+  onConfigureYield: () => void;
+  onAdjustBank: () => void;
   canWrite: boolean;
 }) {
   return (
@@ -240,6 +245,7 @@ export function AccountDetailSheet({
               </div>
             )}
             <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
+              <AccountYieldPanel key={account.id} account={account} canWrite={canWrite} onConfigure={onConfigureYield} onAdjustBank={onAdjustBank} />
               <BalanceChart account={account} />
               <RecentTransactions account={account} />
             </div>

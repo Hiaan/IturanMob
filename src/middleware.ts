@@ -1,6 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PREFIXES = ["/login", "/cadastro", "/convite", "/api/auth", "/api/health", "/api/webhooks", "/_next", "/favicon"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/cadastro",
+  "/convite",
+  "/api/auth",
+  "/api/health",
+  "/api/webhooks",
+  "/_next",
+  "/favicon",
+  // App instalável: manifest, service worker, ícones e a página offline (sem dados).
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/icons/",
+  "/apple-icon",
+  "/offline",
+];
 
 /**
  * Redireciona para o login quando não há cookie de sessão (verificação rápida).

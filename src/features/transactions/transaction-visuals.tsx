@@ -39,7 +39,7 @@ export const SOURCE_SHORT_LABELS: Record<string, string> = {
   DASHBOARD_CHAT: "Lançamento rápido",
   IMPORT: "Importação",
   RECURRING: "Recorrência",
-  SYSTEM: "Sistema",
+  SYSTEM: "Automático",
 };
 
 /** Origem do lançamento (ícone + texto curto; o rótulo completo fica no title/aria). */

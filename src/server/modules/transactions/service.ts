@@ -57,6 +57,10 @@ type Normalized = TransactionFields & {
   competenceDate: string;
   merchantId: string | null;
   allocations: Array<{ memberId: string; amountCents: number }>;
+  /** Moeda de amountCents (a da conta de origem; cartão = BRL). */
+  currency: string;
+  /** Receita/despesa/ajuste em moeda estrangeira: valor em reais pela PTAX da data. */
+  amountBrlCents: number | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -81,14 +85,19 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
     goalId: input.goalId ?? null,
     merchantId: null,
     allocations: input.allocations ?? [],
+    destinationAmountCents: input.destinationAmountCents ?? null,
+    currency: "BRL",
+    amountBrlCents: null,
   };
 
   const scope = await getVisibilityScope(ctx, db);
   const accountIds = [data.accountId, data.destinationAccountId].filter(Boolean) as string[];
+  const currencyOf = new Map<string, string>();
   if (accountIds.length) {
-    const accounts = await db.account.findMany({ where: { id: { in: accountIds }, householdId: hh }, select: { id: true, archivedAt: true } });
+    const accounts = await db.account.findMany({ where: { id: { in: accountIds }, householdId: hh }, select: { id: true, archivedAt: true, currency: true } });
     if (accounts.length !== new Set(accountIds).size) throw new ValidationError("Conta inválida.", { field: "accountId" });
     if (accountIds.some((id) => scope.hiddenAccountIds.includes(id))) throw new ValidationError("Conta inválida.", { field: "accountId" });
+    for (const a of accounts) currencyOf.set(a.id, a.currency);
   }
 
   let card: { id: string; closingDay: number; dueDay: number; paymentAccountId: string | null } | null = null;
@@ -171,6 +180,23 @@ async function normalize(db: Db, ctx: ServiceContext, input: TransactionFields):
       data.responsibleMemberId = null;
       break;
     }
+  }
+
+  // Moeda: a da conta (origem). Cartão de crédito é em reais.
+  const srcCurrency = data.accountId ? currencyOf.get(data.accountId) ?? "BRL" : null;
+  const dstCurrency = data.destinationAccountId ? currencyOf.get(data.destinationAccountId) ?? "BRL" : null;
+  data.currency = data.type === "ADJUSTMENT" && !data.accountId ? dstCurrency ?? "BRL" : data.creditCardId && data.type === "EXPENSE" ? "BRL" : srcCurrency ?? "BRL";
+  if (data.type === "TRANSFER" && srcCurrency && dstCurrency && srcCurrency !== dstCurrency) {
+    if (!data.destinationAmountCents) {
+      throw new ValidationError(`As contas têm moedas diferentes (${srcCurrency} → ${dstCurrency}): informe o valor creditado no destino.`, { field: "destinationAmountCents" });
+    }
+  } else {
+    data.destinationAmountCents = null;
+  }
+  if (data.type === "CARD_PAYMENT" && data.currency !== "BRL") throw new ValidationError("A fatura do cartão é paga em reais: escolha uma conta em reais.", { field: "accountId" });
+  if (data.currency !== "BRL" && (data.type === "INCOME" || data.type === "EXPENSE" || data.type === "ADJUSTMENT")) {
+    const { toBrlCents } = await import("../fx/service");
+    data.amountBrlCents = await toBrlCents(data.amountCents, data.currency, data.date, db);
   }
 
   // Categoria e subcategoria
@@ -433,6 +459,9 @@ export async function createTransaction(
         paymentMethod: data.paymentMethod,
         accountId: data.accountId,
         destinationAccountId: data.destinationAccountId,
+        destinationAmountCents: data.destinationAmountCents,
+        currency: data.currency,
+        amountBrlCents: data.amountBrlCents,
         creditCardId: data.creditCardId,
         statementId: data.statementId,
         installmentCount: data.installmentCount,
@@ -608,6 +637,7 @@ export async function updateTransaction(
       paymentMethod: patch.paymentMethod !== undefined ? patch.paymentMethod : current.paymentMethod,
       accountId: patch.accountId !== undefined ? patch.accountId : current.accountId,
       destinationAccountId: patch.destinationAccountId !== undefined ? patch.destinationAccountId : current.destinationAccountId,
+      destinationAmountCents: patch.destinationAmountCents !== undefined ? patch.destinationAmountCents : current.destinationAmountCents,
       creditCardId: patch.creditCardId !== undefined ? patch.creditCardId : current.creditCardId,
       statementId: patch.statementId !== undefined ? patch.statementId : current.type === "CARD_PAYMENT" && !patch.creditCardId && !patch.date ? current.statementId : null,
       installmentCount: patch.installmentCount ?? current.installmentCount,
@@ -638,6 +668,9 @@ export async function updateTransaction(
         paymentMethod: data.paymentMethod,
         accountId: data.accountId,
         destinationAccountId: data.destinationAccountId,
+        destinationAmountCents: data.destinationAmountCents,
+        currency: data.currency,
+        amountBrlCents: data.amountBrlCents,
         creditCardId: data.creditCardId,
         statementId: data.statementId,
         installmentCount: data.installmentCount,
@@ -817,9 +850,10 @@ export async function listTransactions(ctx: ServiceContext, raw: TransactionList
   const [rows, total, sums] = await Promise.all([
     prisma.transaction.findMany({ where, orderBy, skip: (f.page - 1) * f.pageSize, take: f.pageSize, include: transactionInclude }),
     prisma.transaction.count({ where }),
-    prisma.transaction.groupBy({ by: ["type"], where: { AND: [where, { status: "CONFIRMED", deletedAt: null }] }, _sum: { amountCents: true } }),
+    // Totais em reais: lançamentos em moeda estrangeira entram pelo valor em reais (PTAX da data).
+    prisma.transaction.groupBy({ by: ["type", "currency"], where: { AND: [where, { status: "CONFIRMED", deletedAt: null }] }, _sum: { amountCents: true, amountBrlCents: true } }),
   ]);
-  const sumOf = (t: string) => sums.find((s) => s.type === t)?._sum.amountCents ?? 0;
+  const sumOf = (t: string) => sums.filter((s) => s.type === t).reduce((acc, s) => acc + ((s.currency === "BRL" ? s._sum.amountCents : s._sum.amountBrlCents) ?? 0), 0);
   return {
     items: rows.map(serializeTransaction),
     total,

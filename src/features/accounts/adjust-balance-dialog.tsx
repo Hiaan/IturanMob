@@ -15,8 +15,24 @@ import { useMe } from "@/features/me/use-me";
 import type { AccountDTO } from "@/features/finance/types";
 import { useAccountMutations } from "./use-account-mutations";
 
-/** Ajuste de saldo: informa o saldo real e o sistema cria um lançamento de ajuste pela diferença. */
-export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boolean; onOpenChange: (o: boolean) => void; account: AccountDTO | null }) {
+const BANK_NOTE = "Ajuste ao saldo do banco";
+
+/**
+ * Ajuste de saldo: informa o saldo real e o sistema cria um lançamento de ajuste pela diferença.
+ * `bank`: variante do painel de rendimento, para conferir o saldo com o extrato do banco.
+ */
+export function AdjustBalanceDialog({
+  open,
+  onOpenChange,
+  account,
+  variant = "default",
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  account: AccountDTO | null;
+  variant?: "default" | "bank";
+}) {
+  const bank = variant === "bank";
   const me = useMe();
   const today = todayISO(me.data?.household.timezone);
   const { adjust } = useAccountMutations();
@@ -29,10 +45,10 @@ export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boo
     if (open && account) {
       setTarget(account.balanceCents);
       setDate(today);
-      setNote("");
+      setNote(bank ? BANK_NOTE : "");
       setError(null);
     }
-  }, [open, account, today]);
+  }, [open, account, today, bank]);
 
   if (!account) return null;
   const diff = target - account.balanceCents;
@@ -41,7 +57,7 @@ export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ajustar saldo</DialogTitle>
+          <DialogTitle>{bank ? "Ajustar ao saldo do banco" : "Ajustar saldo"}</DialogTitle>
           <DialogDescription>
             {account.name} · saldo no sistema <span className="font-medium text-foreground tabular">{formatBRL(account.balanceCents)}</span>
           </DialogDescription>
@@ -59,7 +75,11 @@ export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boo
             );
           }}
         >
-          <Field label="Saldo real da conta" htmlFor="adj-target" hint="Confira no aplicativo do banco. Use a tecla − para saldo negativo.">
+          <Field
+            label={bank ? "Saldo informado pelo banco" : "Saldo real da conta"}
+            htmlFor="adj-target"
+            hint={bank ? "O saldo bruto que aparece no aplicativo ou extrato do banco hoje." : "Confira no aplicativo do banco. Use a tecla − para saldo negativo."}
+          >
             <MoneyInput id="adj-target" size="lg" allowNegative value={target} onChange={setTarget} autoFocus />
           </Field>
           <div
@@ -91,7 +111,10 @@ export function AdjustBalanceDialog({ open, onOpenChange, account }: { open: boo
             </Field>
           </div>
           <p className="flex gap-2 rounded-lg bg-info/10 px-3 py-2 text-xs text-info">
-            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />O ajuste corrige apenas o saldo: ele não é contado como receita nem como despesa nos relatórios e orçamentos.
+            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {bank
+              ? "O ajuste corrige só o saldo (não entra como receita nem despesa). Os rendimentos seguintes passam a considerar o saldo corrigido."
+              : "O ajuste corrige apenas o saldo: ele não é contado como receita nem como despesa nos relatórios e orçamentos."}
           </p>
           {error && (
             <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

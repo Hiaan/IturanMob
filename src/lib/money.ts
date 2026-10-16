@@ -30,6 +30,23 @@ export function formatBRL(cents: number | null | undefined, opts?: { signed?: bo
   return formatted;
 }
 
+const moneyFormatters = new Map<string, Intl.NumberFormat>();
+
+/** Formata centavos na moeda indicada (BRL → "R$ 1,00"; USD → "US$ 1,00"; EUR → "€ 1,00"). */
+export function formatMoney(cents: number | null | undefined, currency: string = "BRL", opts?: { signed?: boolean }): string {
+  if (!currency || currency === "BRL") return formatBRL(cents, opts);
+  if (cents === null || cents === undefined || Number.isNaN(cents)) return "—";
+  let f = moneyFormatters.get(currency);
+  if (!f) {
+    f = new Intl.NumberFormat("pt-BR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    moneyFormatters.set(currency, f);
+  }
+  const formatted = f.format(Math.abs(cents / 100)).replace(/ /g, " ");
+  if (cents < 0) return `-${formatted}`;
+  if (opts?.signed && cents > 0) return `+${formatted}`;
+  return formatted;
+}
+
 /** Formata centavos sem símbolo: 123456 → "1.234,56". */
 export function formatAmount(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

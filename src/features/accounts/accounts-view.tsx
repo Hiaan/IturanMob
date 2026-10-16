@@ -26,6 +26,7 @@ import { AdjustBalanceDialog } from "./adjust-balance-dialog";
 import { AccountDetailSheet } from "./account-detail-sheet";
 import { useAccountMutations } from "./use-account-mutations";
 import { LedgerIntegrityDialog } from "./ledger-integrity-dialog";
+import { describeYield } from "./yield";
 
 const SHOW_ARCHIVED_KEY = "fa:accounts:show-archived";
 
@@ -120,6 +121,11 @@ function AccountCard({
           </Badge>
         )}
         {account.ownerName && <Badge variant="outline">Titular: {account.ownerName}</Badge>}
+        {account.yieldIndex && account.yieldRateBps && !archived && (
+          <Badge variant="positive" title="Rendimento automático lançado todo mês">
+            <TrendingUp aria-hidden /> {describeYield(account.yieldIndex, account.yieldRateBps)}
+          </Badge>
+        )}
         {!account.includeInTotals && (
           <Badge variant="warning" title="Não soma no saldo disponível">
             <EyeOff aria-hidden /> Fora dos totais
@@ -155,6 +161,8 @@ export function AccountsView() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AccountDTO | null>(null);
   const [adjusting, setAdjusting] = useState<AccountDTO | null>(null);
+  const [adjustVariant, setAdjustVariant] = useState<"default" | "bank">("default");
+  const [focusYield, setFocusYield] = useState(false);
   const [deleting, setDeleting] = useState<AccountDTO | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -189,9 +197,14 @@ export function AccountsView() {
   };
 
   const [integrityOpen, setIntegrityOpen] = useState(false);
-  const openEdit = (a: AccountDTO | null) => {
+  const openEdit = (a: AccountDTO | null, yieldSection = false) => {
     setEditing(a);
+    setFocusYield(yieldSection);
     setFormOpen(true);
+  };
+  const openAdjust = (a: AccountDTO, variant: "default" | "bank" = "default") => {
+    setAdjustVariant(variant);
+    setAdjusting(a);
   };
 
   return (
@@ -277,7 +290,7 @@ export function AccountsView() {
                   canWrite={canWrite}
                   onOpen={() => setDetail(a.id)}
                   onEdit={() => openEdit(a)}
-                  onAdjust={() => setAdjusting(a)}
+                  onAdjust={() => openAdjust(a)}
                   onArchive={() => archive.mutate({ id: a.id, archived: !a.archivedAt })}
                   onDelete={() => {
                     setDeleteError(null);
@@ -290,15 +303,17 @@ export function AccountsView() {
         </>
       )}
 
-      <AccountFormDialog open={formOpen} onOpenChange={setFormOpen} account={editing} />
-      <AdjustBalanceDialog open={Boolean(adjusting)} onOpenChange={(o) => !o && setAdjusting(null)} account={adjusting} />
+      <AccountFormDialog open={formOpen} onOpenChange={setFormOpen} account={editing} focusYield={focusYield} />
+      <AdjustBalanceDialog open={Boolean(adjusting)} onOpenChange={(o) => !o && setAdjusting(null)} account={adjusting} variant={adjustVariant} />
       <AccountDetailSheet
         account={detailAccount}
         open={Boolean(detailId) && !accounts.isLoading}
         onOpenChange={(o) => !o && setDetail(null)}
         canWrite={canWrite}
         onEdit={() => detailAccount && openEdit(detailAccount)}
-        onAdjust={() => detailAccount && setAdjusting(detailAccount)}
+        onAdjust={() => detailAccount && openAdjust(detailAccount)}
+        onConfigureYield={() => detailAccount && openEdit(detailAccount, true)}
+        onAdjustBank={() => detailAccount && openAdjust(detailAccount, "bank")}
       />
       <AlertDialog open={Boolean(deleting)} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>

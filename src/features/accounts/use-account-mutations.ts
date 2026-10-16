@@ -18,17 +18,25 @@ export interface AccountInput {
   color: string;
   icon: string;
   includeInTotals: boolean;
+  yieldIndex?: "CDI" | "SELIC" | "IPCA" | "PREFIXED" | null;
+  yieldRateBps?: number | null;
+  yieldStartDate?: string | null;
 }
+
+const YIELD_KEYS = ["yieldIndex", "yieldRateBps", "yieldStartDate"] as const;
 
 export function useAccountMutations() {
   const qc = useQueryClient();
   const refresh = () => invalidateFinance(qc);
 
   const save = useMutation({
-    mutationFn: ({ id, input }: { id?: string; input: AccountInput }) =>
+    /** Na edição, `input` traz só os campos alterados (PATCH parcial). */
+    mutationFn: ({ id, input }: { id?: string; input: Partial<AccountInput> }) =>
       id ? api.patch<AccountDTO>(`/api/v1/accounts/${id}`, input) : api.post<AccountDTO>("/api/v1/accounts", input),
     onSuccess: (acc, vars) => {
-      toast.success(vars.id ? "Conta atualizada" : "Conta criada", { description: `${acc.name} · saldo ${formatBRL(acc.balanceCents)}` });
+      const yieldChanged = YIELD_KEYS.some((k) => k in vars.input);
+      const yieldNote = !yieldChanged ? "" : !acc.yieldIndex ? " · rendimento automático desligado" : vars.id ? " · rendimento recalculado" : " · rendimento automático ligado";
+      toast.success(vars.id ? "Conta atualizada" : "Conta criada", { description: `${acc.name} · saldo ${formatBRL(acc.balanceCents)}${yieldNote}` });
       refresh();
     },
   });

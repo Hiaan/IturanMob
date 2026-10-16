@@ -3,6 +3,7 @@ import { prisma } from "../../db";
 import { errorInfo, logger } from "../../logger";
 import { formatDateBR, hourInTimezone, todayISO } from "@/lib/dates";
 import { enqueueOutboundMessage, whatsappCanSend } from "../../whatsapp/outbound";
+import { sendPushToMember } from "../push/service";
 import { DIGEST_HOUR, isWithinQuietHours, minutesInTimezone, whatsappDeliveryWhere, WHATSAPP_HOURLY_LIMIT } from "./service";
 
 const HOUR_MS = 3_600_000;
@@ -111,10 +112,60 @@ async function buildDailyDigests(now: Date): Promise<number> {
  * - WhatsApp indisponível → SKIPPED com motivo; falha no enfileiramento → FAILED com o erro.
  * Também monta o resumo diário (DAILY_DIGEST).
  */
+/**
+ * Push: envia as notificações PENDING do canal PUSH (uma por destinatário). Respeita o horário
+ * silencioso do membro (fica para depois) e desiste após 24 h (a notificação segue no aplicativo).
+ */
+async function dispatchPush(now: Date, summary: DispatchSummary) {
+  const pending = await prisma.notification.findMany({
+    where: { channel: "PUSH", status: "PENDING" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 300,
+    include: { household: { select: { timezone: true } } },
+  });
+  for (const n of pending) {
+    if (!n.recipientMemberId) {
+      await finalize(n, "SKIPPED", "Sem destinatário.", now);
+      continue;
+    }
+    if (n.createdAt.getTime() < now.getTime() - STALE_AFTER_MS) {
+      await finalize(n, "SKIPPED", "Não enviada em até 24 horas. Disponível no aplicativo.", now);
+      summary.expired++;
+      continue;
+    }
+    const pref = await prisma.notificationPreference.findUnique({ where: { memberId_type: { memberId: n.recipientMemberId, type: n.type } }, select: { push: true, frequency: true, quietStart: true, quietEnd: true } });
+    if (pref && (!pref.push || pref.frequency === "OFF")) {
+      await finalize(n, "SKIPPED", "Push desativado nas preferências.", now);
+      summary.skipped++;
+      continue;
+    }
+    if (pref && isWithinQuietHours(minutesInTimezone(n.household.timezone, now), pref.quietStart, pref.quietEnd)) {
+      summary.deferred++;
+      continue;
+    }
+    try {
+      const res = await sendPushToMember(n.recipientMemberId, { title: n.title, body: n.body, type: n.type, notificationId: n.id });
+      if (res.sent) {
+        await finalize(n, "SENT", null, now);
+        summary.sent++;
+      } else if (res.failed) {
+        summary.failed++; // tenta de novo na próxima execução (até 24 h)
+      } else {
+        await finalize(n, "SKIPPED", "Nenhum aparelho com notificações ativas.", now);
+        summary.skipped++;
+      }
+    } catch (err) {
+      summary.failed++;
+      logger.warn({ notificationId: n.id, err: errorInfo(err).name }, "push: falha no despacho");
+    }
+  }
+}
+
 export async function runNotificationDispatch(now: Date = new Date()): Promise<DispatchSummary> {
   const summary: DispatchSummary = { sent: 0, failed: 0, skipped: 0, deferred: 0, expired: 0, digests: 0 };
   summary.expired = await expireStale(now);
   summary.digests = await buildDailyDigests(now);
+  await dispatchPush(now, summary);
 
   const pending = await prisma.notification.findMany({
     where: { ...whatsappDeliveryWhere("IMMEDIATE"), status: "PENDING" },

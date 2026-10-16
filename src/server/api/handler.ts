@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { parsePatch } from "../validation";
 import { z, ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { resolveSession, SESSION_COOKIE, type SessionInfo } from "../auth/session";
@@ -139,7 +140,8 @@ export function authed<QS extends z.ZodType | undefined = undefined, BS extends 
       const params = (await routeCtx.params) ?? {};
       const query = opts.query ? opts.query.parse(parseQueryParams(req)) : undefined;
       const rawBody = await readBody(req);
-      const body = opts.body ? opts.body.parse(rawBody ?? {}) : undefined;
+      // PATCH: só os campos enviados (no Zod 4, .partial() reaplicaria os valores padrão).
+      const body = opts.body ? (req.method === "PATCH" ? parsePatch(opts.body, rawBody ?? {}) : opts.body.parse(rawBody ?? {})) : undefined;
       const result = await handler({ req, ctx, session, params, query: query as Infer<QS>, body: body as Infer<BS> });
       return json(result, req.method === "POST" ? 201 : 200);
     } catch (err) {
@@ -160,7 +162,8 @@ export function publicRoute<QS extends z.ZodType | undefined = undefined, BS ext
       const params = (await routeCtx.params) ?? {};
       const query = opts.query ? opts.query.parse(parseQueryParams(req)) : undefined;
       const rawBody = await readBody(req);
-      const body = opts.body ? opts.body.parse(rawBody ?? {}) : undefined;
+      // PATCH: só os campos enviados (no Zod 4, .partial() reaplicaria os valores padrão).
+      const body = opts.body ? (req.method === "PATCH" ? parsePatch(opts.body, rawBody ?? {}) : opts.body.parse(rawBody ?? {})) : undefined;
       const result = await handler({ req, params, query: query as Infer<QS>, body: body as Infer<BS> });
       return json(result, req.method === "POST" ? 201 : 200);
     } catch (err) {

@@ -15,6 +15,9 @@ export interface AccountDTO {
   includeInTotals: boolean;
   archivedAt: string | null;
   transactionsCount: number;
+  yieldIndex: "CDI" | "SELIC" | "IPCA" | "PREFIXED" | null;
+  yieldRateBps: number | null;
+  yieldStartDate: string | null;
 }
 
 export interface StatementDTO {

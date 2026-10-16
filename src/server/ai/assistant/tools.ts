@@ -17,7 +17,7 @@ import {
   type Period,
   type PeriodPreset,
 } from "@/lib/dates";
-import { formatBRL, percentChange } from "@/lib/money";
+import { formatBRL, formatMoney, percentChange } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
 import { budgetOverview, cashflowProjection, compareCategories, expensesByCategory, expensesByPerson, recognizedRows, topExpenses } from "../../modules/analytics/service";
 import { listAccounts } from "../../modules/accounts/service";
@@ -322,8 +322,12 @@ export const ASSISTANT_TOOLS = [
       const accounts = await listAccounts(ctx);
       return {
         basis: "CONFIRMADO",
-        accounts: accounts.map((a) => ({ name: a.name, balance: fmt(a.balanceCents), type: a.type })),
-        total: fmt(accounts.filter((a) => a.includeInTotals).reduce((s, a) => s + a.balanceCents, 0)),
+        accounts: accounts.map((a) => ({
+          name: a.name,
+          balance: a.currency === "BRL" ? fmt(a.balanceCents) : `${formatMoney(a.balanceCents, a.currency)}${a.balanceBrlCents !== null && a.fx ? ` (≈ ${fmt(a.balanceBrlCents)} pela PTAX de ${a.fx.date})` : ""}`,
+          type: a.type,
+        })),
+        total: fmt(accounts.filter((a) => a.includeInTotals).reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0)),
       };
     },
   }),

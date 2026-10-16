@@ -183,7 +183,28 @@ prefixado), taxa (ex.: 101,5% do CDI) e data de início.
   datas de cada aplicação no banco.
 - "Ajustar ao saldo do banco" lança a diferença como ajuste (não é receita nem despesa).
 
-### 10.3 PDF e importação em massa
+### 10.3 Contas em moeda estrangeira
+
+- A conta tem moeda (BRL, USD, EUR ou GBP). Lançamentos e saldo ficam na moeda dela; a moeda não muda
+  depois que a conta tem lançamentos.
+- Cotação: PTAX (venda) do Banco Central (API pública SGS: USD 1, EUR 21619, GBP 21623), buscada pelo
+  worker a cada 3 horas para as moedas em uso. Fim de semana/feriado: vale a última publicada.
+- Totais da família em reais (saldo disponível, patrimônio, projeção, relatórios) convertem o saldo das
+  contas estrangeiras pela cotação mais recente, e a tela mostra a data da cotação.
+- Receita/despesa em moeda estrangeira entra nos relatórios em reais pela PTAX **da data** do
+  lançamento. Sem cotação ainda (BCB fora), fica de fora dos totais até a cotação chegar — nunca é
+  somada como se fosse real.
+- Transferência entre contas de moedas diferentes (ex.: Wise USD → C6 BRL) tem valor de origem e de
+  destino; o câmbio efetivo é a razão entre eles. Não é receita nem despesa.
+- **Variação cambial**: valor da conta hoje em reais menos o custo em reais dos movimentos (cada um
+  pela PTAX da data; transferências com conta em reais pelo valor efetivamente pago/recebido). Aparece
+  separada e não entra como receita nem despesa do mês.
+- Pagamento de fatura de cartão só com conta em reais.
+- Importação: "Remessa/câmbio/Wise/Remitly" no extrato em reais, havendo conta em outra moeda, vira
+  transferência a partir dela; a linha fica desmarcada até a pessoa informar o valor na outra moeda (a
+  prévia mostra a PTAX só como referência). Sem conta em outra moeda, segue como receita.
+
+### 10.4 PDF e importação em massa
 
 - **PDF com texto** (exportado pelo app/site do banco) é lido localmente, sem IA: linhas com data e
   valor viram lançamentos; saldos, totais, limites, resumos e valores em dólar são ignorados. Há
