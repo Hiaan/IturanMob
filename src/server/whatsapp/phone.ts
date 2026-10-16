@@ -1,6 +1,7 @@
 /**
  * Utilitários de telefone/JID sem dependência de provedor (usados também pelas rotas do Next.js).
  */
+export { normalizePhoneInput } from "@/lib/phone";
 
 /** Normaliza para E.164 ("+5581999999999"). Retorna null se não houver dígitos suficientes. */
 export function normalizeE164(input: string | null | undefined): string | null {

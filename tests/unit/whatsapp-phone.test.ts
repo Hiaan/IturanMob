@@ -7,6 +7,7 @@ import {
   maskPhone,
   normalizeE164,
   normalizeJid,
+  normalizePhoneInput,
   phoneFromJid,
   phoneVariants,
   phonesMatch,
@@ -21,6 +22,31 @@ describe("whatsapp: telefones e JIDs", () => {
     expect(normalizeE164("5581999990001")).toBe("+5581999990001");
     expect(normalizeE164("123")).toBeNull();
     expect(normalizeE164(null)).toBeNull();
+  });
+
+  it("normaliza telefones digitados no cadastro (Brasil sem DDI recebe +55)", () => {
+    // Brasil, só com DDD (como as pessoas costumam digitar)
+    expect(normalizePhoneInput("83 99999-5364")).toBe("+5583999995364");
+    expect(normalizePhoneInput("(81) 99999-0001")).toBe("+5581999990001");
+    expect(normalizePhoneInput("81999990001")).toBe("+5581999990001");
+    expect(normalizePhoneInput("(81) 3333-4444")).toBe("+558133334444");
+    // 0 de longa distância e código de operadora
+    expect(normalizePhoneInput("083 99999-5364")).toBe("+5583999995364");
+    expect(normalizePhoneInput("0 21 83 99999-5364")).toBe("+5583999995364");
+    // DDI do Brasil com ou sem "+", e com "00"
+    expect(normalizePhoneInput("55 83 99999-5364")).toBe("+5583999995364");
+    expect(normalizePhoneInput("+55 (83) 99999-5364")).toBe("+5583999995364");
+    expect(normalizePhoneInput("00 55 83 99999-5364")).toBe("+5583999995364");
+    // Outros países: o DDI informado é mantido
+    expect(normalizePhoneInput("+1 (212) 555-1234")).toBe("+12125551234");
+    expect(normalizePhoneInput("+351 912 345 678")).toBe("+351912345678");
+    expect(normalizePhoneInput("001 212 555 1234")).toBe("+12125551234");
+    // Ambíguo ou inválido: recusado em vez de adivinhar
+    expect(normalizePhoneInput("12125551234")).toBeNull();
+    expect(normalizePhoneInput("83 1234-567")).toBeNull();
+    expect(normalizePhoneInput("+123")).toBeNull();
+    expect(normalizePhoneInput("")).toBeNull();
+    expect(normalizePhoneInput(null)).toBeNull();
   });
 
   it("considera o nono dígito brasileiro como equivalente", () => {

@@ -11,6 +11,7 @@ import { ingestMessage } from "@/server/whatsapp/ingest";
 import { markSentByBot } from "@/server/whatsapp/bot-messages";
 import { queueReceivedMessages } from "@/server/whatsapp/recovery";
 import type { NormalizedInboundMessage } from "@/server/whatsapp/types";
+import { updateMember } from "@/server/modules/households/service";
 import { createFamily, resetDatabase } from "./helpers";
 
 const GROUP = "120363000000000001@g.us";
@@ -197,6 +198,31 @@ describe("WhatsApp: ingestão", () => {
     const stored = await prisma.whatsAppMessage.findUniqueOrThrow({ where: { id: own.messageId! } });
     expect(stored.senderMemberId).toBe(fam.husbandId);
     expect(await prisma.whatsAppMessage.count({ where: { householdId: fam.householdId, direction: "INBOUND" } })).toBe(1);
+  });
+
+  it("número cadastrado só com DDD é gravado com +55 e as mensagens do grupo são reconhecidas", async () => {
+    const { fam, ref } = await setup();
+    const ids = [fam.husbandId, fam.wifeId];
+    // Cenário real: os números foram digitados sem DDI, do jeito que as pessoas escrevem.
+    await prisma.householdMember.updateMany({ where: { id: { in: ids } }, data: { whatsappPhone: null } });
+    await updateMember(fam.ctx, fam.husbandId, { whatsappPhone: "81 99999-0001" });
+    await updateMember(fam.ctx, fam.wifeId, { whatsappPhone: "(81) 99999-0002" });
+    await prisma.householdMember.updateMany({ where: { id: { in: ids } }, data: { whatsappAuthorized: true, whatsappConsentAt: new Date() } });
+    const saved = await prisma.householdMember.findMany({ where: { id: { in: ids } }, select: { id: true, whatsappPhone: true } });
+    expect(Object.fromEntries(saved.map((m) => [m.id, m.whatsappPhone]))).toEqual({ [fam.husbandId]: HUSBAND, [fam.wifeId]: WIFE });
+
+    // Mensagem da esposa no grupo (JID com DDI 55)
+    const fromWife = await ingestMessage(ref, msg({ senderIds: { jid: "5581999990002@s.whatsapp.net", phone: WIFE } }));
+    expect(fromWife.accepted).toBe(true);
+    expect((await prisma.whatsAppMessage.findUniqueOrThrow({ where: { id: fromWife.messageId! } })).senderMemberId).toBe(fam.wifeId);
+
+    // Mensagem enviada pelo próprio número conectado (fromMe), só com LID
+    const own = await ingestMessage(ref, msg({ fromMe: true, text: "paguei a luz 180", senderIds: { lid: "222@lid" } }));
+    expect(own.accepted).toBe(true);
+    expect((await prisma.whatsAppMessage.findUniqueOrThrow({ where: { id: own.messageId! } })).senderMemberId).toBe(fam.husbandId);
+
+    // Número estrangeiro sem "+" é recusado no cadastro, em vez de virar um número errado
+    await expect(updateMember(fam.ctx, fam.wifeId, { whatsappPhone: "12125551234" })).rejects.toThrow(/DDD/);
   });
 
   it("aprende LID/JID do membro e passa a reconhecer mensagens só com LID", async () => {

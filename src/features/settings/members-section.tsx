@@ -21,6 +21,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatDateBR, formatDateTimeBR } from "@/lib/dates";
 import { MEMBER_ROLE_LABELS, labelOf } from "@/lib/labels";
+import { normalizePhoneInput } from "@/lib/phone";
 import { useMembers } from "@/features/finance/hooks";
 import { useCan, useMe } from "@/features/me/use-me";
 import type { MemberDTO } from "@/features/finance/types";
@@ -36,7 +37,7 @@ const memberSchema = z.object({
   whatsappPhone: z
     .string()
     .trim()
-    .refine((v) => v === "" || /^\+?\d{10,15}$/.test(v.replace(/[\s()-]/g, "")), "Use DDI + DDD + número, ex.: +5581999999999"),
+    .refine((v) => v === "" || normalizePhoneInput(v) !== null, "Informe DDD + número, ex.: (81) 99999-9999. Fora do Brasil, comece com + e o DDI."),
   whatsappAuthorized: z.boolean(),
   whatsappConsent: z.boolean(),
 });
@@ -68,7 +69,7 @@ function MemberDialog({ member, open, onOpenChange }: { member: MemberDTO | null
         displayName: v.displayName,
         relation: v.relation || null,
         color: v.color,
-        whatsappPhone: v.whatsappPhone ? v.whatsappPhone.replace(/[\s()-]/g, "") : null,
+        whatsappPhone: v.whatsappPhone ? normalizePhoneInput(v.whatsappPhone) : null,
       };
       if (canManage) {
         if (v.role !== member!.role) body.role = v.role;
@@ -167,8 +168,8 @@ function MemberDialog({ member, open, onOpenChange }: { member: MemberDTO | null
             <p className="flex items-center gap-2 text-sm font-medium">
               <MessageCircle className="size-4 text-brand" /> WhatsApp
             </p>
-            <Field label="Número (com DDI e DDD)" htmlFor="m-phone" error={e.whatsappPhone?.message}>
-              <Input id="m-phone" placeholder="+5581999999999" inputMode="tel" {...form.register("whatsappPhone")} disabled={!canManage && !isSelf} />
+            <Field label="Número do WhatsApp" htmlFor="m-phone" error={e.whatsappPhone?.message} hint="Com DDD. Números do Brasil não precisam do +55; de outros países, comece com + e o DDI.">
+              <Input id="m-phone" placeholder="(81) 99999-9999" inputMode="tel" autoComplete="tel" {...form.register("whatsappPhone")} disabled={!canManage && !isSelf} />
             </Field>
             {canManage && (
               <label className="flex items-start justify-between gap-3 text-sm">

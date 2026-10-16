@@ -103,9 +103,10 @@ O worker carrega o `.env` da raiz (sem sobrescrever variáveis já definidas), m
 em andamento, desconecta os provedores sem fazer logout). **Execute apenas um worker** por instalação:
 cada sessão do WhatsApp só pode estar aberta em um processo.
 
-Em todos os provedores, cadastre em **Membros** o número de cada participante (E.164, ex.:
-`+5581999999999`), marque **Autorizado no WhatsApp** (administrador) e peça para cada um dar o
-**consentimento** (o próprio membro).
+Em todos os provedores, cadastre em **Membros** o número de cada participante, marque **Autorizado no
+WhatsApp** (administrador) e peça para cada um dar o **consentimento** (o próprio membro). O número
+brasileiro pode ser digitado só com DDD, como `(81) 99999-9999`: o sistema grava `+5581999999999`.
+Números de outros países precisam começar com `+` e o DDI.
 
 ### 3.1 Simulador (desenvolvimento)
 

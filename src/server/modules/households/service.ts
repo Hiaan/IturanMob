@@ -8,6 +8,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { seedDefaultCategories } from "../categories/seed";
 import { audit } from "../audit/service";
 import { env } from "../../env";
+import { normalizePhoneInput } from "@/lib/phone";
 
 export const MEMBER_COLORS = ["#0f766e", "#1d4ed8", "#be185d", "#7c3aed", "#c2410c", "#0369a1", "#4d7c0f"];
 
@@ -246,7 +247,7 @@ export const memberUpdateSchema = z
     whatsappPhone: z
       .string()
       .trim()
-      .regex(/^\+?\d{10,15}$/, "Informe o número com DDI e DDD, ex.: +5581999999999")
+      .refine((v) => normalizePhoneInput(v) !== null, "Informe DDD + número, ex.: (81) 99999-9999. Para números de fora do Brasil, comece com + e o DDI.")
       .nullable(),
     whatsappAuthorized: z.boolean(),
     whatsappConsent: z.boolean(),
@@ -254,9 +255,11 @@ export const memberUpdateSchema = z
   })
   .partial();
 
+/** Telefone do membro em E.164; números brasileiros sem DDI recebem +55 (ver normalizePhoneInput). */
 export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  return `+${digits}`;
+  const normalized = normalizePhoneInput(phone);
+  if (!normalized) throw new ValidationError("Informe DDD + número, ex.: (81) 99999-9999. Para números de fora do Brasil, comece com + e o DDI.", { field: "whatsappPhone" });
+  return normalized;
 }
 
 export async function updateMember(ctx: ServiceContext, memberId: string, input: z.infer<typeof memberUpdateSchema>) {
