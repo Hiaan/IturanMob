@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ChevronRight, Receipt } from "lucide-react";
+import { ChevronRight, Layers, Receipt } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -127,6 +129,13 @@ export function CommitmentsChart() {
     <ChartCard
       title="Compromissos futuros nos cartões"
       description={data.length ? `Faturas a vencer (com parcelas futuras) · total ${formatBRL(total)}` : "Faturas a vencer, incluindo parcelas futuras"}
+      action={
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/gastos-fixos" title="Parcelas de cada compra, quando terminam e projeção com as contas fixas">
+            <Layers /> Parcelas
+          </Link>
+        </Button>
+      }
       isLoading={q.isLoading}
       isFetching={q.isFetching}
       error={q.error}

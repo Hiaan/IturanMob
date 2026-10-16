@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, Landmark, MoreHorizontal, Pencil, Plus, Repeat, Trash2, Zap } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, Landmark, Layers, MoreHorizontal, Pencil, Plus, Repeat, Trash2, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BusinessBadge } from "@/features/transactions/nature-control";
 import { Button } from "@/components/ui/button";
@@ -140,11 +141,18 @@ export function RecurringTab() {
             </Button>
           ))}
         </div>
-        {canEdit && (
-          <Button variant="brand" onClick={openNew}>
-            <Plus /> Nova recorrência
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/gastos-fixos">
+              <Layers /> Gastos fixos<span className="hidden sm:inline"> e projeção</span>
+            </Link>
           </Button>
-        )}
+          {canEdit && (
+            <Button variant="brand" onClick={openNew}>
+              <Plus /> Nova recorrência
+            </Button>
+          )}
+        </div>
       </div>
 
       {q.isLoading ? (

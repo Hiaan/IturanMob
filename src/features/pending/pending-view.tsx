@@ -93,9 +93,6 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
 
 const ORDER = ["CONFIRMATION", "POSSIBLE_DUPLICATE", "CLARIFICATION", "NATURE_REVIEW", "PROCESSING_FAILED", "UNREADABLE_RECEIPT", "MISSING_PAYMENT_METHOD", "UNCATEGORIZED", "IMPORT_DIVERGENCE", "INSTALLMENT_INCONSISTENT"];
 
-/** Tipos que a rota GET /pending ainda não filtra (validação do parâmetro `type`): filtrados no cliente. */
-const CLIENT_FILTERED_TYPES = new Set<string>(["NATURE_REVIEW"]);
-
 /** Pendência "Escolher natureza" com o lançamento ainda ativo. */
 const isNatureItem = (i: PendingItemDTO) => i.type === "NATURE_REVIEW" && Boolean(i.transaction) && !i.transaction!.deletedAt;
 
@@ -346,8 +343,8 @@ export function PendingView() {
     }
   };
   const counts = useQuery({ queryKey: qk.pendingCounts, queryFn: () => api.get<{ total: number; byType: Record<string, number> }>("/api/v1/pending/counts") });
-  // O filtro por tipo da API ainda não aceita NATURE_REVIEW: busca todas e filtra aqui.
-  const serverType = type === "ALL" || CLIENT_FILTERED_TYPES.has(type) ? null : type;
+  // Filtro por tipo no servidor (inclui "Escolher natureza" / NATURE_REVIEW).
+  const serverType = type === "ALL" ? null : type;
   const list = useQuery({
     queryKey: qk.pending({ type }),
     queryFn: () => api.get<{ items: PendingItemDTO[] }>("/api/v1/pending", serverType ? { type: serverType, limit: 200 } : { limit: 200 }),
@@ -359,8 +356,8 @@ export function PendingView() {
   });
 
   const items = useMemo(
-    () => [...(list.data?.items ?? [])].filter((i) => type === "ALL" || i.type === type).sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type)),
-    [list.data, type],
+    () => [...(list.data?.items ?? [])].sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type)),
+    [list.data],
   );
   const selectedItems = items.filter((i) => selected.has(i.id));
   const confirmable = selectedItems.filter((i) => (i.type === "CONFIRMATION" || i.type === "POSSIBLE_DUPLICATE") && i.transaction && !i.transaction.deletedAt);

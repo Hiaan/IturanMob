@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
@@ -18,8 +19,10 @@ import { formatDateBR, formatDayMonthBR, formatMonthBR } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { ReportScope, TransactionList } from "@/features/finance/types";
+import { useCards } from "@/features/finance/hooks";
 import { BusinessBadge } from "@/features/transactions/nature-control";
 import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
+import { useFixedExpenses } from "@/features/fixed-expenses/use-fixed-expenses";
 import { filtersToParams, type DashboardFilters } from "./use-filters";
 
 const SERIES = {
@@ -44,10 +47,31 @@ interface ByCategory {
   items: Array<{ categoryId: string | null; name: string; color: string; amountCents: number; percent: number }>;
 }
 
+/** Filtro local de "Despesas por categoria": todas as formas, só cartão de crédito ou um cartão. */
+type PaymentFilter = "all" | "CREDIT_CARD" | `card:${string}`;
+interface PaymentOverride {
+  paymentMethod?: "CREDIT_CARD";
+  creditCardId?: string;
+}
+
+function paymentOverride(v: PaymentFilter): PaymentOverride {
+  if (v === "CREDIT_CARD") return { paymentMethod: "CREDIT_CARD" };
+  if (v.startsWith("card:")) return { creditCardId: v.slice(5) };
+  return {};
+}
+
 export function CategoryBreakdown({ filters, period, scope }: { filters: DashboardFilters; period?: { start: string; end: string }; scope?: ReportScope }) {
-  const params = filtersToParams(filters);
+  const cards = useCards();
+  const [payment, setPayment] = useState<PaymentFilter>("all");
+  // Com o filtro de cartão do painel ativo, ele já define o recorte: o seletor local fica oculto.
+  const globalCard = Boolean(filters.creditCardId);
+  const cardList = cards.data ?? [];
+  const effective: PaymentFilter = globalCard || (payment.startsWith("card:") && cards.data && !cardList.some((c) => `card:${c.id}` === payment)) ? "all" : payment;
+  const override = paymentOverride(effective);
+  const params = { ...filtersToParams(filters), ...override };
   const q = useAnalytics<ByCategory>("by-category", "/api/v1/analytics/by-category", params);
   const [selected, setSelected] = useState<{ id: string | null; name: string } | null>(null);
+  const paymentLabel = effective === "CREDIT_CARD" ? "só cartão de crédito" : override.creditCardId ? `cartão ${cardList.find((c) => c.id === override.creditCardId)?.name ?? ""}`.trim() : null;
   const items = q.data?.items ?? [];
   const shown = items.slice(0, MAX_CATEGORIES);
   const rest = items.slice(MAX_CATEGORIES);
@@ -58,12 +82,35 @@ export function CategoryBreakdown({ filters, period, scope }: { filters: Dashboa
     <>
       <ChartCard
         title="Despesas por categoria"
-        description={q.data ? `Total ${formatBRL(q.data.totalCents)} · clique para ver as transações` : undefined}
+        description={q.data ? `Total ${formatBRL(q.data.totalCents)}${paymentLabel ? ` · ${paymentLabel}` : ""} · clique para ver as transações` : undefined}
+        action={
+          !globalCard && (
+            <Select value={effective} onValueChange={(v) => setPayment(v as PaymentFilter)}>
+              <SelectTrigger className="h-8 w-[112px] shrink-0 gap-1 px-2.5 text-xs" aria-label="Forma de pagamento" title="Filtrar por forma de pagamento ou cartão">
+                <SelectValue>{effective === "all" ? "Todas" : effective === "CREDIT_CARD" ? "Só cartão" : (cardList.find((c) => `card:${c.id}` === effective)?.name ?? "Cartão")}</SelectValue>
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="all">Todas as formas</SelectItem>
+                <SelectItem value="CREDIT_CARD">Só cartão de crédito</SelectItem>
+                {cardList.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel className="text-xs text-muted-foreground">Cartões</SelectLabel>
+                    {cardList.map((c) => (
+                      <SelectItem key={c.id} value={`card:${c.id}`}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+              </SelectContent>
+            </Select>
+          )
+        }
         isLoading={q.isLoading}
         isFetching={q.isFetching}
         error={q.error}
         onRetry={() => q.refetch()}
-        empty={!items.length && "Nenhuma despesa no período."}
+        empty={!items.length && (paymentLabel ? `Nenhuma despesa no período (${paymentLabel}).` : "Nenhuma despesa no período.")}
         table={
           <Table>
             <TableHeader>
@@ -114,7 +161,7 @@ export function CategoryBreakdown({ filters, period, scope }: { filters: Dashboa
           )}
         </ul>
       </ChartCard>
-      <CategoryTransactionsSheet category={selected} onClose={() => setSelected(null)} period={period} filters={filters} scope={scope ?? filters.scope} />
+      <CategoryTransactionsSheet category={selected} onClose={() => setSelected(null)} period={period} filters={filters} scope={scope ?? filters.scope} payment={override} paymentLabel={paymentLabel} />
     </>
   );
 }
@@ -125,6 +172,8 @@ function CategoryTransactionsSheet({
   period,
   filters,
   scope,
+  payment = {},
+  paymentLabel,
 }: {
   category: { id: string | null; name: string } | null;
   onClose: () => void;
@@ -132,7 +181,11 @@ function CategoryTransactionsSheet({
   filters: DashboardFilters;
   /** Recorte aplicado no painel: a lista mostra o mesmo (repasses nunca entram). */
   scope?: ReportScope;
+  /** Filtro local de forma de pagamento / cartão do cartão de categorias. */
+  payment?: PaymentOverride;
+  paymentLabel?: string | null;
 }) {
+  const creditCardId = payment.creditCardId ?? filters.creditCardId;
   const params = {
     start: period?.start,
     end: period?.end,
@@ -142,7 +195,8 @@ function CategoryTransactionsSheet({
     ...(category?.id ? { categoryIds: [category.id] } : { uncategorized: true }),
     memberId: filters.memberId,
     accountId: filters.accountId,
-    creditCardId: filters.creditCardId,
+    creditCardId,
+    paymentMethods: payment.paymentMethod ? [payment.paymentMethod] : undefined,
     excluded: "hide",
     scope: scope && scope !== "ALL" ? scope : undefined,
     sort: "amount_desc",
@@ -157,6 +211,7 @@ function CategoryTransactionsSheet({
           <SheetDescription>
             {period ? `${formatDateBR(period.start)} a ${formatDateBR(period.end)}` : ""}
             {scope && ` · recorte ${REPORT_SCOPE_LABELS[scope]}`}
+            {paymentLabel && ` · ${paymentLabel}`}
             {filters.regime === "CASH" && " · compras no cartão listadas pela data da compra"}
           </SheetDescription>
         </SheetHeader>
@@ -183,7 +238,13 @@ function CategoryTransactionsSheet({
             </ul>
           )}
           <Link
-            href={`/transacoes?${new URLSearchParams({ ...(category?.id ? { categoryId: category.id } : { uncategorized: "1" }), ...(scope && scope !== "ALL" ? { scope } : {}), ...(period ? { start: period.start, end: period.end } : {}) }).toString()}`}
+            href={`/transacoes?${new URLSearchParams({
+              ...(category?.id ? { categoryId: category.id } : { uncategorized: "1" }),
+              ...(scope && scope !== "ALL" ? { scope } : {}),
+              ...(period ? { start: period.start, end: period.end } : {}),
+              ...(creditCardId ? { creditCardId } : {}),
+              ...(payment.paymentMethod ? { paymentMethod: payment.paymentMethod } : {}),
+            }).toString()}`}
             className="mt-4 inline-block text-sm font-medium text-brand hover:underline"
           >
             Abrir em Transações
@@ -302,16 +363,15 @@ interface BudgetOverview {
   totalSpentCents: number;
 }
 
-export function BudgetVsActual({ filters, scope, defaultScope }: { filters: DashboardFilters; scope?: ReportScope; defaultScope?: ReportScope | null }) {
-  // O orçamento segue o recorte padrão da família (a API de orçamento não recebe o recorte).
-  const params = { regime: filters.regime };
+export function BudgetVsActual({ filters }: { filters: DashboardFilters }) {
+  // O realizado do orçamento segue o recorte do painel (Pessoal | Empresa | Tudo; sem escolher, o padrão da família).
+  const params = { regime: filters.regime, scope: filters.scope };
   const q = useAnalytics<BudgetOverview>("budget", "/api/v1/analytics/budget", params);
   const items = q.data?.items ?? [];
-  const scopeNote = defaultScope && scope && scope !== defaultScope ? ` · segue o recorte padrão (${REPORT_SCOPE_LABELS[defaultScope]})` : "";
   return (
     <ChartCard
       title="Orçamento x realizado"
-      description={q.data ? `${formatMonthBR(q.data.month, { capitalize: true })} · projeção até o fim do mês é estimada${scopeNote}` : undefined}
+      description={q.data ? `${formatMonthBR(q.data.month, { capitalize: true })} · projeção até o fim do mês é estimada` : undefined}
       isLoading={q.isLoading}
       isFetching={q.isFetching}
       error={q.error}
@@ -636,41 +696,30 @@ export function BalanceEvolution({ filters }: { filters: DashboardFilters }) {
 // 9. Gastos recorrentes
 // -----------------------------------------------------------------------------
 
-interface RecurringItem {
-  id: string;
-  type?: "EXPENSE" | "INCOME";
-  description: string;
-  amountCents: number;
-  frequency: string;
-  isVariableAmount: boolean;
-  active: boolean;
-  nextDueDate?: string | null;
-  monthlyEquivalentCents?: number;
-  category?: { name: string; color: string } | null;
-  scope?: "PERSONAL" | "BUSINESS";
-}
-
-export function RecurringExpenses() {
-  const q = useQuery({
-    queryKey: qk.recurring({ active: true, type: "EXPENSE" }),
-    queryFn: () => api.get<RecurringItem[] | { items: RecurringItem[] }>("/api/v1/recurring?type=EXPENSE&active=true"),
-    retry: false,
-  });
-  const raw = q.data;
-  const items = (Array.isArray(raw) ? raw : raw?.items ?? []).filter((r) => r.active && (r.type ?? "EXPENSE") === "EXPENSE");
-  const monthly = items.reduce((s, r) => s + (r.monthlyEquivalentCents ?? r.amountCents), 0);
+/** Contas fixas (recorrências de despesa ativas) no recorte do painel; o detalhe e a projeção ficam em Gastos fixos. */
+export function RecurringExpenses({ filters }: { filters: DashboardFilters }) {
+  const q = useFixedExpenses(filters.scope);
+  const data = q.data?.recurring;
+  const items = data?.items ?? [];
+  const scope = q.data?.scope;
   return (
     <ChartCard
       title="Gastos recorrentes"
-      description={items.length ? `${items.length} ativos · equivalente mensal ${formatBRL(monthly)}` : undefined}
+      description={items.length ? `${items.length} ativos · equivalente mensal ${formatBRL(data?.monthlyTotalCents ?? 0)}${scope ? ` · recorte ${REPORT_SCOPE_LABELS[scope]}` : ""}` : undefined}
+      action={
+        <Link href="/gastos-fixos" className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-brand hover:underline">
+          Gastos fixos e projeção <ChevronRight className="size-3.5" aria-hidden />
+        </Link>
+      }
       isLoading={q.isLoading}
+      isFetching={q.isFetching}
       error={q.error}
       onRetry={() => q.refetch()}
       empty={
         !items.length && (
           <span>
-            Nenhuma despesa recorrente cadastrada.{" "}
-            <Link href="/contas-a-pagar" className="font-medium text-brand hover:underline">
+            Nenhuma despesa recorrente{scope && scope !== "ALL" ? ` no recorte ${REPORT_SCOPE_LABELS[scope]}` : " cadastrada"}.{" "}
+            <Link href="/contas-a-pagar?aba=recorrencias" className="font-medium text-brand hover:underline">
               Cadastrar
             </Link>
           </span>
@@ -688,13 +737,18 @@ export function RecurringExpenses() {
               </p>
             </div>
             <span className="flex items-center gap-2">
-              {r.scope === "BUSINESS" && <BusinessBadge />}
-              {r.isVariableAmount && <Badge variant="muted">estimado</Badge>}
+              {scope !== "BUSINESS" && r.scope === "BUSINESS" && <BusinessBadge />}
+              {r.isEstimate && <Badge variant="muted">estimado</Badge>}
               <span className="font-medium tabular">{formatBRL(r.amountCents)}</span>
             </span>
           </li>
         ))}
       </ul>
+      {items.length > 8 && (
+        <Link href="/gastos-fixos" className="mt-2 inline-block text-sm font-medium text-brand hover:underline">
+          Ver todas as {items.length}
+        </Link>
+      )}
     </ChartCard>
   );
 }

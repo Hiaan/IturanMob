@@ -5,6 +5,7 @@ import {
   CreditCard,
   Inbox,
   Landmark,
+  Layers,
   LayoutDashboard,
   PiggyBank,
   Plug,
@@ -45,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/orcamentos", label: "Orçamentos", icon: PiggyBank },
       { href: "/metas", label: "Metas", icon: Target },
       { href: "/contas-a-pagar", label: "Contas a pagar", icon: CalendarClock },
+      { href: "/gastos-fixos", label: "Gastos fixos", icon: Layers },
     ],
   },
   {

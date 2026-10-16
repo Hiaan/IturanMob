@@ -60,7 +60,7 @@ function ReportHeader({ report }: { report: ReportView }) {
               <CalendarRange aria-hidden /> {formatDateBR(d.period.start)} a {formatDateBR(d.period.end)}
             </Badge>
             <Badge variant="secondary">Regime: {d.regimeLabel}</Badge>
-            {d.type === "MONTHLY" && d.natureScope && (
+            {d.natureScope && (
               <Badge variant="secondary" title="Natureza dos totais. Repasses de clientes ficam sempre de fora; saldo e faturas não mudam com o recorte.">
                 {d.natureScope === "BUSINESS" && <Briefcase aria-hidden className="text-series-7" />}
                 Recorte: {d.natureScope === "BUSINESS" ? "Empresa" : d.natureScope === "ALL" ? "Tudo (Pessoal e Empresa)" : "Pessoal"}

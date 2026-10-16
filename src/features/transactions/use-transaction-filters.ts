@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isISODate, resolvePeriod, type PeriodPreset } from "@/lib/dates";
+import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import type { SmartPatch } from "./smart-search";
+
+/** Formas de pagamento aceitas em ?paymentMethod= (ex.: CREDIT_CARD vindo do painel). */
+const PAYMENT_METHOD_KEYS: string[] = Object.keys(PAYMENT_METHOD_LABELS);
 
 export type TxPreset = PeriodPreset | "all";
 export type TxSort = "date_desc" | "date_asc" | "amount_desc" | "amount_asc" | "created_desc";
@@ -67,7 +71,7 @@ export function countAdvanced(f: TxFilters): number {
   ].filter(Boolean).length;
 }
 
-export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "scope", "natureReview", "start", "end", "period"] as const;
+export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "scope", "natureReview", "paymentMethod", "start", "end", "period"] as const;
 
 /** Converte parâmetros da URL (links do dashboard, busca global, contas, cartões) em filtros. */
 export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
@@ -85,6 +89,8 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   if (creditCardId) patch.creditCardId = creditCardId;
   const memberId = sp.get("memberId");
   if (memberId) patch.memberId = memberId;
+  const paymentMethod = sp.get("paymentMethod");
+  if (paymentMethod && PAYMENT_METHOD_KEYS.includes(paymentMethod)) patch.paymentMethods = [paymentMethod];
   const status = sp.get("status");
   if (status === "PENDING" || status === "CONFIRMED") patch.status = status;
   if (sp.get("uncategorized") === "1" || sp.get("uncategorized") === "true") patch.uncategorized = true;

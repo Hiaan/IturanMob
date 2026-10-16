@@ -158,11 +158,11 @@ export function BillFormDialog({ open, onOpenChange, bill }: { open: boolean; on
           )}
           {type === "EXPENSE" && payWith === "card" ? (
             <Field label="Cartão" htmlFor="bill-card" error={e.creditCardId?.message} required>
-              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="bill-card" value={field.value} onChange={field.onChange} />} />
+              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="bill-card" value={field.value} onChange={field.onChange} current={bill?.creditCard} />} />
             </Field>
           ) : (
             <Field label={type === "INCOME" ? "Conta que recebe" : "Conta de pagamento"} htmlFor="bill-account" hint="Opcional — sugerida ao registrar o pagamento">
-              <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="bill-account" value={field.value} onChange={field.onChange} noneLabel="Definir ao pagar" />} />
+              <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="bill-account" value={field.value} onChange={field.onChange} noneLabel="Definir ao pagar" current={bill?.account} />} />
             </Field>
           )}
           <Field label="Observações" htmlFor="bill-notes">

@@ -27,15 +27,20 @@ export function CategoryPicker({
   onChange,
   kind,
   withSubcategories = true,
+  current,
 }: {
   id?: string;
   value: string;
   onChange: (v: string) => void;
   kind: "EXPENSE" | "INCOME";
   withSubcategories?: boolean;
+  /** Categoria já salva (valor do seletor + rótulo), mostrada mesmo antes de a lista carregar. */
+  current?: { value: string; label: string } | null;
 }) {
   const categories = useCategories();
   const options = useMemo(() => (categories.data ?? []).filter((c) => c.kind === kind && !c.archivedAt), [categories.data, kind]);
+  const known = useMemo(() => new Set(options.flatMap((c) => [`cat:${c.id}`, ...c.subcategories.filter((sc) => !sc.archivedAt).map((sc) => `sub:${sc.id}`)])), [options]);
+  const showCurrent = Boolean(current && value !== NONE && current.value === value && !known.has(value));
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger id={id}>
@@ -43,6 +48,12 @@ export function CategoryPicker({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NONE}>Sem categoria</SelectItem>
+        {showCurrent && current && (
+          <SelectItem value={current.value}>
+            {current.label}
+            {categories.data ? " (arquivada)" : ""}
+          </SelectItem>
+        )}
         {withSubcategories
           ? options.map((c) => (
               <SelectGroup key={c.id}>
@@ -99,7 +110,35 @@ export function PayWithToggle({ value, onChange, disabledCard }: { value: "accou
   );
 }
 
-export function AccountSelect({ id, value, onChange, noneLabel = "Sem conta" }: { id?: string; value: string; onChange: (v: string) => void; noneLabel?: string }) {
+/**
+ * Opção para o valor atual quando ele não está (ainda) na lista: enquanto as contas/cartões carregam,
+ * ou quando a conta/cartão foi arquivado. Sem ela, o Select do Radix fica vazio (o valor não casa com
+ * nenhuma opção) — era o "Conta em branco" ao editar uma recorrência existente.
+ */
+function currentOption(value: string, current: { id: string; name: string } | null | undefined, list: Array<{ id: string }> | undefined, archivedLabel: string) {
+  if (value === NONE || !current || current.id !== value || list?.some((i) => i.id === value)) return null;
+  return (
+    <SelectItem value={current.id}>
+      {current.name}
+      {list ? ` (${archivedLabel})` : ""}
+    </SelectItem>
+  );
+}
+
+export function AccountSelect({
+  id,
+  value,
+  onChange,
+  noneLabel = "Sem conta",
+  current,
+}: {
+  id?: string;
+  value: string;
+  onChange: (v: string) => void;
+  noneLabel?: string;
+  /** Conta já salva (ex.: na edição), mostrada mesmo antes de a lista carregar ou se estiver arquivada. */
+  current?: { id: string; name: string } | null;
+}) {
   const accounts = useAccounts();
   return (
     <Select value={value} onValueChange={onChange}>
@@ -108,6 +147,7 @@ export function AccountSelect({ id, value, onChange, noneLabel = "Sem conta" }: 
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NONE}>{noneLabel}</SelectItem>
+        {currentOption(value, current, accounts.data, "arquivada")}
         {(accounts.data ?? []).map((a) => (
           <SelectItem key={a.id} value={a.id}>
             {a.name}
@@ -118,7 +158,7 @@ export function AccountSelect({ id, value, onChange, noneLabel = "Sem conta" }: 
   );
 }
 
-export function CardSelect({ id, value, onChange }: { id?: string; value: string; onChange: (v: string) => void }) {
+export function CardSelect({ id, value, onChange, current }: { id?: string; value: string; onChange: (v: string) => void; current?: { id: string; name: string } | null }) {
   const cards = useCards();
   return (
     <Select value={value} onValueChange={onChange}>
@@ -127,6 +167,7 @@ export function CardSelect({ id, value, onChange }: { id?: string; value: string
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NONE}>Selecione…</SelectItem>
+        {currentOption(value, current, cards.data, "arquivado")}
         {(cards.data ?? []).map((c) => (
           <SelectItem key={c.id} value={c.id}>
             {c.name}

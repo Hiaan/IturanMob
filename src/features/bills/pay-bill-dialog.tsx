@@ -103,12 +103,12 @@ export function PayBillDialog({ bill, onOpenChange }: { bill: BillDTO | null; on
           {!income && <Controller control={control} name="payWith" render={({ field }) => <PayWithToggle value={field.value} onChange={field.onChange} />} />}
           {!income && payWith === "card" ? (
             <Field label="Cartão" htmlFor="pay-card" error={e.creditCardId?.message} hint="A compra entra na fatura do cartão (a conta fica como Lançada)." required>
-              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="pay-card" value={field.value} onChange={field.onChange} />} />
+              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="pay-card" value={field.value} onChange={field.onChange} current={bill.creditCard} />} />
             </Field>
           ) : (
             <div className="grid items-start gap-4 sm:grid-cols-2">
               <Field label={income ? "Conta que recebeu" : "Conta"} htmlFor="pay-account" hint="Define qual saldo é afetado">
-                <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="pay-account" value={field.value} onChange={field.onChange} noneLabel="Não informar" />} />
+                <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="pay-account" value={field.value} onChange={field.onChange} noneLabel="Não informar" current={bill.account} />} />
               </Field>
               <Field label="Forma" htmlFor="pay-method">
                 <Controller

@@ -89,6 +89,9 @@ export function RecurringFormDialog({ open, onOpenChange, recurring }: { open: b
   const autoPost = useWatch({ control, name: "autoPost" });
   const e = formState.errors;
   const monthBased = MONTH_BASED.includes(frequency);
+  const currentCategory = recurring?.category
+    ? { value: categoryValue(recurring.category.id, recurring.subcategory?.id), label: recurring.subcategory ? `${recurring.category.name} › ${recurring.subcategory.name}` : `${recurring.category.name} (geral)` }
+    : null;
   const custom = frequency === "CUSTOM_DAYS" || frequency === "CUSTOM_MONTHS";
 
   useEffect(() => {
@@ -193,18 +196,18 @@ export function RecurringFormDialog({ open, onOpenChange, recurring }: { open: b
           </div>
 
           <Field label="Categoria" htmlFor="rec-category">
-            <Controller control={control} name="category" render={({ field }) => <CategoryPicker id="rec-category" value={field.value} onChange={field.onChange} kind={type} />} />
+            <Controller control={control} name="category" render={({ field }) => <CategoryPicker id="rec-category" value={field.value} onChange={field.onChange} kind={type} current={currentCategory} />} />
           </Field>
 
           {type === "EXPENSE" && <Controller control={control} name="payWith" render={({ field }) => <PayWithToggle value={field.value} onChange={field.onChange} />} />}
           {type === "EXPENSE" && payWith === "card" ? (
             <Field label="Cartão" htmlFor="rec-card" error={e.creditCardId?.message} required>
-              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="rec-card" value={field.value} onChange={field.onChange} />} />
+              <Controller control={control} name="creditCardId" render={({ field }) => <CardSelect id="rec-card" value={field.value} onChange={field.onChange} current={recurring?.creditCard} />} />
             </Field>
           ) : (
             <div className="grid items-start gap-4 sm:grid-cols-2">
               <Field label={type === "INCOME" ? "Conta que recebe" : "Conta"} htmlFor="rec-account" error={e.accountId?.message}>
-                <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="rec-account" value={field.value} onChange={field.onChange} noneLabel="Definir no pagamento" />} />
+                <Controller control={control} name="accountId" render={({ field }) => <AccountSelect id="rec-account" value={field.value} onChange={field.onChange} noneLabel="Definir no pagamento" current={recurring?.account} />} />
               </Field>
               <Field label="Forma" htmlFor="rec-method">
                 <Controller

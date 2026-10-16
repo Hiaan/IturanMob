@@ -26,6 +26,7 @@ import { CreditCardVisual } from "./credit-card-visual";
 import { CardFormDialog } from "./card-form-dialog";
 import { PayStatementDialog, type PayTarget } from "./pay-statement-dialog";
 import { StatementSheet } from "./statement-sheet";
+import { CardsSpendingByCategoryCard } from "./spending-by-category";
 import { CommitmentsChart, StatementsPanel } from "./statements-panel";
 import { StatementStatusBadge } from "./statement-status";
 import { useCardMutations } from "./use-card-mutations";
@@ -376,6 +377,8 @@ export function CardsView() {
               <CommitmentsChart />
             </div>
           </div>
+
+          <CardsSpendingByCategoryCard onOpenStatement={(id) => setParam("statement", id)} />
         </>
       )}
 

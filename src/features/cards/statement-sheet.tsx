@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, Info } from "lucide-react";
+import { Banknote, EyeOff, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +14,8 @@ import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
 import { addDays, formatDateBR, formatMonthBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { BusinessBadge } from "@/features/transactions/nature-control";
+import { CategorySummary, NatureBreakdown, sliceKey } from "./category-summary";
 import { StatementStatusBadge } from "./statement-status";
 import type { StatementDetail } from "./types";
 import type { PayTarget } from "./pay-statement-dialog";
@@ -33,6 +37,12 @@ export function StatementSheet({ statementId, onClose, onPay, canPay }: { statem
     enabled: Boolean(statementId),
   });
   const st = q.data;
+  /** Filtro das linhas por categoria ("none" = sem categoria). */
+  const [category, setCategory] = useState<string | null>(null);
+  useEffect(() => setCategory(null), [statementId]);
+  const byCategory = st?.byCategory ?? [];
+  const lines = st ? (category ? st.installments.filter((i) => (i.categoryId ?? "none") === category) : st.installments) : [];
+  const activeCategory = byCategory.find((c) => sliceKey(c) === category) ?? null;
 
   return (
     <Sheet open={Boolean(statementId)} onOpenChange={(o) => !o && onClose()}>
@@ -97,13 +107,25 @@ export function StatementSheet({ statementId, onClose, onPay, canPay }: { statem
                 </p>
               )}
 
+              {byCategory.length > 0 && (
+                <section className="space-y-2" aria-labelledby="statement-categories-title">
+                  <h3 id="statement-categories-title" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Por categoria
+                  </h3>
+                  <CategorySummary items={byCategory} selected={category} onSelect={setCategory} />
+                  <NatureBreakdown byNature={st.byNature} />
+                </section>
+              )}
+
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lançamentos ({st.installments.length})</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" aria-live="polite">
+                  Lançamentos ({activeCategory ? `${lines.length} de ${st.installments.length} · ${activeCategory.name}` : st.installments.length})
+                </h3>
                 {st.installments.length === 0 ? (
                   <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">Nenhuma compra nesta fatura.</p>
                 ) : (
                   <ul className="divide-y rounded-xl border">
-                    {st.installments.map((i) => (
+                    {lines.map((i) => (
                       <li key={i.id}>
                         <Link href={`/transacoes?id=${i.transactionId}`} className="flex items-start gap-3 px-3 py-2.5 text-sm transition hover:bg-muted/50">
                           <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{ backgroundColor: i.category?.color ?? "#94a3b8" }} aria-hidden />
@@ -113,6 +135,17 @@ export function StatementSheet({ statementId, onClose, onPay, canPay }: { statem
                               {formatDateBR(i.purchaseDate)} · {i.category?.name ?? "Sem categoria"}
                               {i.payerName && ` · ${i.payerName.split(" ")[0]}`}
                             </span>
+                            {(i.nature === "BUSINESS" || i.nature === "PASSTHROUGH") && (
+                              <span className="mt-1 flex">
+                                {i.nature === "BUSINESS" ? (
+                                  <BusinessBadge title="Natureza Empresa: entra no recorte Empresa dos relatórios. A fatura cobra normalmente." />
+                                ) : (
+                                  <Badge variant="outline" className="border-dashed border-muted-foreground/50 text-muted-foreground" title="Repasse de cliente: fora dos relatórios. A fatura cobra normalmente.">
+                                    <EyeOff aria-hidden /> Repasse
+                                  </Badge>
+                                )}
+                              </span>
+                            )}
                           </span>
                           <span className="shrink-0 text-right">
                             <span className="block font-medium tabular">{formatBRL(i.amountCents)}</span>

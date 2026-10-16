@@ -46,4 +46,6 @@ export interface GenerateReportInput {
   month?: string;
   scope?: "FAMILY" | "PERSONAL";
   regime?: Regime;
+  /** Natureza dos totais: Pessoal, Empresa ou Tudo (sem informar: padrão da família). */
+  natureScope?: "PERSONAL" | "BUSINESS" | "ALL";
 }

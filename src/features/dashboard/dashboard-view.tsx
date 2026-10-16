@@ -146,7 +146,7 @@ export function DashboardView() {
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <CategoryBreakdown filters={filters} period={summary.data?.period} scope={summary.data?.scope} />
-        <BudgetVsActual filters={filters} scope={summary.data?.scope} defaultScope={defaultScope} />
+        <BudgetVsActual filters={filters} />
         <ExpensesByPerson filters={filters} />
       </div>
 
@@ -161,7 +161,7 @@ export function DashboardView() {
         <TopExpensesList filters={filters} />
       </div>
 
-      <RecurringExpenses />
+      <RecurringExpenses filters={filters} />
     </div>
   );
 }

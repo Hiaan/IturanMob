@@ -13,6 +13,8 @@ import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { MonthSwitcher } from "@/features/budgets/month-switcher";
 import { useCan } from "@/features/me/use-me";
 import { useHousehold } from "@/features/settings/use-household";
+import type { ReportScope as NatureScope } from "@/features/finance/types";
+import { ReportScopeSwitch } from "@/features/transactions/nature-control";
 import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { useGenerateReport } from "./use-reports";
 import type { GenerateReportInput, ReportKind, ReportView } from "./types";
@@ -51,12 +53,16 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
   const generate = useGenerateReport(onGenerated);
   const household = useHousehold();
   const canManage = useCan("settings:manage");
-  const natureScope = household.data?.settings.defaultReportScope;
+  const defaultNature = household.data?.settings.defaultReportScope ?? null;
+  /** Recorte Pessoal | Empresa | Tudo escolhido aqui (ausente = padrão da família). */
+  const [nature, setNature] = useState<NatureScope | null>(null);
+  const natureScope = nature ?? defaultNature;
 
   const submit = () => {
     const input: GenerateReportInput = type === "MONTHLY" ? { type, month } : { type, periodStart: weekStart };
     if (scope !== "AUTO") input.scope = scope;
     if (regime !== "DEFAULT") input.regime = regime;
+    if (nature) input.natureScope = nature;
     generate.mutate(input);
   };
 
@@ -120,17 +126,22 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
           {regime === "DEFAULT" ? "Regime: o configurado para a família." : REGIME_DESCRIPTIONS[regime]}
         </p>
         {natureScope && (
-          <p className="-mt-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">Recorte: {REPORT_SCOPE_LABELS[natureScope]}</span> (padrão da família) — {REPORT_SCOPE_HINTS[natureScope].toLowerCase()} No relatório mensal, o
-            resultado da empresa aparece à parte. Repasses de clientes ficam sempre de fora.{" "}
-            {canManage ? (
-              <Link href="/configuracoes?tab=familia" className="font-medium text-brand hover:underline">
-                Alterar o recorte padrão
-              </Link>
-            ) : (
-              "Quem administra a família pode alterar em Configurações."
-            )}
-          </p>
+          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:gap-3">
+            <p className="text-[13px] font-medium" aria-hidden>
+              Recorte
+            </p>
+            <ReportScopeSwitch value={natureScope} defaultScope={defaultNature} onChange={setNature} className="w-fit" />
+            <p className="text-xs text-muted-foreground">
+              {REPORT_SCOPE_HINTS[natureScope]}
+              {defaultNature === natureScope ? " (padrão da família)" : ""}
+              {natureScope !== "BUSINESS" && " No relatório mensal, o resultado da empresa aparece à parte."} Repasses de clientes ficam sempre de fora.{" "}
+              {canManage ? (
+                <Link href="/configuracoes?tab=familia" className="font-medium text-brand hover:underline">
+                  Alterar o padrão{defaultNature ? ` (${REPORT_SCOPE_LABELS[defaultNature]})` : ""}
+                </Link>
+              ) : null}
+            </p>
+          </div>
         )}
       </div>
     </Card>
