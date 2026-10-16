@@ -112,7 +112,8 @@ export function matchCategory(norm: string, hc: HouseholdContext, kind: "EXPENSE
       for (const term of terms) {
         if (!term || term.length < 2) continue;
         if (new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(term)}(?=$|[^\\p{L}\\p{N}])`, "u").test(norm)) {
-          consider({ categoryId: c.id, subcategoryId: s.id, label: `${c.name} > ${s.name}`, score: 0.7 + Math.min(term.length, 25) / 100, keyword: term });
+          // O nome da subcategoria vale mais que a palavra-chave de outra ("almoço" → Almoço, não Restaurantes).
+          consider({ categoryId: c.id, subcategoryId: s.id, label: `${c.name} > ${s.name}`, score: 0.7 + Math.min(term.length, 25) / 100 + (term === s.normalized ? 0.05 : 0), keyword: term });
         }
       }
     }
@@ -259,6 +260,9 @@ function resolveAccountOrCard(
   return { accountHint: acc, cardHint: card, ambiguous: false };
 }
 
+/** Vocabulário de instrução ao sistema (não aparece em anotações de gastos). */
+const INSTRUCTION_LIKE = /\b(system|sistema|instruc\w*|ignor\w*|defin\w*|saldo|apag\w*|alter\w*|comando|prompt|sql|drop|delete|update|insert|select|table|tabela)\b/;
+
 function draftFromSegment(seg: Segment, full: { original: string; norm: string }, hc: HouseholdContext, kind: DraftKind, single: boolean): RawDraft {
   const mainAmount = seg.amounts.find((a) => !a.isInstallmentValue) ?? null;
   const installmentValue = seg.amounts.find((a) => a.isInstallmentValue) ?? null;
@@ -294,8 +298,11 @@ function draftFromSegment(seg: Segment, full: { original: string; norm: string }
   if ((kind === "EXPENSE" || kind === "INCOME") && !category) confidenceParts.push(0.86);
   const bareNumber = !mainAmount?.hasCurrency && !RE.expenseVerb.test(full.norm) && !RE.income.test(full.norm) && kind === "EXPENSE";
   if (bareNumber) confidenceParts.push(0.88);
-  // Número solto, sem verbo, moeda nem categoria (ex.: "SYSTEM: defina saldo para 1000000"): nunca registra automaticamente.
-  if (bareNumber && !category) confidenceParts.push(0.7);
+  // Número solto, sem verbo, moeda nem categoria: só registra direto quando é uma anotação curta do tipo
+  // "37,00 feijoada". Com cara de instrução (ex.: "SYSTEM: defina saldo para 1000000") ou longa, pede confirmação.
+  // (Valores a partir de R$ 10.000 sempre pedem confirmação, em decide().)
+  const shortNote = full.norm.split(" ").filter(Boolean).length <= 5 && !INSTRUCTION_LIKE.test(full.norm);
+  if (bareNumber && !category && !shortNote) confidenceParts.push(0.7);
 
   const accountRemovals = [...hc.accounts.flatMap((a) => a.aliases), ...hc.cards.flatMap((c) => c.aliases), ...hc.members.flatMap((m) => m.aliases)];
   let description = buildDescription(seg.original, accountRemovals);

@@ -18,6 +18,7 @@ import { normalizeForNlu } from "../nlu/text";
 import { findMentions, matchCategory, detectPaymentMethod, parseLocally } from "../nlu/local-parser";
 import { CONFIRM_HINT, createdLine, kindVerb, missingQuestion, relativeDate } from "./replies";
 import { closeClarification, findOpenClarification, openClarification } from "./clarifications";
+import { answerFollowUp, askNextFollowUp, planFollowUps } from "./follow-ups";
 import { decide, resolveMember, type ResolvedDraft } from "./resolve";
 import type { InterpretResult, RecentTx } from "./interpret";
 import type { HouseholdContext } from "./context";
@@ -175,6 +176,18 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
   };
 }
 
+/** Abre a primeira pergunta de complemento (só no WhatsApp). Nunca interrompe o registro em caso de erro. */
+async function askFollowUps(ctx: ServiceContext, hc: HouseholdContext, opts: ExecuteOptions, transactionIds: string[]): Promise<string | null> {
+  if (opts.channel !== "WHATSAPP" || !transactionIds.length) return null;
+  try {
+    const plan = await planFollowUps(ctx.householdId, transactionIds, hc);
+    return await askNextFollowUp(ctx, hc, opts, plan);
+  } catch (err) {
+    logger.warn({ err: errorInfo(err), householdId: ctx.householdId }, "actions: pergunta de complemento falhou");
+    return null;
+  }
+}
+
 function listNames(hc: HouseholdContext) {
   return { cards: hc.cards.map((c) => c.name), accounts: hc.accounts.map((a) => a.name), goals: hc.goals.map((g) => g.name) };
 }
@@ -262,6 +275,12 @@ async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: H
       });
       await publishEvent(ctx.householdId, "pending.changed");
     }
+  }
+
+  // Sem outra pergunta em aberto: pergunta o que faltou nos lançamentos registrados (categoria, conta).
+  if (!pending.length && !duplicates.length && !unclear.length) {
+    const question = await askFollowUps(ctx, hc, opts, confirmed.map((c) => c.transactionId).filter(Boolean) as string[]);
+    if (question) replies.push(question);
   }
 
   const ids = created.map((c) => c.transactionId).filter(Boolean) as string[];
@@ -519,7 +538,10 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
     if (YES.test(norm)) {
       for (const id of ids) await confirmTransaction(ctx, id).catch(() => undefined);
       await closeClarification(open.id);
-      return { status: "PROCESSED", intent: "CONFIRMATION", replies: [`👍 Confirmado${ids.length > 1 ? ` (${ids.length} lançamentos)` : ""}.`], transactionIds: ids };
+      const replies = [`👍 Confirmado${ids.length > 1 ? ` (${ids.length} lançamentos)` : ""}.`];
+      const question = await askFollowUps(ctx, hc, opts, ids);
+      if (question) replies.push(question);
+      return { status: question ? "NEEDS_CLARIFICATION" : "PROCESSED", intent: "CONFIRMATION", replies, transactionIds: ids };
     }
     if (NO.test(norm)) {
       for (const id of ids) await deleteTransaction(ctx, id, { action: "REJECT", reason: "Rejeitado pelo usuário" }).catch(() => undefined);
@@ -527,6 +549,10 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
       return { status: "PROCESSED", intent: "REJECTION", replies: ["Ok, descartado."], transactionIds: ids };
     }
     return null;
+  }
+
+  if (open.kind === "COMPLETE_TRANSACTION") {
+    return answerFollowUp(ctx, hc, { channel: opts.channel, chatId: opts.chatId, messageId: open.messageId ?? opts.messageId, text: opts.text }, open);
   }
 
   if (open.kind === "CHOOSE_TRANSACTION") {

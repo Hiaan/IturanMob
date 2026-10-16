@@ -66,8 +66,40 @@ Valores a partir de R$ 10.000,00 **sempre** pedem confirmação, mesmo com confi
 Conta e cartão não informados:
 
 - com uma única conta (ou um único cartão) cadastrada, ela é usada e a resposta diz qual;
-- com várias, o cartão é perguntado. Para PIX, débito etc., o lançamento é registrado e uma pendência
-  pede a conta. Até a conta ser escolhida, o lançamento não movimenta saldo.
+- com vários cartões, o cartão é perguntado antes de registrar;
+- com várias contas, o lançamento é registrado e o bot pergunta de onde saiu (veja abaixo). Até a
+  conta ser escolhida, o lançamento não movimenta saldo e fica em Pendências.
+
+### Perguntas de complemento (WhatsApp)
+
+Quando o lançamento foi registrado mas falta alguma informação, o bot pergunta no grupo, **uma pergunta
+por vez**, para quem enviou a mensagem:
+
+1. **Categoria**, quando nem as palavras-chave nem as regras da família a identificaram.
+   Exemplo: "37,00 feijoada" → "🏷️ Qual a categoria de *Feijoada* (R$ 37,00)? Ex.: Alimentação,
+   Moradia…".
+2. **Conta**, quando a família tem mais de uma e a mensagem não disse qual ("De onde saiu…?").
+
+Como as respostas são entendidas:
+
+- **Categoria existente:** a resposta é casada com categorias e subcategorias, sem acento,
+  singular/plural e nomes parecidos ("mercado" → Alimentação › Supermercado). "Educação > Música"
+  escolhe ou cria a subcategoria dentro da categoria indicada.
+- **Categoria nova:** sem correspondência, o sistema cria com o nome informado. Fica dentro da
+  categoria sugerida pelas palavras-chave ("almoço" → Alimentação › Almoço) ou vira uma categoria
+  própria ("pets" → Pets).
+- **Aprendizado:** a escolha vira uma regra da família ("feijoada" → Alimentação › Almoço). A próxima
+  mensagem com esse termo já entra na categoria, sem pergunta. As regras aprendidas aparecem em
+  Categorias → Regras (origem WhatsApp), podem ser editadas ou desativadas e nunca substituem regras
+  criadas por alguém no painel.
+- **Pular:** "pular" ou "não sei" deixa o lançamento sem a informação; ele continua em Pendências.
+- **Outra mensagem:** uma mensagem com valor, pergunta, correção ou exclusão não é tomada como
+  resposta. Ela é processada normalmente e a pergunta é encerrada.
+- **Validade:** a pergunta vale por 30 minutos. Uma resposta não entendida faz o bot repetir a
+  pergunta uma vez.
+
+Pelo painel (lançamento rápido), nada é perguntado: a categoria e a conta são escolhidas na própria
+pré-visualização ou depois, em Transações.
 
 Correções ("na verdade foi 50", "muda a categoria para farmácia") e exclusões ("apaga o último
 lançamento") atuam sobre **um** lançamento identificado. Exclusões são lógicas e podem ser desfeitas

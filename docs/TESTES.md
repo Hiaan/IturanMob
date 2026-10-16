@@ -41,8 +41,8 @@ validação, resolução de referências, serviços e banco.
 | 3 | Criar despesa por áudio | `ai-pipeline.test.ts` › "áudio: sem consentimento nada é enviado… após autorizar, o reprocessamento transcreve e lança" e "servidor de transcrição na rede local…" |
 | 4 | Múltiplas despesas em um áudio | `ai-pipeline.test.ts` › "áudio com vários gastos → 3 lançamentos com sourceIndex distintos" |
 | 5 | Processar comprovante | `ai-pipeline.test.ts` › "comprovante: … o número completo do cartão nunca é armazenado", "comprovante repetido (mesmo SHA-256)", "comprovante sem consentimento para imagens" · `whatsapp-ingest.test.ts` › "mídia: grava Attachment criptografado…" |
-| 6 | Identificar categoria | `ai-pipeline.test.ts` › "identifica a categoria por palavras-chave…" · `local-engine.test.ts` |
-| 7 | Confirmação de informação ambígua | `ai-pipeline.test.ts` › "mensagem sem valor…", "conta/cartão ambíguos…", "correção ambígua…" · e2e "mensagem sem valor não pode ser confirmada" |
+| 6 | Identificar categoria | `ai-pipeline.test.ts` › "identifica a categoria por palavras-chave…" · `local-engine.test.ts` · `ai-follow-ups.test.ts` (pergunta a categoria que faltou, cria e aprende) |
+| 7 | Confirmação de informação ambígua | `ai-pipeline.test.ts` › "mensagem sem valor…", "conta/cartão ambíguos…", "correção ambígua…" · `ai-follow-ups.test.ts` (categoria e conta perguntadas uma por vez) · e2e "mensagem sem valor não pode ser confirmada" |
 | 8 | Impedir duplicidade | `ai-pipeline.test.ts` › "o mesmo evento do WhatsApp entregue duas vezes", "mensagem quase idêntica minutos depois → suspeita de duplicidade" · `whatsapp-ingest.test.ts` › "evento repetido não duplica…" · `bills.test.ts` › "encontra a conta prevista para evitar duplicidade…" |
 | 9 | Corrigir transação | `ai-pipeline.test.ts` › "correção ('na verdade foi 50' / 'corrige o último para 35')…" · `ledger.test.ts` › "edição atualiza corretamente" |
 | 10 | Excluir e restaurar | `ledger.test.ts` › "exclusão lógica e restauração preservam o saldo" · `ai-pipeline.test.ts` › "exclusão por mensagem é lógica e restaurável…; exclusão em massa é recusada" |

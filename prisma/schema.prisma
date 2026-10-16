@@ -350,6 +350,8 @@ enum ClarificationKind {
   CONFIRM_TRANSACTION
   CONFIRM_DUPLICATE
   CONFIRM_DELETE
+  /// Lançamento já registrado; a pergunta completa um dado (categoria ou conta).
+  COMPLETE_TRANSACTION
 }
 
 enum ClarificationStatus {
