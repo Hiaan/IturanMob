@@ -59,6 +59,13 @@ validação, resolução de referências, serviços e banco.
 | 21 | Conciliar registros importados | `imports.test.ts` › "OFX bancário: correspondência com lançamento do WhatsApp, divergência, novos, commit e undo…" e mais 4 · `imports-pdf.test.ts` (PDF, destino automático, confirmar todos sem duplicar entre arquivos, senha, digitalizado com IA) · `whatsapp-pdf-import.test.ts` (PDFs pelo WhatsApp com confirmação na conversa) · `pdf-statement.test.ts` |
 | 22 | Proteger contra mensagens maliciosas | `ai-pipeline-guards.test.ts` › "motor local: injeção de instruções, SQL e 'definir saldo'…", "LLM: valor que não está na mensagem…", "LLM: … de outra família não são aceitos", "LLM: exclusão em massa…", "LLM: valor alto … não é registrado automaticamente", "LLM: saída fora do esquema…" |
 
+Outras coberturas além dos 22 cenários:
+
+- rendimento automático de investimentos: `investment-yield.test.ts` (unitário: CDI/prefixado/IPCA+,
+  aplicações no meio do mês, IR/IOF) e `investment-yield.test.ts` (integração: Banco Central simulado,
+  idempotência, BCB fora do ar, exclusão respeitada, ajuste ao saldo do banco);
+- edições parciais não reaplicam valores padrão: `partial-updates.test.ts`.
+
 ## Boas práticas para novos testes
 
 - Teste regras financeiras pelo **estado do banco** (transações, ledger, parcelas, saldos), não só pelo

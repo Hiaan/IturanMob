@@ -1203,7 +1203,7 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
   await loadBatch(ctx, batchId);
   const batch = await prisma.importBatch.findUniqueOrThrow({
     where: { id: batchId },
-    include: { account: { select: { id: true, name: true } }, creditCard: { select: { id: true, name: true } } },
+    include: { account: { select: { id: true, name: true, institution: true } }, creditCard: { select: { id: true, name: true } } },
   });
   const rows = await prisma.importRow.findMany({ where: { batchId }, orderBy: { rowIndex: "asc" }, include: rowInclude });
   const meta = readMeta(batch.mapping);
@@ -1218,7 +1218,8 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
     counts[r.status]++;
     if (r.selected && r.status === "NEW") {
       selected++;
-      selectedNewCents += r.amountCents ?? 0;
+      // Transferências (aplicação/resgate) não são receita nem despesa: ficam fora do líquido.
+      if (readRaw(r.rawData).kind !== "TRANSFER") selectedNewCents += r.amountCents ?? 0;
     }
   }
   return {
@@ -1347,6 +1348,16 @@ export async function setImportRowsTransfer(ctx: ServiceContext, batchId: string
       }
     }
     await refreshCounters(db, batchId);
+    // Atualiza o aviso de linhas sem a conta do outro lado.
+    const all = await db.importRow.findMany({ where: { batchId, status: "NEW" }, select: { rawData: true } });
+    const unresolved = all.filter((r) => {
+      const raw = readRaw(r.rawData);
+      return raw.kind === "TRANSFER" && !raw.transferAccountId;
+    }).length;
+    const meta = readMeta(batch.mapping);
+    const kept = meta.warnings.filter((w) => !/linha\(s\) parecem aplica[cç][aã]o\/resgate/.test(w));
+    if (unresolved) kept.push(`${unresolved} linha(s) parecem aplicação/resgate ou transferência entre contas próprias, mas não deu para saber qual conta é a do outro lado. Escolha a conta nessas linhas para importá-las como transferência.`);
+    if (kept.length !== meta.warnings.length || kept.some((w, i) => w !== meta.warnings[i])) await db.importBatch.update({ where: { id: batchId }, data: { mapping: toJson({ ...meta, warnings: kept }) } });
   });
 
   let ruleCreated = false;
@@ -1904,7 +1915,7 @@ export async function listImports(ctx: ServiceContext, opts: { limit?: number } 
     where: batchVisibilityWhere(ctx),
     orderBy: { createdAt: "desc" },
     take: Math.min(Math.max(opts.limit ?? 50, 1), 200),
-    include: { account: { select: { id: true, name: true } }, creditCard: { select: { id: true, name: true } } },
+    include: { account: { select: { id: true, name: true, institution: true } }, creditCard: { select: { id: true, name: true } } },
   });
   return batches.map(batchDTO);
 }

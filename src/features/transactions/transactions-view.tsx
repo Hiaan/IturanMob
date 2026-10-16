@@ -28,6 +28,7 @@ import { ActiveFilterChips, FiltersButton, FiltersSheet, PeriodControl, SortCont
 import { TransactionList, type RowAction } from "./transaction-list";
 import { TransactionDetailSheet } from "./transaction-detail-sheet";
 import { BulkBar, BulkReclassifyDialog } from "./bulk-actions";
+import { ConvertTransferDialog } from "./convert-transfer-dialog";
 import { DeleteTransactionsDialog, PurgeTransactionsDialog } from "./confirm-dialogs";
 import { useTransactionActions } from "./use-transaction-actions";
 
@@ -87,6 +88,7 @@ export function TransactionsView() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [reclassifyOpen, setReclassifyOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [toDelete, setToDelete] = useState<{ items: TransactionDTO[]; bulk: boolean } | null>(null);
   const [toPurge, setToPurge] = useState<TransactionDTO[] | null>(null);
 
@@ -383,6 +385,7 @@ export function TransactionsView() {
         canDelete={canDelete}
         onClear={() => setSelected(new Set())}
         onReclassify={() => setReclassifyOpen(true)}
+        onConvertTransfer={() => setConvertOpen(true)}
         onConfirm={() =>
           actions.bulk.mutate({ action: "confirm", ids: selectedItems.filter((t) => t.status === "PENDING").map((t) => t.id) }, { onSuccess: () => setSelected(new Set()) })
         }
@@ -409,6 +412,7 @@ export function TransactionsView() {
           )
         }
       />
+      <ConvertTransferDialog open={convertOpen} onOpenChange={setConvertOpen} items={selectedItems} lookup={items} onDone={() => setSelected(new Set())} />
       <DeleteTransactionsDialog
         open={Boolean(toDelete)}
         onOpenChange={(o) => !o && setToDelete(null)}

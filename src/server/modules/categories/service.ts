@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parsePatch } from "../../validation";
 import { prisma, withTransaction } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -64,7 +65,7 @@ export async function createCategory(ctx: ServiceContext, input: z.input<typeof 
 
 export async function updateCategory(ctx: ServiceContext, id: string, input: z.input<typeof categoryUpdateSchema>) {
   assertCan(ctx, "categories:write");
-  const data = categoryUpdateSchema.parse(input);
+  const data = parsePatch(categoryUpdateSchema, input);
   const current = await prisma.category.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!current) throw new NotFoundError("Categoria");
   if (data.name && data.name.toLowerCase() !== current.name.toLowerCase()) {
@@ -137,7 +138,7 @@ export async function createSubcategory(ctx: ServiceContext, categoryId: string,
 
 export async function updateSubcategory(ctx: ServiceContext, id: string, input: z.input<typeof subcategoryUpdateSchema>) {
   assertCan(ctx, "categories:write");
-  const data = subcategoryUpdateSchema.parse(input);
+  const data = parsePatch(subcategoryUpdateSchema, input);
   const current = await prisma.subcategory.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!current) throw new NotFoundError("Subcategoria");
   const { archived, keywords, ...rest } = data;
@@ -243,10 +244,14 @@ export async function createRule(ctx: ServiceContext, input: z.input<typeof rule
 
 export async function updateRule(ctx: ServiceContext, id: string, input: Partial<z.input<typeof ruleSchema>>) {
   assertCan(ctx, "rules:write");
-  const data = ruleSchema.partial().parse(input);
+  const data = parsePatch(ruleSchema.partial(), input);
   const current = await prisma.financialRule.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!current) throw new NotFoundError("Regra");
   await validateRuleRefs(ctx, { ...data, matchType: data.matchType ?? current.matchType, pattern: data.pattern ?? current.pattern });
+  if (data.setTransferAccountId) {
+    data.setCategoryId = null;
+    data.setSubcategoryId = null;
+  }
   const updated = await prisma.financialRule.update({ where: { id }, data });
   await audit(ctx, { action: "UPDATE", entityType: "FinancialRule", entityId: id, before: current, after: updated });
   return updated;
@@ -274,7 +279,7 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
       include: { merchant: { select: { name: true } } },
       take: 2000,
     });
-    const ids = candidates.filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: "TRANSFER" })).map((t) => t.id);
+    const ids = candidates.filter((t) => findMatchingRule([rule], { description: t.description, merchant: t.merchant?.name, amountCents: t.amountCents, type: t.type })).map((t) => t.id);
     if (!ids.length) return { applied: 0 };
     const res = await convertToTransfers(ctx, { transactionIds: ids.slice(0, 500), counterpartAccountId: rule.setTransferAccountId });
     if (res.converted) await prisma.financialRule.update({ where: { id }, data: { timesApplied: { increment: res.converted } } });

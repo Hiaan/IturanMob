@@ -53,8 +53,18 @@ export interface StatementInfoDTO {
   ledgerBalanceCents?: number | null;
 }
 
+/** Transferência entre contas próprias (aplicação/resgate, mesma titularidade). OUT: sai da conta do extrato; IN: volta para ela. */
+export interface ImportRowTransfer {
+  accountId: string | null;
+  accountName: string | null;
+  direction: "OUT" | "IN";
+  reason: "INVESTMENT" | "OWN_ACCOUNTS" | "RULE" | "MANUAL" | null;
+}
+
 export interface ImportRowDTO {
   id: string;
+  /** Só em linhas TRANSFER; accountId null = falta escolher a conta do outro lado (a linha vem desmarcada). */
+  transfer: ImportRowTransfer | null;
   rowIndex: number;
   date: string | null;
   amountCents: number | null;
@@ -64,7 +74,7 @@ export interface ImportRowDTO {
   message: string | null;
   selected: boolean;
   categoryId: string | null;
-  kind: "EXPENSE" | "INCOME" | "CARD_PAYMENT";
+  kind: "EXPENSE" | "INCOME" | "CARD_PAYMENT" | "TRANSFER";
   categoryName: string | null;
   installment: { number: number; total: number } | null;
   cells: Record<string, string>;
@@ -97,6 +107,16 @@ export interface Reconciliation {
   missingInStatement: Array<{ id: string; description: string; amountCents: number; date: string; type: string; source: string }>;
   notes: string[];
 }
+
+/** Corpo de POST /api/v1/imports/:id/transfer (transferAccountId null volta a linha para receita/despesa). */
+export interface RowsTransferInput {
+  rowIds: string[];
+  transferAccountId: string | null;
+  applyToSimilar?: boolean;
+  remember?: boolean;
+}
+
+export type RowsTransferResult = ImportPreview & { updatedRows: number; ruleCreated: boolean };
 
 export interface RowUpdate {
   rowId: string;

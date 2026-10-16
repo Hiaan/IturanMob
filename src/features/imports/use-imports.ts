@@ -4,7 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate } from "./types";
+import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate, RowsTransferInput, RowsTransferResult } from "./types";
 
 /** Espelha IMPORT_MAX_BYTES do servidor (15 MB por arquivo). */
 export const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
@@ -124,6 +124,31 @@ export function useUpdateRows(batchId: string) {
     onError: (e, _v, ctx) => {
       if (ctx?.previous) qc.setQueryData(key, ctx.previous);
       toast.error(errorMessage(e));
+    },
+  });
+}
+
+/** Marca linhas da prévia como transferência entre contas próprias (ou desfaz, com transferAccountId null). */
+export function useSetRowsTransfer(batchId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rowIds, transferAccountId, applyToSimilar, remember }: RowsTransferInput & { accountName?: string | null }) =>
+      api.post<RowsTransferResult>(`/api/v1/imports/${batchId}/transfer`, { rowIds, transferAccountId, applyToSimilar, remember }),
+    onSuccess: (data, vars) => {
+      const { updatedRows, ruleCreated, ...preview } = data;
+      qc.setQueryData(qk.imports({ batch: batchId }), preview);
+      if (ruleCreated) qc.invalidateQueries({ queryKey: qk.rules });
+      if (!vars.transferAccountId) {
+        toast.success(`${updatedRows} linha(s) voltaram para receita/despesa`, { description: "Escolha a categoria, se quiser, antes de confirmar." });
+        return;
+      }
+      toast.success(`${updatedRows} linha(s) marcada(s) como transferência${vars.accountName ? ` com ${vars.accountName}` : ""}`, {
+        description: ruleCreated
+          ? "Regra criada: as próximas importações (e o WhatsApp) já tratam essas movimentações como transferência."
+          : vars.remember
+            ? "Já existia uma regra igual: nada novo foi criado."
+            : "Não contam como receita nem despesa.",
+      });
     },
   });
 }

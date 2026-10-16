@@ -136,5 +136,21 @@ export function useRuleMutations() {
     onError: (e) => toast.error(errorMessage(e)),
   });
 
-  return { save, remove, apply };
+  /** Regra de transferência: converte receitas/despesas anteriores que atendem à regra em transferências. */
+  const applyTransfer = useMutation({
+    mutationFn: (rule: RuleDTO) => api.post<{ applied: number }>(`/api/v1/rules/${rule.id}/apply`, { onlyUncategorized: false }),
+    onSuccess: ({ applied }, rule) => {
+      const account = rule.transferAccount?.name;
+      if (applied)
+        toast.success(`${plural(applied, "lançamento convertido", "lançamentos convertidos")} em transferência${account ? ` com ${account}` : ""}`, {
+          description: "Não contam mais como receita nem despesa. Saldos recalculados.",
+        });
+      else toast.info("Nenhuma receita ou despesa anterior corresponde à regra", { description: "Só lançamentos em conta (fora compras no cartão e parcelados) podem virar transferência." });
+      invalidateFinance(qc, ["categories", "reports"]);
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  return { save, remove, apply, applyTransfer };
 }

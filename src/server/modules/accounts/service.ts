@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parsePatch } from "../../validation";
 import { prisma } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -21,9 +22,30 @@ export const accountSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#0f766e"),
   icon: z.string().max(40).default("landmark"),
   includeInTotals: z.boolean().default(true),
+  /** Rendimento automático (investimento/poupança): indexador, taxa (centésimos) e início. */
+  yieldIndex: z.enum(["CDI", "SELIC", "IPCA", "PREFIXED"]).nullish(),
+  yieldRateBps: z.number().int().min(1).max(100_000).nullish(),
+  yieldStartDate: isoDateSchema.nullish(),
 });
 
 export const accountUpdateSchema = accountSchema.partial().extend({ archived: z.boolean().optional() });
+
+/** Rendimento automático só em conta de investimento/poupança e com taxa e início informados. */
+function validateYield(type: string, data: { yieldIndex?: string | null; yieldRateBps?: number | null; yieldStartDate?: string | null }) {
+  if (!data.yieldIndex) return;
+  if (type !== "INVESTMENT" && type !== "SAVINGS") throw new ValidationError("Rendimento automático é só para contas de investimento ou poupança.", { field: "yieldIndex" });
+  if (!data.yieldRateBps) throw new ValidationError(data.yieldIndex === "CDI" || data.yieldIndex === "SELIC" ? "Informe o percentual do indexador (ex.: 100% do CDI)." : "Informe a taxa anual.", { field: "yieldRateBps" });
+  if (!data.yieldStartDate) throw new ValidationError("Informe a data de início do rendimento.", { field: "yieldStartDate" });
+}
+
+async function accrueAfterChange(accountId: string) {
+  try {
+    const { runYieldAccrual } = await import("../investments/service");
+    await runYieldAccrual({ accountId });
+  } catch {
+    // A tarefa periódica do worker refaz a apuração.
+  }
+}
 
 export interface AccountDTO {
   id: string;
@@ -41,6 +63,9 @@ export interface AccountDTO {
   includeInTotals: boolean;
   archivedAt: string | null;
   transactionsCount: number;
+  yieldIndex: string | null;
+  yieldRateBps: number | null;
+  yieldStartDate: string | null;
 }
 
 /** Saldo = saldo inicial + soma dos movimentos do ledger (fonte única da verdade). */
@@ -78,6 +103,9 @@ export async function listAccounts(ctx: ServiceContext, opts: { includeArchived?
     includeInTotals: a.includeInTotals,
     archivedAt: a.archivedAt?.toISOString() ?? null,
     transactionsCount: countMap.get(a.id) ?? 0,
+    yieldIndex: a.yieldIndex,
+    yieldRateBps: a.yieldRateBps,
+    yieldStartDate: a.yieldStartDate ? dateToISO(a.yieldStartDate) : null,
   }));
 }
 
@@ -98,24 +126,29 @@ export async function createAccount(ctx: ServiceContext, input: z.input<typeof a
   assertCan(ctx, "accounts:write");
   const data = accountSchema.parse(input);
   await validateOwner(ctx, data.ownerMemberId);
+  validateYield(data.type, data);
   if (data.visibility === "PRIVATE" && !data.ownerMemberId) data.ownerMemberId = ctx.memberId;
   const exists = await prisma.account.findFirst({ where: { householdId: ctx.householdId, name: data.name } });
   if (exists) throw new ConflictError("Já existe uma conta com este nome.");
+  const { yieldStartDate, ...rest } = data;
   const account = await prisma.account.create({
     data: {
-      ...data,
+      ...rest,
       householdId: ctx.householdId,
       initialBalanceDate: isoToDate(data.initialBalanceDate ?? todayISO(ctx.timezone)),
+      yieldStartDate: data.yieldIndex && yieldStartDate ? isoToDate(yieldStartDate) : null,
+      ...(data.yieldIndex ? {} : { yieldIndex: null, yieldRateBps: null }),
     },
   });
   await audit(ctx, { action: "CREATE", entityType: "Account", entityId: account.id, after: account });
   await publishEvent(ctx.householdId, "account.changed", account.id);
+  if (account.yieldIndex) await accrueAfterChange(account.id);
   return getAccount(ctx, account.id);
 }
 
 export async function updateAccount(ctx: ServiceContext, id: string, input: z.input<typeof accountUpdateSchema>) {
   assertCan(ctx, "accounts:write");
-  const data = accountUpdateSchema.parse(input);
+  const data = parsePatch(accountUpdateSchema, input);
   const current = await prisma.account.findFirst({ where: { id, ...visibleAccountWhere(ctx) } });
   if (!current) throw new NotFoundError("Conta");
   await validateOwner(ctx, data.ownerMemberId);
@@ -123,17 +156,28 @@ export async function updateAccount(ctx: ServiceContext, id: string, input: z.in
     const exists = await prisma.account.findFirst({ where: { householdId: ctx.householdId, name: data.name, id: { not: id } } });
     if (exists) throw new ConflictError("Já existe uma conta com este nome.");
   }
-  const { archived, initialBalanceDate, ...rest } = data;
+  const { archived, initialBalanceDate, yieldStartDate, ...rest } = data;
+  const yieldIndex = data.yieldIndex !== undefined ? data.yieldIndex : current.yieldIndex;
+  validateYield(data.type ?? current.type, {
+    yieldIndex,
+    yieldRateBps: data.yieldRateBps !== undefined ? data.yieldRateBps : current.yieldRateBps,
+    yieldStartDate: yieldStartDate !== undefined ? yieldStartDate : current.yieldStartDate ? dateToISO(current.yieldStartDate) : null,
+  });
   const updated = await prisma.account.update({
     where: { id },
     data: {
       ...rest,
       ...(initialBalanceDate ? { initialBalanceDate: isoToDate(initialBalanceDate) } : {}),
       ...(archived === undefined ? {} : { archivedAt: archived ? new Date() : null }),
+      ...(yieldStartDate !== undefined ? { yieldStartDate: yieldStartDate ? isoToDate(yieldStartDate) : null } : {}),
+      ...(yieldIndex ? {} : { yieldIndex: null, yieldRateBps: null, yieldStartDate: null }),
     },
   });
   await audit(ctx, { action: "UPDATE", entityType: "Account", entityId: id, before: current, after: updated });
   await publishEvent(ctx.householdId, "account.changed", id);
+  const yieldChanged = ["yieldIndex", "yieldRateBps", "yieldStartDate", "initialBalanceCents", "initialBalanceDate"].some((k) => JSON.stringify((current as Record<string, unknown>)[k]) !== JSON.stringify((updated as Record<string, unknown>)[k]));
+  // Configuração alterada: reapura. Desligada: os rendimentos já lançados ficam (eram ganhos reais).
+  if (yieldChanged && updated.yieldIndex) await accrueAfterChange(id);
   return getAccount(ctx, id);
 }
 

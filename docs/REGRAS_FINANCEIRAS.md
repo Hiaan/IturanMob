@@ -166,7 +166,24 @@ despesa — no extrato importado, no WhatsApp e na correção do que já foi imp
   restaurável e auditada — para não contar duas vezes. Regras de transferência também podem ser
   aplicadas a lançamentos anteriores.
 
-### 10.2 PDF e importação em massa
+### 10.2 Rendimento automático de investimentos
+
+Contas de investimento/poupança podem ter rendimento automático: indexador (CDI, Selic, IPCA+ ou
+prefixado), taxa (ex.: 101,5% do CDI) e data de início.
+
+- O worker busca as taxas oficiais no Banco Central (API pública SGS: CDI série 12, Selic 11, IPCA
+  433), a cada 3 horas. Nada da família é enviado. Com o BCB fora do ar, a apuração usa as taxas já
+  guardadas e tenta de novo na próxima execução.
+- O rendimento é calculado dia útil a dia útil sobre o saldo do fim do dia anterior (aplicações e
+  resgates contam a partir do dia seguinte) e composto. Os dias úteis são os dias com CDI publicado.
+- Cada mês vira **uma** receita em Investimentos › Rendimentos (bruta), criada ou ajustada a cada
+  execução — nunca duplicada. Se alguém excluir o rendimento de um mês, ele não é recriado.
+- A tela da conta mostra o bruto e uma **estimativa** do líquido (IR regressivo 22,5/20/17,5/15% pelo
+  prazo, IOF nos primeiros 30 dias; poupança/LCI/LCA isentas). É estimativa: o valor real depende das
+  datas de cada aplicação no banco.
+- "Ajustar ao saldo do banco" lança a diferença como ajuste (não é receita nem despesa).
+
+### 10.3 PDF e importação em massa
 
 - **PDF com texto** (exportado pelo app/site do banco) é lido localmente, sem IA: linhas com data e
   valor viram lançamentos; saldos, totais, limites, resumos e valores em dólar são ignorados. Há

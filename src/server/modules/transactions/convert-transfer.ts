@@ -41,6 +41,7 @@ export interface ConvertPlanItem {
   toAccountId: string | null;
   /** Outro lado do movimento já registrado na conta de destino/origem (será unido). */
   mirrorTransactionId: string | null;
+  mirror: { description: string; date: string; amountCents: number; accountName: string } | null;
   reason: string | null;
 }
 
@@ -72,7 +73,7 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
           ],
           ...visibleTransactionWhere(scope),
         },
-        select: { id: true, type: true, amountCents: true, date: true, accountId: true, destinationAccountId: true },
+        select: { id: true, type: true, amountCents: true, date: true, accountId: true, destinationAccountId: true, description: true },
       })
     : [];
   const used = new Set<string>();
@@ -84,7 +85,7 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
   const items: ConvertPlanItem[] = [];
   for (const id of ids) {
     const t = byId.get(id);
-    const base = { transactionId: id, description: t?.description ?? "", amountCents: t?.amountCents ?? 0, date: t ? dateToISO(t.date) : "", fromAccountId: null, toAccountId: null, mirrorTransactionId: null };
+    const base = { transactionId: id, description: t?.description ?? "", amountCents: t?.amountCents ?? 0, date: t ? dateToISO(t.date) : "", fromAccountId: null, toAccountId: null, mirrorTransactionId: null, mirror: null };
     const skip = (reason: string) => items.push({ ...base, action: "SKIP", reason });
     if (!t) {
       skip("Lançamento não encontrado.");
@@ -108,7 +109,15 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
     const existing = findNearby((n) => n.type === "TRANSFER" && n.amountCents === t.amountCents && n.accountId === from && n.destinationAccountId === to, date);
     if (existing) {
       used.add(existing.id);
-      items.push({ ...base, action: "MERGE", fromAccountId: from, toAccountId: to, mirrorTransactionId: existing.id, reason: "A mesma transferência já está registrada: este lançamento será excluído (restaurável)." });
+      items.push({
+        ...base,
+        action: "MERGE",
+        fromAccountId: from,
+        toAccountId: to,
+        mirrorTransactionId: existing.id,
+        mirror: { description: existing.description, date: dateToISO(existing.date), amountCents: existing.amountCents, accountName: counterpart.name },
+        reason: "A mesma transferência já está registrada: este lançamento será excluído (restaurável).",
+      });
       continue;
     }
     // O outro lado registrado como receita/despesa na conta escolhida: vira parte da mesma transferência.
@@ -120,6 +129,7 @@ export async function convertToTransfers(ctx: ServiceContext, raw: ConvertTransf
       fromAccountId: from,
       toAccountId: to,
       mirrorTransactionId: mirror?.id ?? null,
+      mirror: mirror ? { description: mirror.description, date: dateToISO(mirror.date), amountCents: mirror.amountCents, accountName: counterpart.name } : null,
       reason: mirror ? `O outro lado (${outflow ? "entrada" : "saída"} em ${counterpart.name}) já estava registrado e será unido a esta transferência.` : null,
     });
   }

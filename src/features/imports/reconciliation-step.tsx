@@ -14,6 +14,8 @@ import { TRANSACTION_SOURCE_LABELS, TRANSACTION_TYPE_LABELS, labelOf } from "@/l
 import { cn } from "@/lib/utils";
 import { SummaryTile } from "@/features/budgets/summary-tile";
 import { RowStatusBadge } from "./status";
+import { transferTotals } from "./helpers";
+import { TransferTag } from "./transfer-tag";
 import { UndoImportButton } from "./undo-dialog";
 import { useReconciliation } from "./use-imports";
 import type { ImportPreview, ImportRowDTO } from "./types";
@@ -74,12 +76,13 @@ function RowLine({ row, extra }: { row: ImportRowDTO; extra?: React.ReactNode })
     <li className="flex items-start justify-between gap-3 py-2 text-sm">
       <div className="min-w-0">
         <p className="truncate font-medium">{row.description ?? "—"}</p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span className="tabular">{row.date ? formatDateBR(row.date) : "Sem data"}</span>
+          <TransferTag row={row} />
           {extra}
         </p>
       </div>
-      <span className={cn("shrink-0 font-medium tabular", (row.amountCents ?? 0) > 0 && "text-positive")}>{row.amountCents === null ? "—" : formatBRL(row.amountCents, { signed: true })}</span>
+      <span className={cn("shrink-0 font-medium tabular", (row.amountCents ?? 0) > 0 && row.kind !== "TRANSFER" && "text-positive")}>{row.amountCents === null ? "—" : formatBRL(row.amountCents, { signed: true })}</span>
     </li>
   );
 }
@@ -106,6 +109,8 @@ export function ReconciliationStep({ preview, onNewImport }: { preview: ImportPr
     );
   if (q.error || !q.data) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   const rec = q.data;
+  // Transferências entre contas próprias consideradas no extrato (não são receita nem despesa).
+  const transfers = transferTotals([...rec.matched, ...rec.notInApp, ...rec.divergent]);
 
   return (
     <div className="space-y-4">
@@ -136,11 +141,21 @@ export function ReconciliationStep({ preview, onNewImport }: { preview: ImportPr
           <span className="inline-flex items-center gap-1">
             <ArrowDownLeft className="size-3.5" aria-hidden /> créditos considerados
           </span>
+          {transfers.inflowCents > 0 && (
+            <span className="block">
+              inclui <span className="tabular">{formatBRL(transfers.inflowCents)}</span> de resgates/transferências (não é receita)
+            </span>
+          )}
         </SummaryTile>
         <SummaryTile label="Saídas no extrato" value={<span className="tabular">{formatBRL(rec.totals.statementOutflowCents)}</span>}>
           <span className="inline-flex items-center gap-1">
             <ArrowUpRight className="size-3.5" aria-hidden /> débitos considerados
           </span>
+          {transfers.outflowCents > 0 && (
+            <span className="block">
+              inclui <span className="tabular">{formatBRL(transfers.outflowCents)}</span> de aplicações/transferências (não é despesa)
+            </span>
+          )}
         </SummaryTile>
         <SummaryTile label="Saldo informado pelo banco" value={<span className="tabular">{rec.totals.statementLedgerBalanceCents === null ? "—" : formatBRL(rec.totals.statementLedgerBalanceCents)}</span>}>
           {rec.totals.statementLedgerBalanceCents === null ? "Não informado neste arquivo (OFX e alguns PDFs trazem o saldo)" : "Compare com o saldo da conta no app"}

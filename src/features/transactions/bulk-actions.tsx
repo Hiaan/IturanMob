@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArchiveRestore, CheckCircle2, Tags, Trash2, X } from "lucide-react";
+import { ArchiveRestore, ArrowLeftRight, CheckCircle2, Tags, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { CategoryPicker, type CategoryChoice } from "@/features/categories/category-picker";
 import type { TransactionDTO } from "@/features/finance/types";
+import { canConvertToTransfer } from "./convert-transfer-dialog";
 
 /** Barra flutuante com as ações em lote para os itens selecionados. */
 export function BulkBar({
@@ -14,6 +15,7 @@ export function BulkBar({
   trash,
   onClear,
   onReclassify,
+  onConvertTransfer,
   onConfirm,
   onDelete,
   onRestore,
@@ -26,6 +28,7 @@ export function BulkBar({
   trash: boolean;
   onClear: () => void;
   onReclassify: () => void;
+  onConvertTransfer: () => void;
   onConfirm: () => void;
   onDelete: () => void;
   onRestore: () => void;
@@ -36,6 +39,7 @@ export function BulkBar({
 }) {
   if (!items.length) return null;
   const pending = items.filter((t) => t.status === "PENDING").length;
+  const convertible = items.filter(canConvertToTransfer).length;
   return (
     <div role="toolbar" aria-label="Ações em lote" className="fixed inset-x-3 bottom-20 z-40 mx-auto flex max-w-3xl items-center gap-1.5 rounded-2xl border bg-popover p-2 shadow-2xl sm:gap-2 lg:bottom-6">
       <Button size="icon-sm" variant="ghost" onClick={onClear} aria-label="Limpar seleção">
@@ -49,6 +53,17 @@ export function BulkBar({
           {canWrite && (
             <Button size="sm" variant="outline" onClick={onReclassify} disabled={busy}>
               <Tags /> <span className="max-sm:sr-only">Reclassificar</span>
+            </Button>
+          )}
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onConvertTransfer}
+              disabled={busy || !convertible}
+              title={convertible ? "Aplicação, resgate ou transferência entre contas próprias: não é receita nem despesa" : "Selecione receitas ou despesas em conta (fora compras no cartão)"}
+            >
+              <ArrowLeftRight /> <span className="max-lg:sr-only">Converter em transferência</span>
             </Button>
           )}
           {canWrite && pending > 0 && (

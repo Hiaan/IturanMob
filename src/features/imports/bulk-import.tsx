@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   CheckCircle2,
   Clock,
   Columns3,
@@ -38,7 +39,7 @@ import { formatDateBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards } from "@/features/finance/hooks";
 import { canRetryBulkItem, clearBulkSession, isBulkUploading, recordBulkResults, removeBulkItem, retryBulkItem, type BulkItem, type BulkSession } from "./bulk-store";
-import { bankLabel, commonWarnings, formatFileSize, formatFromFileName, needsMappingReview, needsScopeReview, statementKindLabel } from "./helpers";
+import { bankLabel, commonWarnings, formatFileSize, formatFromFileName, isTransferWarning, isUnresolvedTransfer, needsMappingReview, needsScopeReview, statementKindLabel } from "./helpers";
 import { FormatTile, ROW_STATUS, formatLabel } from "./status";
 import { Stepper } from "./stepper";
 import { useBulkCommit, useImportPreviews } from "./use-imports";
@@ -80,14 +81,20 @@ interface Stats {
   duplicate: number;
   skipped: number;
   error: number;
+  /** Transferências entre contas próprias (com a conta do outro lado) que entram na importação. */
+  transfers: number;
+  /** Parecem aplicação/resgate, mas sem a conta do outro lado: ficam de fora até escolher. */
+  unresolvedTransfers: number;
 }
 
-const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0 };
+const EMPTY_STATS: Stats = { newRows: 0, selectedNew: 0, selectedMatched: 0, selectedDivergent: 0, matched: 0, divergent: 0, duplicate: 0, skipped: 0, error: 0, transfers: 0, unresolvedTransfers: 0 };
 
 function statsOf(p: ImportPreview): Stats {
   const s = { ...EMPTY_STATS, newRows: p.counts.NEW, matched: p.counts.MATCHED, divergent: p.counts.DIVERGENT, duplicate: p.counts.DUPLICATE, skipped: p.counts.SKIPPED, error: p.counts.ERROR };
   for (const r of p.rows) {
+    if (r.status === "NEW" && isUnresolvedTransfer(r)) s.unresolvedTransfers++;
     if (!r.selected) continue;
+    if (r.kind === "TRANSFER" && r.transfer?.accountId && (r.status === "NEW" || r.status === "MATCHED")) s.transfers++;
     if (r.status === "NEW") s.selectedNew++;
     else if (r.status === "MATCHED") s.selectedMatched++;
     else if (r.status === "DIVERGENT") s.selectedDivergent++;
@@ -152,6 +159,17 @@ function StatGrid({ stats, className }: { stats: Stats; className?: string }) {
           </div>
         );
       })}
+      {(stats.transfers > 0 || stats.unresolvedTransfers > 0) && (
+        <div className="min-w-0 rounded-lg bg-muted/50 px-2 py-1.5" title="Aplicações, resgates e transferências entre contas próprias: não contam como receita nem despesa">
+          <dt className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <ArrowLeftRight className="size-3 shrink-0" aria-hidden /> <span className="truncate">Transferências</span>
+          </dt>
+          <dd className="text-sm font-semibold tabular">
+            {stats.transfers}
+            {stats.unresolvedTransfers > 0 && <span className="ml-1 text-[11px] font-normal text-warning">(+{stats.unresolvedTransfers} sem conta)</span>}
+          </dd>
+        </div>
+      )}
     </dl>
   );
 }
@@ -189,7 +207,7 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
   const kind = statementKindLabel(b?.statement);
   const bank = b ? bankLabel(b) : null;
   const DestIcon = b?.creditCard ? CreditCard : Landmark;
-  const warnings = (b?.warnings ?? []).filter((w) => !hiddenWarnings.includes(w));
+  const warnings = (b?.warnings ?? []).filter((w) => !hiddenWarnings.includes(w) && !isTransferWarning(w));
   const mappingWarnings = state === "mapping" ? warnings.filter((w) => /mapeamento/i.test(w)) : [];
   // O aviso de destino incompatível (warnings[0]) aparece em destaque, fora da lista.
   const scopeWarning = b?.scopeMismatch && b.status === "PREVIEW" ? (b.warnings[0] ?? null) : null;
@@ -197,6 +215,7 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
   const href = item.batchId ? `/importacao?batch=${item.batchId}` : null;
   const reviewLabel = state === "mapping" ? "Ajustar mapeamento" : state === "ready" || state === "scope" ? "Revisar" : "Ver conciliação";
   const ReviewIcon = state === "mapping" ? Columns3 : FileSearch;
+  const unresolvedTransfers = preview && preview.batch.status === "PREVIEW" ? preview.rows.filter((r) => r.status === "NEW" && isUnresolvedTransfer(r)).length : 0;
 
   return (
     <li className="p-3 sm:p-4">
@@ -296,6 +315,15 @@ function ItemRow({ view, hiddenWarnings }: { view: ItemView; hiddenWarnings: str
                   : "Você selecionou linhas deste arquivo: elas entram no “Confirmar todos”. Confira os sinais antes."}
               </p>
             </div>
+          </div>
+        )}
+        {preview && (state === "ready" || state === "scope") && unresolvedTransfers > 0 && (
+          <div role="note" className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-xs">
+            <ArrowLeftRight className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
+            <p className="min-w-0 break-words">
+              {unresolvedTransfers} linha(s) parecem aplicação/resgate ou transferência entre contas próprias, mas falta a conta do outro lado: ficam fora da importação até você escolher a
+              conta em “Revisar”.
+            </p>
           </div>
         )}
         {preview && (state === "ready" || state === "scope" || state === "failed") && <StatGrid stats={statsOf(preview)} className="mt-2" />}
@@ -498,13 +526,26 @@ export function BulkImport({ session }: { session: BulkSession }) {
             <h3 id="bulk-totals" className="text-sm font-semibold">
               Totais {ready.length ? `dos ${ready.length} arquivo(s) prontos para confirmar` : "do lote"}
             </h3>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            <div className={cn("grid grid-cols-2 gap-2 sm:grid-cols-3", readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0 ? "sm:grid-cols-4 xl:grid-cols-7" : "xl:grid-cols-6")}>
               <TotalTile icon={FileCheck2} label="Arquivos prontos" value={`${ready.length} de ${total}`} />
               <TotalTile icon={ROW_STATUS.NEW.icon} label="Novos a criar" value={readyStats.selectedNew} hint={readyStats.selectedNew !== readyStats.newRows ? `de ${readyStats.newRows} novos (só os selecionados)` : "selecionados"} />
               <TotalTile icon={ROW_STATUS.MATCHED.icon} label="Já registrados" value={readyStats.matched} hint="Vinculados sem duplicar" />
               <TotalTile icon={ROW_STATUS.DIVERGENT.icon} label="Divergências" value={readyStats.divergent} hint="Viram pendências" />
               <TotalTile icon={ROW_STATUS.DUPLICATE.icon} label="Duplicados" value={readyStats.duplicate} hint="Não entram de novo" />
               <TotalTile icon={ROW_STATUS.SKIPPED.icon} label="Ignorados" value={readyStats.skipped} hint="Saldos, zeros, pagamentos de fatura" />
+              {(readyStats.transfers > 0 || readyStats.unresolvedTransfers > 0) && (
+                <TotalTile
+                  icon={ArrowLeftRight}
+                  label="Transferências"
+                  value={readyStats.transfers}
+                  tone={readyStats.unresolvedTransfers ? "warning" : undefined}
+                  hint={
+                    readyStats.unresolvedTransfers
+                      ? `Não contam como receita/despesa · ${readyStats.unresolvedTransfers} sem conta (fora até escolher)`
+                      : "Não contam como receita nem despesa"
+                  }
+                />
+              )}
             </div>
           </section>
         )}
@@ -579,6 +620,14 @@ export function BulkImport({ session }: { session: BulkSession }) {
                   Os arquivos são gravados um de cada vez. Antes de cada um, o sistema confere de novo as duplicidades com o que os anteriores já criaram — extratos com períodos sobrepostos não
                   duplicam lançamentos. Por isso o número final pode ser menor.
                 </p>
+                {readyStats.transfers > 0 && (
+                  <p>
+                    <strong className="text-foreground">{readyStats.transfers}</strong> linha(s) entram como transferência entre contas próprias (aplicação/resgate): não contam como receita nem despesa.
+                  </p>
+                )}
+                {readyStats.unresolvedTransfers > 0 && (
+                  <p className="text-foreground">{readyStats.unresolvedTransfers} linha(s) que parecem aplicação/resgate, sem a conta do outro lado, ficam de fora — escolha a conta em “Revisar” para incluí-las.</p>
+                )}
                 {mapping.length > 0 && <p className="text-foreground">{mapping.length} arquivo(s) que precisam de revisão do mapeamento ficam de fora.</p>}
                 {scope.length > 0 && <p className="text-foreground">{scope.length} PDF(s) com destino a conferir (nenhuma linha selecionada) ficam de fora.</p>}
                 <p>Cada importação pode ser desfeita depois, pelo histórico.</p>

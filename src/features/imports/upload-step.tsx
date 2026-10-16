@@ -266,7 +266,7 @@ export function UploadStep({ onUploaded, onBulkStarted }: { onUploaded: (preview
             <p>
               {isCard
                 ? "Fatura de cartão: compras viram despesas no cartão; pagamentos e créditos da fatura são ignorados (o pagamento é registrado na conta)."
-                : "Extrato bancário: valores negativos são saídas (despesas) e positivos são entradas (receitas). Pagamentos de fatura viram pagamento de cartão, não despesa."}{" "}
+                : "Extrato bancário: valores negativos são saídas (despesas) e positivos são entradas (receitas). Pagamentos de fatura viram pagamento de cartão, não despesa. Aplicações, resgates e transferências entre contas próprias viram transferência."}{" "}
               {many ? "Com vários arquivos, cada um gera a sua prévia e você confirma todos de uma vez. " : ""}Nada é gravado antes da sua confirmação.
             </p>
           </div>

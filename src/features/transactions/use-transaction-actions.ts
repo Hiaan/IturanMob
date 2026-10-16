@@ -31,6 +31,46 @@ export function useTransactionDetail(id: string | null) {
   });
 }
 
+export interface ConvertPlanItem {
+  transactionId: string;
+  description: string;
+  amountCents: number;
+  date: string;
+  /** CONVERT: vira transferência; MERGE: a mesma transferência já existe (este vai para a lixeira); SKIP: não se aplica. */
+  action: "CONVERT" | "MERGE" | "SKIP";
+  fromAccountId: string | null;
+  toAccountId: string | null;
+  /** Outro lado do mesmo movimento já registrado na conta escolhida (será unido). */
+  mirrorTransactionId: string | null;
+  reason: string | null;
+}
+
+export interface ConvertTransferResult {
+  dryRun: boolean;
+  counterpart: { id: string; name: string };
+  items: ConvertPlanItem[];
+  totals: { convert: number; merge: number; skip: number };
+  converted: number;
+  merged: number;
+}
+
+/** "Converter em transferência": com dryRun devolve só o plano; sem, converte e une os lançamentos repetidos. */
+export function useConvertToTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { transactionIds: string[]; counterpartAccountId: string; dryRun: boolean }) => api.post<ConvertTransferResult>("/api/v1/transactions/convert-transfer", body),
+    onSuccess: (res) => {
+      if (res.dryRun) return;
+      toast.success(`${plural(res.converted, "lançamento convertido", "lançamentos convertidos")} em transferência com ${res.counterpart.name}`, {
+        description: res.merged
+          ? `${plural(res.merged, "lançamento repetido foi unido", "lançamentos repetidos foram unidos")} (na lixeira, dá para restaurar). Saldos recalculados.`
+          : "Não contam mais como receita nem despesa. Saldos recalculados.",
+      });
+      invalidateFinance(qc, ["categories", "reports"]);
+    },
+  });
+}
+
 type BulkAction = { action: "reclassify"; ids: string[]; categoryId: string; subcategoryId: string | null } | { action: "delete" | "restore" | "confirm"; ids: string[] };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

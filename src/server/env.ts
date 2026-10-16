@@ -57,6 +57,10 @@ const envSchema = z.object({
   WHATSAPP_CLOUD_API_VERSION: z.string().default("v21.0"),
   WHATSAPP_CLOUD_HOUSEHOLD_ID: z.string().optional(),
 
+  // Rendimento automático de investimentos (taxas públicas do Banco Central, sem credencial)
+  INVESTMENT_YIELD_ENABLED: bool(true),
+  BCB_SGS_URL: z.string().url().default("https://api.bcb.gov.br/dados/serie/bcdata.sgs"),
+
   // Worker
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   RATE_LIMIT_LOGIN_PER_15MIN: z.coerce.number().int().default(10),

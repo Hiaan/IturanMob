@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parsePatch } from "../../validation";
 import { prisma } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -96,7 +97,7 @@ export async function createCard(ctx: ServiceContext, input: z.input<typeof card
 
 export async function updateCard(ctx: ServiceContext, id: string, input: z.input<typeof cardUpdateSchema>) {
   assertCan(ctx, "cards:write");
-  const data = cardUpdateSchema.parse(input);
+  const data = parsePatch(cardUpdateSchema, input);
   const current = await prisma.creditCard.findFirst({ where: { id, ...visibleCardWhere(ctx) } });
   if (!current) throw new NotFoundError("Cartão");
   await validateRefs(ctx, data);

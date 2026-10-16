@@ -1,4 +1,5 @@
 import { Prisma, type Transaction, type TransactionSource } from "@prisma/client";
+import { parsePatch } from "../../validation";
 import { prisma, withTransaction, type Db } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -569,7 +570,7 @@ export async function updateTransaction(
   opts: { db?: Prisma.TransactionClient; reason?: string } = {},
 ): Promise<TransactionDTO> {
   assertCan(ctx, "transactions:write");
-  const patch = transactionUpdateSchema.parse(rawPatch);
+  const patch = parsePatch(transactionUpdateSchema, rawPatch);
 
   await runInTx(opts.db, async (db) => {
     const current = await loadEditable(db, ctx, id);

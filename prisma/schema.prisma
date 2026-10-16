@@ -35,6 +35,14 @@ enum MemberRole {
   VIEWER
 }
 
+/// Indexador do rendimento automático de contas de investimento.
+enum YieldIndex {
+  CDI
+  SELIC
+  IPCA
+  PREFIXED
+}
+
 enum AccountType {
   CHECKING
   SAVINGS
@@ -434,6 +442,7 @@ model Household {
   sessions              Session[]
   invitations           Invitation[]
   accounts              Account[]
+  investmentYields      InvestmentYield[]
   creditCards           CreditCard[]
   statements            CreditCardStatement[]
   categories            Category[]
@@ -577,12 +586,19 @@ model Account {
   color               String      @default("#0f766e")
   icon                String      @default("landmark")
   includeInTotals     Boolean     @default(true)
+  /// Rendimento automático (contas de investimento): indexador, taxa e início.
+  yieldIndex          YieldIndex?
+  /// CDI/SELIC: percentual do indexador em centésimos (10150 = 101,5% do CDI).
+  /// PREFIXED: taxa anual em centésimos de % (1250 = 12,5% a.a.). IPCA: o "+" anual (600 = IPCA + 6%).
+  yieldRateBps        Int?
+  yieldStartDate      DateTime?   @db.Date
   archivedAt          DateTime?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
-  household Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  owner     HouseholdMember? @relation("AccountOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+  household Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  owner     HouseholdMember?  @relation("AccountOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+  yields    InvestmentYield[]
 
   ledgerEntries         LedgerEntry[]
   transactions          Transaction[]          @relation("TransactionAccount")
@@ -835,6 +851,7 @@ model Transaction {
 
   allocations       TransactionAllocation[]
   ledgerEntries     LedgerEntry[]
+  investmentYield   InvestmentYield?
   installments      Installment[]
   attachments       Attachment[]
   scheduledPayment  ScheduledPayment?
@@ -1567,4 +1584,48 @@ model BackupRecord {
   household Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
+}
+
+// -----------------------------------------------------------------------------
+// Rendimento automático de investimentos
+// -----------------------------------------------------------------------------
+
+/// Taxas publicadas pelo Banco Central (SGS): CDI (12) e Selic (11) ao dia útil; IPCA (433) ao mês.
+/// Dado público, compartilhado por todas as famílias.
+model IndexRate {
+  id        String     @id @default(cuid())
+  index     YieldIndex
+  /// Dia útil (CDI/Selic) ou 1º dia do mês (IPCA).
+  date      DateTime   @db.Date
+  /// Taxa em %, como publicada (CDI/Selic: % ao dia; IPCA: % no mês).
+  ratePct   Decimal    @db.Decimal(14, 8)
+  source    String     @default("BCB-SGS")
+  fetchedAt DateTime   @default(now())
+
+  @@unique([index, date])
+}
+
+/// Rendimento bruto apurado por conta e mês (uma receita "Investimentos > Rendimentos" por mês).
+model InvestmentYield {
+  id             String   @id @default(cuid())
+  householdId    String
+  accountId      String
+  /// AAAA-MM
+  month          String
+  transactionId  String?  @unique
+  grossCents     Int
+  businessDays   Int
+  /// Último dia útil apurado no mês.
+  accruedThrough DateTime @db.Date
+  /// O lançamento foi excluído por alguém: o mês não é recriado automaticamente.
+  dismissed      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  household   Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, month])
+  @@index([householdId])
 }

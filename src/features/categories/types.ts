@@ -12,6 +12,8 @@ export interface RuleDTO {
   setSubcategoryId: string | null;
   setPaymentMethod: string | null;
   setAccountId: string | null;
+  /** Regra de transferência: a movimentação vira transferência com esta conta (aplicação/resgate, contas próprias). */
+  setTransferAccountId: string | null;
   setOwnership: string | null;
   setResponsibleMemberId: string | null;
   priority: number;
@@ -23,9 +25,10 @@ export interface RuleDTO {
   category: { name: string; color: string } | null;
   subcategory: { name: string } | null;
   account: { name: string } | null;
+  transferAccount: { name: string } | null;
 }
 
-export type RuleInput = Omit<RuleDTO, "id" | "source" | "timesApplied" | "createdAt" | "updatedAt" | "category" | "subcategory" | "account" | "setOwnership" | "setResponsibleMemberId">;
+export type RuleInput = Omit<RuleDTO, "id" | "source" | "timesApplied" | "createdAt" | "updatedAt" | "category" | "subcategory" | "account" | "transferAccount" | "setOwnership" | "setResponsibleMemberId">;
 
 export const MATCH_FIELD_LABELS: Record<RuleDTO["matchField"], string> = {
   ANY: "Descrição ou estabelecimento",

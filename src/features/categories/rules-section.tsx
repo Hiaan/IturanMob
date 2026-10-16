@@ -5,7 +5,7 @@ import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ArrowRight, Info, MoreHorizontal, PencilLine, Play, Plus, Trash2, Wand2, Zap } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, Info, MoreHorizontal, PencilLine, Play, Plus, Tags, Trash2, Wand2, Zap } from "lucide-react";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { formatBRL } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useAccounts } from "@/features/finance/hooks";
+import { TransferAccountField, suggestInvestmentAccount } from "@/features/accounts/transfer-account-field";
 import { useCan } from "@/features/me/use-me";
 import { CategoryPicker } from "./category-picker";
 import { MATCH_FIELD_LABELS, MATCH_TYPE_LABELS, RULE_SOURCE_LABELS, type RuleDTO } from "./types";
@@ -46,6 +47,9 @@ const schema = z
     subcategoryId: z.string(),
     paymentMethod: z.string(),
     accountId: z.string(),
+    /** "Então": definir categoria (e afins) ou tratar como transferência com outra conta própria. */
+    action: z.enum(["CATEGORY", "TRANSFER"]),
+    transferAccountId: z.string(),
     priority: z.number({ error: "Informe a prioridade" }).int("Use um número inteiro").min(0, "Mínimo 0").max(10000, "Máximo 10000"),
     active: z.boolean(),
   })
@@ -58,7 +62,11 @@ const schema = z
       }
     }
     if (v.minAmountCents > 0 && v.maxAmountCents > 0 && v.minAmountCents > v.maxAmountCents) ctx.addIssue({ code: "custom", path: ["maxAmountCents"], message: "O máximo deve ser maior que o mínimo" });
-    if (v.categoryId === NONE && v.paymentMethod === NONE && v.accountId === NONE) ctx.addIssue({ code: "custom", path: ["categoryId"], message: "Defina ao menos uma ação: categoria, forma de pagamento ou conta" });
+    if (v.action === "TRANSFER") {
+      if (v.transferAccountId === NONE) ctx.addIssue({ code: "custom", path: ["transferAccountId"], message: "Escolha a conta do outro lado da transferência" });
+    } else if (v.categoryId === NONE && v.paymentMethod === NONE && v.accountId === NONE) {
+      ctx.addIssue({ code: "custom", path: ["categoryId"], message: "Defina ao menos uma ação: categoria, forma de pagamento ou conta" });
+    }
   });
 type Values = z.infer<typeof schema>;
 
@@ -76,15 +84,18 @@ function defaults(rule?: RuleDTO | null): Values {
         subcategoryId: rule.setSubcategoryId ?? NONE,
         paymentMethod: rule.setPaymentMethod ?? NONE,
         accountId: rule.setAccountId ?? NONE,
+        action: rule.setTransferAccountId ? "TRANSFER" : "CATEGORY",
+        transferAccountId: rule.setTransferAccountId ?? NONE,
         priority: rule.priority,
         active: rule.active,
       }
-    : { name: "", matchField: "ANY", matchType: "CONTAINS", pattern: "", minAmountCents: 0, maxAmountCents: 0, transactionType: "EXPENSE", categoryId: NONE, subcategoryId: NONE, paymentMethod: NONE, accountId: NONE, priority: 100, active: true };
+    : { name: "", matchField: "ANY", matchType: "CONTAINS", pattern: "", minAmountCents: 0, maxAmountCents: 0, transactionType: "EXPENSE", categoryId: NONE, subcategoryId: NONE, paymentMethod: NONE, accountId: NONE, action: "CATEGORY", transferAccountId: NONE, priority: 100, active: true };
 }
 
-function conditionText(r: Pick<RuleDTO, "matchField" | "matchType" | "pattern" | "minAmountCents" | "maxAmountCents" | "transactionType">): string {
+function conditionText(r: Pick<RuleDTO, "matchField" | "matchType" | "pattern" | "minAmountCents" | "maxAmountCents" | "transactionType" | "setTransferAccountId">): string {
   const parts = [`${MATCH_FIELD_LABELS[r.matchField]} ${MATCH_TYPE_LABELS[r.matchType]} “${r.pattern}”`];
-  if (r.transactionType) parts.push(r.transactionType === "INCOME" ? "receitas" : "despesas");
+  if (r.setTransferAccountId) parts.push("entradas e saídas");
+  else if (r.transactionType) parts.push(r.transactionType === "INCOME" ? "receitas" : "despesas");
   if (r.minAmountCents != null && r.maxAmountCents != null) parts.push(`entre ${formatBRL(r.minAmountCents)} e ${formatBRL(r.maxAmountCents)}`);
   else if (r.minAmountCents != null) parts.push(`a partir de ${formatBRL(r.minAmountCents)}`);
   else if (r.maxAmountCents != null) parts.push(`até ${formatBRL(r.maxAmountCents)}`);
@@ -92,6 +103,7 @@ function conditionText(r: Pick<RuleDTO, "matchField" | "matchType" | "pattern" |
 }
 
 function actionText(r: RuleDTO): string {
+  if (r.setTransferAccountId) return `Tratar como transferência com ${r.transferAccount?.name ?? "outra conta"}`;
   const parts: string[] = [];
   if (r.category) parts.push(r.subcategory ? `${r.category.name} › ${r.subcategory.name}` : r.category.name);
   if (r.setPaymentMethod) parts.push(labelOf(PAYMENT_METHOD_LABELS, r.setPaymentMethod));
@@ -106,7 +118,11 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: defaults(rule) });
   const { control, register, handleSubmit, reset, setValue, formState } = form;
   const e = formState.errors;
-  const [transactionType, categoryId, subcategoryId, matchType] = useWatch({ control, name: ["transactionType", "categoryId", "subcategoryId", "matchType"] });
+  const [transactionType, categoryId, subcategoryId, matchType, action, transferAccountId, pattern] = useWatch({
+    control,
+    name: ["transactionType", "categoryId", "subcategoryId", "matchType", "action", "transferAccountId", "pattern"],
+  });
+  const transfer = action === "TRANSFER";
 
   useEffect(() => {
     if (open) {
@@ -127,24 +143,32 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
           noValidate
           onSubmit={handleSubmit((v) => {
             setServerError(null);
+            const base = {
+              name: v.name,
+              matchField: v.matchField,
+              matchType: v.matchType,
+              pattern: v.pattern,
+              minAmountCents: v.minAmountCents > 0 ? v.minAmountCents : null,
+              maxAmountCents: v.maxAmountCents > 0 ? v.maxAmountCents : null,
+              priority: v.priority,
+              active: v.active,
+            };
             save.mutate(
               {
                 id: rule?.id,
-                input: {
-                  name: v.name,
-                  matchField: v.matchField,
-                  matchType: v.matchType,
-                  pattern: v.pattern,
-                  minAmountCents: v.minAmountCents > 0 ? v.minAmountCents : null,
-                  maxAmountCents: v.maxAmountCents > 0 ? v.maxAmountCents : null,
-                  transactionType: v.transactionType === ANY ? null : (v.transactionType as "EXPENSE" | "INCOME"),
-                  setCategoryId: v.categoryId === NONE ? null : v.categoryId,
-                  setSubcategoryId: v.categoryId === NONE || v.subcategoryId === NONE ? null : v.subcategoryId,
-                  setPaymentMethod: v.paymentMethod === NONE ? null : v.paymentMethod,
-                  setAccountId: v.accountId === NONE ? null : v.accountId,
-                  priority: v.priority,
-                  active: v.active,
-                },
+                // Transferência não é receita nem despesa: a regra vale para os dois sentidos e não define categoria.
+                input:
+                  v.action === "TRANSFER"
+                    ? { ...base, transactionType: null, setTransferAccountId: v.transferAccountId, setCategoryId: null, setSubcategoryId: null, setPaymentMethod: null, setAccountId: null }
+                    : {
+                        ...base,
+                        transactionType: v.transactionType === ANY ? null : (v.transactionType as "EXPENSE" | "INCOME"),
+                        setTransferAccountId: null,
+                        setCategoryId: v.categoryId === NONE ? null : v.categoryId,
+                        setSubcategoryId: v.categoryId === NONE || v.subcategoryId === NONE ? null : v.subcategoryId,
+                        setPaymentMethod: v.paymentMethod === NONE ? null : v.paymentMethod,
+                        setAccountId: v.accountId === NONE ? null : v.accountId,
+                      },
               },
               { onSuccess: () => onOpenChange(false), onError: (err) => setServerError(errorMessage(err)) },
             );
@@ -208,13 +232,14 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
               <Input id="rule-pattern" placeholder="Ex.: ifood" {...register("pattern")} aria-invalid={Boolean(e.pattern)} className={cn(matchType === "REGEX" && "font-mono")} />
             </Field>
             <div className="grid items-start gap-3 sm:grid-cols-3">
-              <Field label="Tipo de lançamento" htmlFor="rule-ttype">
+              <Field label="Tipo de lançamento" htmlFor="rule-ttype" hint={transfer ? "Transferência vale para entradas e saídas" : undefined}>
                 <Controller
                   control={control}
                   name="transactionType"
                   render={({ field }) => (
                     <Select
-                      value={field.value}
+                      disabled={transfer}
+                      value={transfer ? ANY : field.value}
                       onValueChange={(v) => {
                         field.onChange(v);
                         setValue("categoryId", NONE);
@@ -225,7 +250,7 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ANY}>Qualquer</SelectItem>
+                        <SelectItem value={ANY}>{transfer ? "Entradas e saídas" : "Qualquer"}</SelectItem>
                         <SelectItem value="EXPENSE">Despesas</SelectItem>
                         <SelectItem value="INCOME">Receitas</SelectItem>
                       </SelectContent>
@@ -244,64 +269,115 @@ export function RuleFormDialog({ open, onOpenChange, rule }: { open: boolean; on
 
           <fieldset className="grid gap-3 rounded-xl border p-4">
             <legend className="px-1 text-[13px] font-semibold">Então</legend>
-            <Field label="Categoria" htmlFor="rule-category" error={e.categoryId?.message}>
-              <CategoryPicker
-                id="rule-category"
-                kind={transactionType === "INCOME" ? "INCOME" : transactionType === "EXPENSE" ? "EXPENSE" : null}
-                allowNone
-                noneLabel="Não alterar a categoria"
-                value={categoryId === NONE ? null : { categoryId, subcategoryId: subcategoryId === NONE ? null : subcategoryId }}
-                onChange={(c) => {
-                  setValue("categoryId", c?.categoryId ?? NONE, { shouldValidate: formState.isSubmitted });
-                  setValue("subcategoryId", c?.subcategoryId ?? NONE);
-                }}
-                invalid={Boolean(e.categoryId)}
-              />
-            </Field>
-            <div className="grid items-start gap-3 sm:grid-cols-2">
-              <Field label="Forma de pagamento" htmlFor="rule-method">
-                <Controller
-                  control={control}
-                  name="paymentMethod"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="rule-method">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Não alterar</SelectItem>
-                        {Object.entries(PAYMENT_METHOD_LABELS).map(([k, label]) => (
-                          <SelectItem key={k} value={k}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+            <Controller
+              control={control}
+              name="action"
+              render={({ field }) => (
+                <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Ação da regra">
+                  {(
+                    [
+                      ["CATEGORY", Tags, "Definir categoria", "Categoria, forma de pagamento ou conta"],
+                      ["TRANSFER", ArrowLeftRight, "Transferência com a conta…", "Aplicação/resgate ou entre contas próprias: não é receita nem despesa"],
+                    ] as const
+                  ).map(([value, Icon, label, desc]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={field.value === value}
+                      onClick={() => field.onChange(value)}
+                      className={cn(
+                        "flex items-start gap-3 rounded-xl border p-3 text-left text-sm outline-none transition focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        field.value === value ? "border-brand bg-accent/60" : "hover:bg-muted/50",
+                      )}
+                    >
+                      <Icon className={cn("mt-0.5 size-4 shrink-0", field.value === value ? "text-brand" : "text-muted-foreground")} aria-hidden />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{label}</span>
+                        <span className="block text-xs text-muted-foreground">{desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            />
+            {transfer ? (
+              <div className="grid gap-2">
+                <TransferAccountField
+                  id="rule-transfer-account"
+                  label="Conta do outro lado"
+                  value={transferAccountId === NONE ? null : transferAccountId}
+                  onChange={(id) => setValue("transferAccountId", id ?? NONE, { shouldValidate: formState.isSubmitted })}
+                  suggestion={suggestInvestmentAccount([pattern], null)}
+                  error={e.transferAccountId?.message}
                 />
-              </Field>
-              <Field label="Conta" htmlFor="rule-account">
-                <Controller
-                  control={control}
-                  name="accountId"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="rule-account">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Não alterar</SelectItem>
-                        {(accounts.data ?? []).map((a) => (
-                          <SelectItem key={a.id} value={a.id}>
-                            {a.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-            </div>
+                <p className="text-xs text-muted-foreground">
+                  Na importação de extratos e no WhatsApp, a saída vira transferência <strong className="font-medium text-foreground">para</strong> esta conta e a entrada, transferência{" "}
+                  <strong className="font-medium text-foreground">vinda</strong> dela. Sem categoria: não conta como receita nem despesa.
+                </p>
+              </div>
+            ) : (
+              <>
+                <Field label="Categoria" htmlFor="rule-category" error={e.categoryId?.message}>
+                  <CategoryPicker
+                    id="rule-category"
+                    kind={transactionType === "INCOME" ? "INCOME" : transactionType === "EXPENSE" ? "EXPENSE" : null}
+                    allowNone
+                    noneLabel="Não alterar a categoria"
+                    value={categoryId === NONE ? null : { categoryId, subcategoryId: subcategoryId === NONE ? null : subcategoryId }}
+                    onChange={(c) => {
+                      setValue("categoryId", c?.categoryId ?? NONE, { shouldValidate: formState.isSubmitted });
+                      setValue("subcategoryId", c?.subcategoryId ?? NONE);
+                    }}
+                    invalid={Boolean(e.categoryId)}
+                  />
+                </Field>
+                <div className="grid items-start gap-3 sm:grid-cols-2">
+                  <Field label="Forma de pagamento" htmlFor="rule-method">
+                    <Controller
+                      control={control}
+                      name="paymentMethod"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="rule-method">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>Não alterar</SelectItem>
+                            {Object.entries(PAYMENT_METHOD_LABELS).map(([k, label]) => (
+                              <SelectItem key={k} value={k}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </Field>
+                  <Field label="Conta" htmlFor="rule-account">
+                    <Controller
+                      control={control}
+                      name="accountId"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="rule-account">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>Não alterar</SelectItem>
+                            {(accounts.data ?? []).map((a) => (
+                              <SelectItem key={a.id} value={a.id}>
+                                {a.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
           </fieldset>
 
           <div className="grid gap-3 sm:grid-cols-[160px_1fr] sm:items-end">
@@ -338,10 +414,11 @@ export function RulesSection() {
   const rules = useRules();
   const canWrite = useCan("rules:write");
   const canApply = useCan("transactions:write");
-  const { save, remove, apply } = useRuleMutations();
+  const { save, remove, apply, applyTransfer } = useRuleMutations();
   const [editing, setEditing] = useState<RuleDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deleting, setDeleting] = useState<RuleDTO | null>(null);
+  const [applyingTransfer, setApplyingTransfer] = useState<RuleDTO | null>(null);
   const items = useMemo(() => [...(rules.data ?? [])].sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt)), [rules.data]);
   const applicable = items.filter((r) => r.active && r.setCategoryId);
 
@@ -357,7 +434,9 @@ export function RulesSection() {
           <CardTitle className="flex items-center gap-2">
             <Wand2 className="size-4 text-brand" aria-hidden /> Regras automáticas
           </CardTitle>
-          <CardDescription className="mt-1">Categorize automaticamente novos lançamentos a partir do texto, do valor e do tipo.</CardDescription>
+          <CardDescription className="mt-1">
+            Categorize automaticamente novos lançamentos a partir do texto, do valor e do tipo — ou trate aplicações e resgates como transferência entre contas próprias.
+          </CardDescription>
         </div>
         <CardAction className="ml-0 flex-wrap sm:ml-auto">
           {canApply && (
@@ -378,7 +457,7 @@ export function RulesSection() {
           <span>
             Regras são explícitas: só valem quando o lançamento atende exatamente às condições que você definiu. O sistema <strong className="font-semibold">não presume</strong> que todas as compras de um mesmo
             estabelecimento pertencem à mesma categoria (na farmácia, por exemplo, pode haver remédios e itens de higiene). Use valor e tipo para ser mais específico. Ao aplicar, apenas lançamentos ainda sem categoria
-            são alterados.
+            são alterados. Regras de transferência (ex.: “Resgate CDB” com a conta CDB) fazem a importação e o WhatsApp registrarem a movimentação como transferência, sem contar como receita ou despesa.
           </span>
         </p>
         {rules.isLoading ? (
@@ -412,6 +491,11 @@ export function RulesSection() {
                     <Badge variant="outline" title="Prioridade: menor número é avaliado antes">
                       Prioridade {r.priority}
                     </Badge>
+                    {r.setTransferAccountId && (
+                      <Badge variant="brand">
+                        <ArrowLeftRight aria-hidden /> Transferência
+                      </Badge>
+                    )}
                     {!r.active && <Badge variant="muted">Inativa</Badge>}
                     {r.source !== "USER" && <Badge variant="info">{RULE_SOURCE_LABELS[r.source]}</Badge>}
                   </div>
@@ -419,7 +503,7 @@ export function RulesSection() {
                     <span className="font-medium text-foreground/80">Se</span> {conditionText(r)}
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                    <ArrowRight className="size-3" aria-hidden />
+                    {r.setTransferAccountId ? <ArrowLeftRight className="size-3" aria-hidden /> : <ArrowRight className="size-3" aria-hidden />}
                     {r.category && <span className="size-2 rounded-full" style={{ backgroundColor: r.category.color }} aria-hidden />}
                     <span className="font-medium text-foreground/80">{actionText(r)}</span>
                     <span>· aplicada {r.timesApplied} {r.timesApplied === 1 ? "vez" : "vezes"}</span>
@@ -445,11 +529,16 @@ export function RulesSection() {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {canApply && (
-                          <DropdownMenuItem disabled={!r.setCategoryId} onSelect={() => apply.mutate([r])}>
-                            <Play /> Aplicar a lançamentos sem categoria
-                          </DropdownMenuItem>
-                        )}
+                        {canApply &&
+                          (r.setTransferAccountId ? (
+                            <DropdownMenuItem onSelect={() => setApplyingTransfer(r)}>
+                              <Play /> Aplicar a lançamentos anteriores…
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem disabled={!r.setCategoryId} onSelect={() => apply.mutate([r])}>
+                              <Play /> Aplicar a lançamentos sem categoria
+                            </DropdownMenuItem>
+                          ))}
                         {canWrite && (
                           <>
                             <DropdownMenuItem onSelect={() => openForm(r)}>
@@ -471,6 +560,32 @@ export function RulesSection() {
         )}
       </CardContent>
       <RuleFormDialog open={formOpen} onOpenChange={setFormOpen} rule={editing} />
+      <AlertDialog open={Boolean(applyingTransfer)} onOpenChange={(o) => !o && !applyTransfer.isPending && setApplyingTransfer(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Converter lançamentos anteriores em transferência?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  As receitas e despesas já registradas que atendem à regra “{applyingTransfer?.name}” viram transferência com{" "}
+                  <strong className="text-foreground">{applyingTransfer?.transferAccount?.name ?? "a conta da regra"}</strong>: a despesa passa a ser saída para essa conta e a receita, entrada vinda
+                  dela. Elas deixam de contar como receita ou despesa e os saldos são recalculados.
+                </p>
+                <p>
+                  Se o outro lado do mesmo movimento já estiver lançado nessa conta, os dois são unidos: o repetido vai para a Lixeira (dá para restaurar) e tudo fica no histórico. Compras no
+                  cartão e lançamentos parcelados não são alterados. São convertidos até 500 por vez.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={applyTransfer.isPending}>Cancelar</AlertDialogCancel>
+            <Button variant="brand" loading={applyTransfer.isPending} onClick={() => applyingTransfer && applyTransfer.mutate(applyingTransfer, { onSettled: () => setApplyingTransfer(null) })}>
+              <ArrowLeftRight /> Converter em transferência
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={Boolean(deleting)} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
