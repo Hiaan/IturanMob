@@ -24,6 +24,7 @@ import { findMentions, matchCategory, detectPaymentMethod, parseLocally } from "
 import { CONFIRM_HINT, createdLine, kindVerb, missingQuestion, relativeDate } from "./replies";
 import { closeClarification, findOpenClarification, openClarification } from "./clarifications";
 import { answerExclusionChoice } from "./report-exclusion";
+import { detectNatureTokens, stripNatureTokens } from "../nlu/nature";
 import { answerFollowUp, askNextFollowUp, planFollowUps } from "./follow-ups";
 import { decide, resolveMember, type ResolvedDraft } from "./resolve";
 import type { InterpretResult, RecentTx } from "./interpret";
@@ -50,6 +51,12 @@ export interface ExecuteOptions {
   text: string;
   /** O usuário já revisou e confirmou a pré-visualização (lançamento rápido do painel). */
   forceConfirm?: boolean;
+  /**
+   * Natureza dos lançamentos desta mensagem: `explicit` (dita na mensagem) vence regras e grupo;
+   * `perSegment` = PF e PJ na mesma mensagem (cada trecho decide); `fallback` = natureza do grupo;
+   * `ask` = grupo sem natureza (pergunta PF/Empresa quando nada decidiu).
+   */
+  nature?: { explicit?: "PERSONAL" | "BUSINESS" | null; perSegment?: boolean; fallback?: "PERSONAL" | "BUSINESS" | null; ask?: boolean };
 }
 
 type DraftPayload = ResolvedDraft[];
@@ -62,6 +69,8 @@ interface CreatedInfo {
   draft: ResolvedDraft;
   transactionId: string | null;
   status: "CONFIRMED" | "PENDING";
+  nature?: "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
+  natureReview?: boolean;
   duplicateOf: { id: string; description: string; date: string } | null;
   billLinked: string | null;
   note?: string;
@@ -158,6 +167,8 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
       ownership: d.ownership,
       responsibleMemberId: d.responsibleMemberId,
       status,
+      // Natureza dita na mensagem vence regras e o grupo.
+      ...(d.nature && type !== "TRANSFER" ? { nature: d.nature } : {}),
     },
     {
       source: opts.source,
@@ -169,6 +180,7 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
       scheduledPaymentId,
       // Categoria já resolvida não é trocada; regras de "desconsiderar" valem sempre.
       applyRules: true,
+      natureFallback: opts.nature ? { scope: opts.nature.fallback ?? null, ask: Boolean(opts.nature.ask) } : null,
     },
   );
   if (opts.attachmentId && d.index === 0) {
@@ -181,7 +193,16 @@ async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: Exec
     status: res.transaction.status as "CONFIRMED" | "PENDING",
     duplicateOf: dup ? { id: dup.id, description: dup.description, date: dup.date } : null,
     billLinked,
+    nature: res.transaction.nature,
+    natureReview: res.transaction.natureReview,
   };
+}
+
+/** Marca de natureza na confirmação (só quando ajuda: Empresa ou Repasse). */
+function natureTag(c: CreatedInfo): string {
+  if (c.nature === "BUSINESS") return "\n🏢 Empresa";
+  if (c.nature === "PASSTHROUGH") return "\n🚫 Repasse (fora dos relatórios)";
+  return "";
 }
 
 /** Abre a primeira pergunta de complemento (só no WhatsApp). Nunca interrompe o registro em caso de erro. */
@@ -207,6 +228,17 @@ function listNames(hc: HouseholdContext) {
 }
 
 async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: HouseholdContext, opts: ExecuteOptions, forceStatus?: "CONFIRMED" | "PENDING"): Promise<ActionOutcome> {
+  // Natureza dita na mensagem (inteira ou por trecho), guardada no rascunho (vale também depois de
+  // uma pergunta de complemento).
+  for (const d of drafts) {
+    if (d.nature) continue;
+    if (opts.nature?.explicit) d.nature = opts.nature.explicit;
+    else if (opts.nature?.perSegment && d.segment) {
+      d.nature = detectNatureTokens(d.segment).nature;
+      // "pf"/"pj" do trecho não fica na descrição.
+      if (d.nature) d.description = stripNatureTokens(d.description) || d.description;
+    }
+  }
   const ready = drafts.filter((d) => d.decision !== "CLARIFY");
   const unclear = drafts.filter((d) => d.decision === "CLARIFY");
   const created: CreatedInfo[] = [];
@@ -230,12 +262,12 @@ async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: H
   if (confirmed.length) {
     const lines = confirmed.map(
       (c) =>
-        `${createdLine(c.draft, hc.today)}${c.billLinked ? `\nConta prevista “${c.billLinked}” marcada como paga.` : ""}${c.note ? `\n(${c.note})` : ""}${c.draft.investment && c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`,
+        `${createdLine(c.draft, hc.today)}${natureTag(c)}${c.billLinked ? `\nConta prevista “${c.billLinked}” marcada como paga.` : ""}${c.note ? `\n(${c.note})` : ""}${c.draft.investment && c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`,
     );
     replies.push(`✅ ${confirmed.length > 1 ? `${confirmed.length} lançamentos registrados` : kindVerb(confirmed[0]!.draft.kind)}:\n${lines.join("\n\n")}`);
   }
   if (pending.length) {
-    const lines = pending.map((c) => `${createdLine(c.draft, hc.today)}${c.note ? `\n(${c.note})` : ""}${c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`);
+    const lines = pending.map((c) => `${createdLine(c.draft, hc.today)}${natureTag(c)}${c.note ? `\n(${c.note})` : ""}${c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`);
     replies.push(`📝 Registrei como *pendente de confirmação*:\n${lines.join("\n\n")}\n${CONFIRM_HINT}`);
     await openClarification({
       householdId: ctx.householdId,

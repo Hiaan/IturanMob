@@ -95,7 +95,7 @@ describe("WhatsApp: desconsiderar nos relatórios", () => {
   it("natureza: 'paguei 750 pro Ícaro, empresa', 'isso é da empresa' e 'isso é pessoal'", async () => {
     const { fam } = await family();
     const pay = await sendMessage(fam, { text: "paguei 750 pro Ícaro, empresa" });
-    expect(pay.reply).toContain("Marcado como *Empresa*");
+    expect(pay.reply).toContain("🏢 Empresa");
     const icaro = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 75_000 } });
     expect(icaro.scope).toBe("BUSINESS");
     expect(icaro.description.toLowerCase()).not.toContain("empresa");
@@ -115,7 +115,8 @@ describe("WhatsApp: desconsiderar nos relatórios", () => {
     const { createRule } = await import("@/server/modules/categories/service");
     await createRule(fam.ctx, { name: "Anúncios", pattern: "facebook", transactionType: "EXPENSE", matchCreditCardId: card.id, minAmountCents: 15_000, askNature: true });
     const ad = await sendMessage(fam, { text: "gastei 211,47 no facebook ads no cartão nubank" });
-    expect(ad.reply).toContain("é da *empresa*, de *cliente* (repasse) ou *pessoal*?");
+    expect(ad.reply).toContain("é de *pessoa física* ou da *empresa*?");
+    expect(ad.reply).toContain("Responda *1* (PF) ou *2* (Empresa)");
     const ans = await sendMessage(fam, { text: "cliente" });
     expect(ans.reply).toContain("ficou como *Repasse de cliente*");
     const tx = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 21_147 } });

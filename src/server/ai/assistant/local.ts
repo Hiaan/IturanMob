@@ -6,6 +6,7 @@ import { extractPeriods, defaultMonthPeriod } from "../nlu/dates";
 import { findPerson, matchCategory } from "../nlu/local-parser";
 import { loadHouseholdContext } from "../engine/context";
 import { runTool } from "./tools";
+import { resolveScope } from "../../modules/analytics/service";
 
 /**
  * Assistente local (determinístico): responde às perguntas mais comuns usando apenas
@@ -224,7 +225,9 @@ export async function answerLocally(ctx: ServiceContext, question: string): Prom
     });
     if (r.error) return { understood: true, toolCalls: calls, text: r.error };
     const total = isIncome ? r.totalIncome : r.totalExpense;
-    const subject = [isIncome ? "Receitas" : "Despesas", categoryName ? `com ${r.filters.category ?? categoryName}` : null, person ? `de ${person.name}` : null].filter(Boolean).join(" ");
+    const nature = await resolveScope(ctx);
+    const natureLabel = nature === "BUSINESS" ? "(Empresa)" : nature === "ALL" ? "(pessoa física + empresa)" : null;
+    const subject = [isIncome ? "Receitas" : "Despesas", natureLabel, categoryName ? `com ${r.filters.category ?? categoryName}` : null, person ? `de ${person.name}` : null].filter(Boolean).join(" ");
     if (above) {
       const items = r.items as Any[];
       return {

@@ -11,7 +11,13 @@ import { markSentByBot, withBotPrefix } from "../bot-messages";
 export async function recordSimulatorReply(householdId: string, text: string, quotedExternalId: string | null): Promise<string | null> {
   const conn = await prisma.whatsAppConnection.findUnique({ where: { householdId }, select: { id: true, provider: true } });
   if (!conn || conn.provider !== "SIMULATOR") return null;
-  const group = await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true }, select: { id: true, externalId: true } });
+  // Mesmo grupo da mensagem respondida (há famílias com mais de um grupo autorizado).
+  const quoted = quotedExternalId
+    ? await prisma.whatsAppMessage.findUnique({ where: { connectionId_externalId: { connectionId: conn.id, externalId: quotedExternalId } }, select: { chatId: true } })
+    : null;
+  const group =
+    (quoted ? await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true, externalId: quoted.chatId }, select: { id: true, externalId: true } }) : null) ??
+    (await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true }, orderBy: { authorizedAt: "asc" }, select: { id: true, externalId: true } }));
   if (!group) return null;
   const externalId = `SIM-OUT-${randomUUID()}`;
   await markSentByBot(conn.id, externalId);

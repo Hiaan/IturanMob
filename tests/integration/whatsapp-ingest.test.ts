@@ -31,7 +31,7 @@ async function setup(opts: { processingEnabled?: boolean } = {}) {
     data: { householdId: fam.householdId, provider: "BAILEYS", status: "CONNECTED", phoneNumber: HUSBAND, processingEnabled: opts.processingEnabled ?? true },
   });
   const group = await prisma.whatsAppGroup.create({
-    data: { householdId: fam.householdId, connectionId: conn.id, externalId: GROUP, name: "Finanças da Família", isAuthorized: true, authorizedAt: new Date() },
+    data: { householdId: fam.householdId, connectionId: conn.id, externalId: GROUP, name: "Finanças da Família", isAuthorized: true, authorizedAt: new Date(), defaultNature: "PERSONAL" },
   });
   await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: OTHER_GROUP, name: "Amigos" } });
   return { fam, conn, group, ref: { id: conn.id, householdId: fam.householdId } };

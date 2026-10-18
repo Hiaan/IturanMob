@@ -65,6 +65,7 @@ export type ReportScopeValue = "PERSONAL" | "BUSINESS" | "ALL";
 /** Recorte de natureza em uso (informado ou o padrão da família). */
 export async function resolveScope(ctx: ServiceContext, scope?: ReportScopeValue | null): Promise<ReportScopeValue> {
   if (scope) return scope;
+  if (ctx.reportScope) return ctx.reportScope;
   return (await getSettings(ctx.householdId)).defaultReportScope;
 }
 

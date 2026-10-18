@@ -74,6 +74,10 @@ Outras coberturas além dos 22 cenários:
 - natureza Pessoal/Empresa/Repasse: `transaction-nature.test.ts` (caixa e fatura idênticos, recortes
   Pessoal/Empresa/Tudo e padrão da família, resultado da empresa, regras definir/perguntar com valor
   mínimo no cartão, prévia da importação com "aplicar às parecidas").
+- vários grupos com natureza: `whatsapp-group-nature.test.ts` (grupo da empresa, mensagem > regra >
+  grupo, "1 PF / 2 Empresa" no grupo não atribuído sem mudar saldo/ledger/fatura, padrão da família,
+  PF e PJ na mesma mensagem, perguntas no recorte do grupo e divisão PF/Empresa, resposta no grupo de
+  origem) e `nature-tokens.test.ts` (frases com empresa/PJ/PF/pessoa física);
 - gastos fixos: `fixed-expenses.test.ts` (recorrências, parcelas em andamento conferidas com as parcelas
   do banco, projeção, recortes Pessoal/Empresa/Tudo sem Repasse, fatura por categoria e por natureza,
   cartões atual/anterior, filtro por forma de pagamento/cartão).

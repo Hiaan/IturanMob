@@ -13,7 +13,7 @@ import {
 /**
  * SIMULADOR DE DESENVOLVIMENTO — "Simulador — nenhuma conexão real com o WhatsApp".
  *
- * Não abre nenhuma conexão de rede. Expõe um único grupo simulado; as mensagens são injetadas
+ * Não abre nenhuma conexão de rede. Expõe dois grupos simulados (família e empresa); as mensagens são injetadas
  * pela API de simulação e passam pelo MESMO fluxo de ingestão/processamento. As respostas do bot
  * são registradas como mensagens OUTBOUND no banco (visíveis na UI) — nada é enviado a ninguém.
  */
@@ -21,6 +21,10 @@ import {
 /** Id fixo do grupo simulado (não é um JID real). */
 export const SIMULATOR_GROUP_ID = "simulador-financas-familia@g.us";
 export const SIMULATOR_GROUP_NAME = "Finanças da Família (Simulador)";
+/** Segundo grupo simulado, para testar um grupo da empresa (natureza própria). */
+export const SIMULATOR_BUSINESS_GROUP_ID = "simulador-empresa@g.us";
+export const SIMULATOR_BUSINESS_GROUP_NAME = "Empresa (Simulador)";
+export const SIMULATOR_GROUP_IDS = [SIMULATOR_GROUP_ID, SIMULATOR_BUSINESS_GROUP_ID];
 
 export class SimulatorProvider implements WhatsAppProvider {
   readonly type = "SIMULATOR" as const;
@@ -58,13 +62,10 @@ export class SimulatorProvider implements WhatsAppProvider {
       where: { householdId: this.opts.householdId, isActive: true, whatsappPhone: { not: null } },
       select: { whatsappPhone: true },
     });
+    const participants = members.map((m) => ({ phone: m.whatsappPhone, jid: `${m.whatsappPhone!.replace(/\D/g, "")}@s.whatsapp.net` }));
     return [
-      {
-        externalId: SIMULATOR_GROUP_ID,
-        name: SIMULATOR_GROUP_NAME,
-        participantsCount: members.length,
-        participants: members.map((m) => ({ phone: m.whatsappPhone, jid: `${m.whatsappPhone!.replace(/\D/g, "")}@s.whatsapp.net` })),
-      },
+      { externalId: SIMULATOR_GROUP_ID, name: SIMULATOR_GROUP_NAME, participantsCount: members.length, participants },
+      { externalId: SIMULATOR_BUSINESS_GROUP_ID, name: SIMULATOR_BUSINESS_GROUP_NAME, participantsCount: members.length, participants },
     ];
   }
 
@@ -75,9 +76,10 @@ export class SimulatorProvider implements WhatsAppProvider {
   }
 }
 
-/** Monta uma mensagem simulada do membro no grupo simulado. */
+/** Monta uma mensagem simulada do membro num grupo simulado (padrão: o da família). */
 export function buildSimulatedMessage(input: {
   phone: string;
+  chatId?: string;
   text?: string | null;
   media?: { buffer: Buffer; mimeType: string; fileName?: string | null } | null;
   fromMe?: boolean;
@@ -94,7 +96,7 @@ export function buildSimulatedMessage(input: {
   }
   return {
     externalId: `SIM-${randomUUID()}`,
-    chatId: SIMULATOR_GROUP_ID,
+    chatId: input.chatId ?? SIMULATOR_GROUP_ID,
     isGroup: true,
     senderIds: { phone: `+${digits}`, jid: `${digits}@s.whatsapp.net` },
     fromMe: Boolean(input.fromMe),

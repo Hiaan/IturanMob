@@ -212,6 +212,11 @@ function splitSegments(original: string): Segment[] {
 // Intenção
 // -----------------------------------------------------------------------------
 
+/** Pergunta ("quanto gastei…", "…?"): o texto vai inteiro para a consulta. */
+export function isQuestionText(norm: string): boolean {
+  return /\?\s*$/.test(norm) || RE.query.test(norm);
+}
+
 export function detectIntent(norm: string, amounts: AmountMention[]): Intent {
   const short = norm.split(" ").length <= 5;
   if (!norm || !/\p{L}|\d/u.test(norm)) return "SMALL_TALK";
@@ -222,7 +227,7 @@ export function detectIntent(norm: string, amounts: AmountMention[]): Intent {
   if (RE.correction.test(norm) || (RE.correctionFoiNao.test(norm) && (RE.correctionRef.test(norm) || /\b(foi|foram)\s+(no|na|minha|meu|da|do|dia|ontem|em)\b/.test(norm)))) {
     return "CORRECTION";
   }
-  const isQuestion = /\?\s*$/.test(norm) || RE.query.test(norm);
+  const isQuestion = isQuestionText(norm);
   if (isQuestion && RE.financialVocab.test(norm) && !(amounts.length && RE.expenseVerb.test(norm))) return "QUERY";
   if (isQuestion && !amounts.length) return "SMALL_TALK";
   if (amounts.length) return "CREATE_TRANSACTIONS";

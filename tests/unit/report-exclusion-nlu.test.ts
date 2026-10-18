@@ -40,10 +40,9 @@ describe("WhatsApp: comando 'desconsiderar nos relatórios'", () => {
     expect(parseExclusionCommand("isso é pessoal")).toMatchObject({ action: "PERSONAL" });
     expect(parseExclusionCommand("não é da empresa")).toMatchObject({ action: "PERSONAL" });
     expect(parseExclusionCommand("paguei 750 pro Ícaro, empresa")).toBeNull();
-    expect(hasExclusionMarker("paguei 750 pro Ícaro, empresa")).toMatchObject({ action: "BUSINESS" });
-    expect(stripExclusionMarker("paguei 750 pro Ícaro, empresa")).toBe("paguei 750 pro Ícaro");
-    expect(hasExclusionMarker("gastei 200 em tráfego, foi da empresa")).toMatchObject({ action: "BUSINESS" });
-    expect(hasExclusionMarker("comprei 30 de pão pra empresa")).toMatchObject({ action: "BUSINESS" });
+    // "empresa" no lançamento novo é natureza (decidida na criação), não marcador de repasse.
+    expect(hasExclusionMarker("paguei 750 pro Ícaro, empresa")).toBeNull();
+    expect(hasExclusionMarker("gastei 200 em tráfego, foi da empresa")).toBeNull();
     expect(hasExclusionMarker("gastei 50 no mercado")).toBeNull();
   });
 });

@@ -112,7 +112,7 @@ async function suggestedCategories(householdId: string, hc: HouseholdContext, ki
 async function questionFor(ctx: ServiceContext, hc: HouseholdContext, tx: TxRow, field: FollowUpField): Promise<string> {
   const label = `*${tx.description}* (${formatBRL(tx.amountCents)})`;
   if (field === "nature") {
-    return `🏢 ${label} é da *empresa*, de *cliente* (repasse) ou *pessoal*?\nResponda empresa, cliente (ou "cliente Fulano") ou pessoal. Para decidir depois, *pular* (fica em Pendências).`;
+    return `🏢 ${label} é de *pessoa física* ou da *empresa*?\nResponda *1* (PF) ou *2* (Empresa). Se for repasse de cliente, *cliente* (ou "cliente Fulano"). Para decidir depois, *pular* (fica em Pendências).`;
   }
   if (field === "category") {
     const examples = await suggestedCategories(ctx.householdId, hc, tx.type === "INCOME" ? "INCOME" : "EXPENSE");
@@ -403,9 +403,11 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
   return next([`✅ ${label} ${tx!.type === "INCOME" ? "entrou em" : "saiu de"} *${account.name}*.`]);
 }
 
-/** "empresa" / "cliente Fulano" / "repasse" / "pessoal". */
+/** "1"/"pf"/"pessoal" · "2"/"pj"/"empresa" · "cliente Fulano"/"repasse". */
 function natureAnswer(norm: string): { nature: "PERSONAL" | "BUSINESS" | "PASSTHROUGH"; party: string | null } | null {
   const t = norm.replace(/^(e|eh|foi|e da|eh da|foi da|da|de|do|um|uma)\s+/, "").trim();
+  if (/^1\b(?!\s*[\d,.])/.test(t) || /^(pf|pessoa fisica)\b/.test(t)) return { nature: "PERSONAL", party: null };
+  if (/^2\b(?!\s*[\d,.])/.test(t) || /^pj\b/.test(t)) return { nature: "BUSINESS", party: null };
   if (/\b(cliente|repasse|reembolso)\b/.test(t)) {
     const m = /\bcliente\s+([a-z][a-z0-9]*(?:\s+(?:de|da|do|dos|das|e)?\s*[a-z][a-z0-9]*){0,3})/.exec(t);
     const party = m ? m[1]!.split(" ").filter(Boolean).map((w, i) => (i > 0 && ["de", "da", "do", "das", "dos", "e"].includes(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(" ").slice(0, 80) : null;

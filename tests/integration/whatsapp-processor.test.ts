@@ -27,7 +27,7 @@ async function setup(provider: "BAILEYS" | "SIMULATOR" = "BAILEYS") {
     data: { whatsappPhone: "+5581999990002", whatsappAuthorized: true, whatsappConsentAt: new Date() },
   });
   const conn = await prisma.whatsAppConnection.create({ data: { householdId: fam.householdId, provider, status: "CONNECTED" } });
-  await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: GROUP, name: "Finanças", isAuthorized: true } });
+  await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: GROUP, name: "Finanças", isAuthorized: true, defaultNature: "PERSONAL" } });
   const ingest = async (text = "gastei 30 na farmácia") => {
     seq++;
     const res = await ingestMessage(

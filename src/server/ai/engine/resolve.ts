@@ -13,6 +13,10 @@ export type Decision = "AUTO" | "CONFIRM" | "CLARIFY";
 /** Rascunho resolvido: referências validadas contra os cadastros da própria família. */
 export interface ResolvedDraft {
   index: number;
+  /** Natureza dita na mensagem ("pj", "empresa", "pf", "pessoa física"): vence regras e o grupo. */
+  nature?: "PERSONAL" | "BUSINESS" | null;
+  /** Trecho da mensagem que originou o lançamento (para natureza por trecho). */
+  segment?: string;
   kind: DraftKind;
   amountCents: number | null;
   description: string;
@@ -296,6 +300,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
 
   const resolved: ResolvedDraft = {
     index,
+    segment: raw.segment,
     kind: raw.kind,
     amountCents,
     description: raw.description?.trim().slice(0, 200) || (raw.kind === "INCOME" ? "Receita" : "Despesa"),

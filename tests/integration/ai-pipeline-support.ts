@@ -40,7 +40,7 @@ export async function createWaFamily(name = "Família Teste"): Promise<WaFamily>
   const conn = await prisma.whatsAppConnection.create({ data: { householdId: fam.householdId, provider: "SIMULATOR", status: "CONNECTED" } });
   connectionIds.add(conn.id);
   const groupJid = `1203630000000${String(familySeq).padStart(5, "0")}@g.us`;
-  await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: groupJid, name: "Finanças", isAuthorized: true } });
+  await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: groupJid, name: "Finanças", isAuthorized: true, defaultNature: "PERSONAL" } });
   return { ...fam, connectionId: conn.id, groupJid, phone };
 }
 
@@ -52,6 +52,15 @@ export interface SendInput {
   externalId?: string;
   /** Resposta citando outra mensagem (id externo dela). */
   quotedExternalId?: string;
+  /** Outro grupo autorizado da família (padrão: o grupo pessoa física). */
+  groupJid?: string;
+}
+
+/** Grupo autorizado a mais na mesma conexão (ex.: o da empresa), com a natureza indicada. */
+export async function addWaGroup(wa: WaFamily, name: string, defaultNature: "PERSONAL" | "BUSINESS" | null): Promise<string> {
+  const externalId = `1203639${String(++familySeq).padStart(8, "0")}@g.us`;
+  await prisma.whatsAppGroup.create({ data: { householdId: wa.householdId, connectionId: wa.connectionId, externalId, name, isAuthorized: true, defaultNature } });
+  return externalId;
 }
 
 /** Ingere uma mensagem do grupo e a processa em linha (simulador). */
@@ -63,7 +72,7 @@ export async function sendMessage(wa: WaFamily, input: SendInput) {
     { id: wa.connectionId, householdId: wa.householdId },
     {
       externalId,
-      chatId: wa.groupJid,
+      chatId: input.groupJid ?? wa.groupJid,
       isGroup: true,
       senderIds: { phone: wa.phone },
       fromMe: false,

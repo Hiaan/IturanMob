@@ -18,9 +18,12 @@ export async function upsertSyncedGroups(conn: { id: string; householdId: string
       update: { name, participantsCount: g.participantsCount, lastSyncedAt: now },
     });
   }
-  const authorized = await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true }, select: { externalId: true } });
-  const authorizedGroup = authorized ? groups.find((g) => g.externalId === authorized.externalId) : undefined;
-  if (authorizedGroup) await learnMembersFromParticipants(conn.householdId, authorizedGroup.participants);
+  // Aprende os identificadores dos membros com os participantes dos grupos autorizados (podem ser vários).
+  const authorized = await prisma.whatsAppGroup.findMany({ where: { connectionId: conn.id, isAuthorized: true }, select: { externalId: true } });
+  for (const a of authorized) {
+    const g = groups.find((x) => x.externalId === a.externalId);
+    if (g) await learnMembersFromParticipants(conn.householdId, g.participants);
+  }
   return groups.length;
 }
 

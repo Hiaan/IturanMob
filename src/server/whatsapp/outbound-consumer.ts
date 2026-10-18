@@ -51,17 +51,24 @@ async function resolveTargets(conn: WhatsAppConnection, quotedExternalId: string
     }
     return members.map((m) => ({ chatId: m.whatsappPhone!.replace(/\D/g, ""), groupId: null, quoted: null }));
   }
-  const group = await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true }, select: { id: true, externalId: true } });
-  if (!group) return [];
-  let quoted: string | null = null;
+  const groups = await prisma.whatsAppGroup.findMany({
+    where: { connectionId: conn.id, isAuthorized: true },
+    select: { id: true, externalId: true, defaultNature: true, authorizedAt: true },
+    orderBy: { authorizedAt: "asc" },
+  });
+  if (!groups.length) return [];
+  // Resposta: no grupo da mensagem citada (cada grupo recebe as respostas das próprias mensagens).
   if (quotedExternalId) {
     const q = await prisma.whatsAppMessage.findUnique({
       where: { connectionId_externalId: { connectionId: conn.id, externalId: quotedExternalId } },
       select: { chatId: true },
     });
-    if (q?.chatId === group.externalId) quoted = quotedExternalId;
+    const origin = q ? groups.find((g) => g.externalId === q.chatId) : undefined;
+    if (origin) return [{ chatId: origin.externalId, groupId: origin.id, quoted: quotedExternalId }];
   }
-  return [{ chatId: group.externalId, groupId: group.id, quoted }];
+  // Avisos gerais: o grupo de pessoa física (ou o primeiro autorizado).
+  const primary = groups.find((g) => g.defaultNature === "PERSONAL") ?? groups[0]!;
+  return [{ chatId: primary.externalId, groupId: primary.id, quoted: null }];
 }
 
 /** Reserva uma vaga no limite de taxa. Retorna 0 se liberado ou o tempo (ms) até poder enviar. */

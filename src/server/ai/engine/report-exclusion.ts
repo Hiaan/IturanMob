@@ -45,8 +45,6 @@ const CONNECTORS = new Set(["de", "da", "do", "das", "dos", "e"]);
 const BUSINESS_RE = /\b(e|eh|foi|era|sao|foram)\s+((da|de|pra|para a|p\/ a)\s+)?empresa\b|\b(marca\w*|marque|considera\w*|considere|coloca\w*|coloque|passa\w*|passe|trata\w*|trate|joga\w*|joga)\s+(como|na|pra|para a|para)\s+(da\s+)?empresa\b|\b(gasto|despesa|custo|receita|pagamento|conta)\s+da\s+empresa\b/;
 /** "isso é pessoal", "não é da empresa", "marca como pessoal". */
 const PERSONAL_RE = /\b(e|eh|foi|era)\s+(pessoal|particular|meu|minha|nosso|nossa|da familia|de casa)\b|\b(marca\w*|marque|considera\w*|considere|coloca\w*|coloque|volta\w*|passa\w*)\s+(como|pra|para|no)\s+pessoal\b|\bnao\s+(e|eh|foi|era)\s+(da\s+)?empresa\b/;
-/** Lançamento novo com a natureza no fim: "paguei 750 pro Ícaro, empresa". */
-const BUSINESS_MARKER_RE = /[,;-]\s*(da\s+|pra\s+|para a\s+)?empresa\s*[.!]?$|\b(e|eh|foi)\s+(da\s+)?empresa\b|\b(pra|para a|da)\s+empresa\s*[.!]?$/;
 
 function titleCase(s: string): string {
   return s
@@ -122,11 +120,9 @@ export function parseExclusionCommand(text: string): ExclusionCommand | null {
 /** Tira o marcador ("é repasse", "desconsidera") do texto do lançamento novo (não vira descrição). */
 const MARKER_STRIP =
   /(^|[\s,;.!])(?:(?:é|e|eh|foi|era|são|sao|foram)\s+(?:um\s+|uma\s+)?(?:repasse|reembolso)|(?:marca|marcar|marque|considera|considerar|considere|trata|tratar|trate)\s+(?:como|de)\s+(?:repasse|reembolso)|desconsider(?:a|ar|e)(?:\s+(?:esse|este|isso|nos relat[óo]rios))?)(?:\s+(?:de|do|da)\s+cliente)?(?=$|[\s,;.!])/giu;
-const BUSINESS_STRIP = /(?:[,;-]\s*(?:da\s+|pra\s+|para a\s+)?empresa\s*[.!]?$|(^|[\s,;.!])(?:é|e|eh|foi)\s+(?:da\s+)?empresa(?=$|[\s,;.!])|\s+(?:pra|para a)\s+empresa\s*[.!]?$)/giu;
 export function stripExclusionMarker(text: string): string {
   return text
     .replace(MARKER_STRIP, "$1")
-    .replace(BUSINESS_STRIP, "$1")
     .replace(/[\s,;.!-]+$/u, "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -135,13 +131,10 @@ export function stripExclusionMarker(text: string): string {
 /** Marcador de repasse/reembolso numa mensagem que também cria o lançamento. */
 export function hasExclusionMarker(text: string): ExclusionCommand | null {
   const norm = normalizeForNlu(text).trim();
-  const isBusiness = BUSINESS_MARKER_RE.test(norm);
-  if (!(isBusiness || COPULA_RE.test(norm) || MARK_RE.test(norm) || DESCONSIDERA_RE.test(norm))) return null;
+  // "empresa"/"PF" no lançamento novo é natureza, decidida na criação (nlu/nature.ts).
+  if (!(COPULA_RE.test(norm) || MARK_RE.test(norm) || DESCONSIDERA_RE.test(norm))) return null;
   // Só em mensagem de lançamento novo (verbo + valor); "desconsidera a mensagem anterior" segue o fluxo normal.
   if (/\bmensage(m|ns)\b/.test(norm) || !NEW_TX_VERB.test(norm) || !extractAmounts(text).length) return null;
-  if (isBusiness && !COPULA_RE.test(norm) && !MARK_RE.test(norm)) {
-    return { action: "BUSINESS", reason: "OTHER", party: null, targetText: null, targetAmountCents: null, targetType: null };
-  }
   const reason: ReportExclusionReason = /\breembolso\b/.test(norm) ? "REIMBURSEMENT" : /\b(repasse|cliente)\b/.test(norm) ? "CLIENT_PASSTHROUGH" : "OTHER";
   return { action: "EXCLUDE", reason, party: extractParty(norm), targetText: null, targetAmountCents: null, targetType: null };
 }

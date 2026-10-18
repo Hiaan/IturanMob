@@ -145,6 +145,8 @@ export const settingsUpdateSchema = z
     whatsappAnswerQueries: z.boolean(),
     /** Recorte padrão (painel, relatórios, orçamentos, assistente): Pessoal, Empresa ou Tudo. */
     defaultReportScope: z.enum(["PERSONAL", "BUSINESS", "ALL"]),
+    /** Grupo do WhatsApp sem natureza + mensagem sem indicação: perguntar PF/Empresa ou usar o padrão. */
+    whatsappUnassignedNature: z.enum(["ASK", "FAMILY_DEFAULT"]),
   })
   .partial();
 

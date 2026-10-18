@@ -89,6 +89,12 @@ enum TransactionScope {
   BUSINESS
 }
 
+/// Grupo do WhatsApp sem natureza atribuída: perguntar PF/Empresa ou usar o padrão da família.
+enum UnassignedNatureMode {
+  ASK
+  FAMILY_DEFAULT
+}
+
 /// Recorte padrão dos relatórios da família (Pessoal, Empresa ou Tudo).
 enum ReportScope {
   PERSONAL
@@ -506,29 +512,31 @@ model Household {
 
 /// Preferências e políticas da família (validadas por Zod na aplicação).
 model HouseholdSettings {
-  householdId             String           @id
-  defaultRegime           AccountingRegime @default(ACCRUAL)
+  householdId              String               @id
+  defaultRegime            AccountingRegime     @default(ACCRUAL)
   /// Confiança mínima para registro automático (0..1).
-  confidenceHigh          Float            @default(0.85)
+  confidenceHigh           Float                @default(0.85)
   /// Confiança mínima para registro pendente de confirmação (0..1). Abaixo: pede esclarecimento.
-  confidenceMedium        Float            @default(0.6)
-  budgetAlertThresholds   Int[]            @default([50, 75, 90, 100])
+  confidenceMedium         Float                @default(0.6)
+  budgetAlertThresholds    Int[]                @default([50, 75, 90, 100])
   /// Retenção de mídias originais (áudios e imagens), em dias. 0 = apagar após processamento.
-  mediaRetentionDays      Int              @default(90)
+  mediaRetentionDays       Int                  @default(90)
   /// Retenção de transcrições de áudio, em dias.
-  transcriptRetentionDays Int              @default(365)
+  transcriptRetentionDays  Int                  @default(365)
   /// Consentimento explícito para envio de dados a provedores externos de IA.
-  aiExternalAllowed       Boolean          @default(false)
-  aiAudioAllowed          Boolean          @default(false)
-  aiImageAllowed          Boolean          @default(false)
+  aiExternalAllowed        Boolean              @default(false)
+  aiAudioAllowed           Boolean              @default(false)
+  aiImageAllowed           Boolean              @default(false)
   /// Janela (horas) para suspeita de lançamento duplicado.
-  duplicateWindowHours    Int              @default(48)
-  whatsappReplies         Boolean          @default(true)
+  duplicateWindowHours     Int                  @default(48)
+  whatsappReplies          Boolean              @default(true)
   /// Responder consultas financeiras no grupo do WhatsApp.
-  whatsappAnswerQueries   Boolean          @default(true)
+  whatsappAnswerQueries    Boolean              @default(true)
   /// Recorte padrão do painel, relatórios, orçamentos e assistente: Pessoal, Empresa ou Tudo.
-  defaultReportScope      ReportScope      @default(PERSONAL)
-  updatedAt               DateTime         @updatedAt
+  defaultReportScope       ReportScope          @default(PERSONAL)
+  /// Lançamento vindo de grupo sem natureza e sem indicação na mensagem: perguntar ou usar o padrão.
+  whatsappUnassignedNature UnassignedNatureMode @default(ASK)
+  updatedAt                DateTime             @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 }
@@ -1213,17 +1221,19 @@ model WhatsAppConnectionEvent {
 }
 
 model WhatsAppGroup {
-  id                String    @id @default(cuid())
+  id                String            @id @default(cuid())
   householdId       String
   connectionId      String
   externalId        String
   name              String
-  participantsCount Int       @default(0)
-  isAuthorized      Boolean   @default(false)
+  participantsCount Int               @default(0)
+  isAuthorized      Boolean           @default(false)
   authorizedAt      DateTime?
   authorizedById    String?
-  lastSyncedAt      DateTime  @default(now())
-  createdAt         DateTime  @default(now())
+  /// Natureza padrão dos lançamentos deste grupo (Pessoa física / Empresa); nulo = não atribuído.
+  defaultNature     TransactionScope?
+  lastSyncedAt      DateTime          @default(now())
+  createdAt         DateTime          @default(now())
 
   household  Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
   connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)

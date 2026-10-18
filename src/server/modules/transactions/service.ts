@@ -44,6 +44,11 @@ export interface CreateTransactionOptions {
   checkDuplicates?: boolean;
   /** Aplica regras de categorização do usuário quando a categoria não foi informada. */
   applyRules?: boolean;
+  /**
+   * Natureza quando nem a entrada nem uma regra decidiram (ex.: grupo do WhatsApp da empresa):
+   * `scope` aplica direto; `ask` marca "escolher natureza" (pergunta/pendência).
+   */
+  natureFallback?: { scope?: TransactionScope | null; ask?: boolean } | null;
   /** Executa dentro de uma transação de banco já aberta. */
   db?: Prisma.TransactionClient;
 }
@@ -452,6 +457,10 @@ export async function createTransaction(
 
     const data = await normalize(db, ctx, input);
     const ruleId = opts.applyRules === false ? null : await applyRules(db, ctx, data, input.merchantName, { skipNature: Boolean(input.nature) });
+    if (!input.nature && canExcludeType(data.type) && opts.natureFallback && !data.exclusion && !data.scope && !data.natureReview) {
+      if (opts.natureFallback.scope) data.scope = opts.natureFallback.scope;
+      else if (opts.natureFallback.ask) data.natureReview = true;
+    }
     if (input.nature && canExcludeType(data.type)) {
       // Natureza informada (API, importação, WhatsApp): vale sobre as regras.
       const f = natureFields(ctx, input.nature, { scope: "PERSONAL" });

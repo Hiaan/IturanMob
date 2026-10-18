@@ -14,6 +14,8 @@ export interface ServiceContext {
   timezone: string;
   canViewOthersPrivate: boolean;
   ip?: string | null;
+  /** Recorte de natureza desta requisição (ex.: grupo do WhatsApp da empresa). Sem informar: padrão da família. */
+  reportScope?: "PERSONAL" | "BUSINESS" | "ALL";
 }
 
 /** Contexto para tarefas do sistema (worker, agendadores). Vê todos os dados da família. */

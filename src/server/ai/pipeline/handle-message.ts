@@ -7,7 +7,7 @@ import { readStoredFile } from "../../storage";
 import { logger, errorInfo } from "../../logger";
 import { publishEvent } from "../../events";
 import { formatBRL } from "@/lib/money";
-import { formatDateBR, isISODate } from "@/lib/dates";
+import { formatDateBR, formatMonthBR, isISODate, monthKey, monthRange, todayISO } from "@/lib/dates";
 import { createPendingItem } from "../../modules/pending/service";
 import { loadHouseholdContext } from "../engine/context";
 import { interpretText } from "../engine/interpret";
@@ -18,6 +18,9 @@ import { transcribeAudio } from "../transcription";
 import { extractReceipt } from "../vision/receipt";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
+import { detectNatureTokens } from "../nlu/nature";
+import { isQuestionText } from "../nlu/local-parser";
+import { expensesByCategory } from "../../modules/analytics/service";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
 import { applyExclusion, handleExclusionCommand, hasExclusionMarker, parseExclusionCommand, stripExclusionMarker, type QuotedRef } from "../engine/report-exclusion";
 import type { InboundMessageResult } from "./types";
@@ -37,6 +40,19 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
   const member = message.sender;
   if (!member || !member.isActive) return { status: "IGNORED", replies: [], transactionIds: [], detail: "remetente não autorizado" };
 
+  const settings = await prisma.householdSettings.findUnique({ where: { householdId: message.householdId } });
+  // Grupo de origem: Empresa / Pessoa física / não atribuído. Decide a natureza dos lançamentos
+  // (quando a mensagem e as regras não decidem) e o recorte das perguntas (não atribuído = Tudo).
+  const group = message.groupId ? await prisma.whatsAppGroup.findUnique({ where: { id: message.groupId }, select: { defaultNature: true } }) : null;
+  const groupNature = group?.defaultNature ?? null;
+  const nature: GroupNature | null = !message.groupId
+    ? null
+    : groupNature
+      ? { fallback: groupNature, unassigned: false }
+      : settings?.whatsappUnassignedNature === "FAMILY_DEFAULT"
+        ? { fallback: settings.defaultReportScope === "BUSINESS" ? "BUSINESS" : "PERSONAL", unassigned: true }
+        : { ask: true, unassigned: true };
+
   const ctx: ServiceContext = {
     householdId: message.householdId,
     memberId: member.id,
@@ -45,11 +61,12 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
     actorType: "WHATSAPP",
     timezone: message.household.timezone,
     canViewOthersPrivate: member.canViewOthersPrivate,
+    ...(message.groupId ? { reportScope: groupNature ?? "ALL" } : {}),
   };
   if (!can(ctx.role, "transactions:write")) {
     return { status: "IGNORED", replies: ["Seu acesso é somente leitura; peça a um administrador para registrar lançamentos."], transactionIds: [], detail: "sem permissão de escrita" };
   }
-  const settings = await prisma.householdSettings.findUnique({ where: { householdId: ctx.householdId } });
+  const answerQueries = settings?.whatsappAnswerQueries ?? true;
 
   try {
     let outcome: ActionOutcome;
@@ -58,13 +75,14 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
         messageId,
         chatId: message.chatId,
         source: "WHATSAPP_TEXT",
-        answerQueries: settings?.whatsappAnswerQueries ?? true,
+        answerQueries,
+        nature,
         quoted: message.quotedExternalId ? { connectionId: message.connectionId, externalId: message.quotedExternalId } : null,
       });
     } else if (message.type === "AUDIO") {
-      outcome = await processAudio(ctx, message, settings?.whatsappAnswerQueries ?? true, settings?.transcriptRetentionDays ?? 365);
+      outcome = await processAudio(ctx, message, { answerQueries, nature }, settings?.transcriptRetentionDays ?? 365);
     } else if (message.type === "IMAGE" || message.type === "DOCUMENT") {
-      outcome = await processReceipt(ctx, message, settings?.whatsappAnswerQueries ?? true);
+      outcome = await processReceipt(ctx, message, { answerQueries, nature });
     } else {
       outcome = { status: "IGNORED", intent: "UNSUPPORTED", replies: [], transactionIds: [], detail: `tipo ${message.type} não processado` };
     }
@@ -78,11 +96,23 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
   }
 }
 
-interface TextOptions {
+/** Natureza que o grupo dá aos lançamentos: a do grupo, a padrão da família ou perguntar. */
+interface GroupNature {
+  fallback?: "PERSONAL" | "BUSINESS";
+  ask?: boolean;
+  /** Grupo sem natureza atribuída (perguntas usam Tudo e mostram a divisão PF/Empresa). */
+  unassigned: boolean;
+}
+
+interface MessageOptions {
+  answerQueries: boolean;
+  nature: GroupNature | null;
+}
+
+interface TextOptions extends MessageOptions {
   messageId: string | null;
   chatId: string;
   source: TransactionSource;
-  answerQueries: boolean;
   attachmentId?: string | null;
   /** Mensagem citada (resposta a um lançamento ou à confirmação do robô). */
   quoted?: QuotedRef | null;
@@ -91,7 +121,17 @@ interface TextOptions {
 async function processText(ctx: ServiceContext, text: string, opts: TextOptions): Promise<ActionOutcome> {
   if (!text.trim()) return { status: "IGNORED", intent: "EMPTY", replies: [], transactionIds: [] };
   const hc = await loadHouseholdContext(ctx, ctx.memberId);
-  const exec = { channel: "WHATSAPP" as const, chatId: opts.chatId, messageId: opts.messageId, source: opts.source, attachmentId: opts.attachmentId ?? null, answerQueries: opts.answerQueries, text };
+  const groupNature = opts.nature ? { fallback: opts.nature.fallback ?? null, ask: Boolean(opts.nature.ask) } : undefined;
+  const exec = {
+    channel: "WHATSAPP" as const,
+    chatId: opts.chatId,
+    messageId: opts.messageId,
+    source: opts.source,
+    attachmentId: opts.attachmentId ?? null,
+    answerQueries: opts.answerQueries,
+    text,
+    nature: groupNature,
+  };
   const answered = await tryAnswerClarification(ctx, hc, exec);
   if (answered) return answered;
   if (opts.source === "WHATSAPP_TEXT" && EXPLICIT_IMPORT_CONFIRM.test(normalizeForNlu(text))) {
@@ -103,20 +143,54 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   if (exclusion) return handleExclusionCommand(ctx, hc, exclusion, { channel: "WHATSAPP", chatId: opts.chatId, messageId: opts.messageId, quoted: opts.quoted ?? null });
   // "recebi 500 do Fulano, é repasse": registra (sem o marcador na descrição) e já desconsidera.
   const marker = hasExclusionMarker(text);
-  const toInterpret = marker ? stripExclusionMarker(text) || text : text;
+  let toInterpret = marker ? stripExclusionMarker(text) || text : text;
+  // Natureza dita na mensagem ("empresa", "da empresa", "PJ", "PF", "pessoa física", "é pessoal"):
+  // vence as regras e o grupo. Em pergunta, vira o recorte da resposta (o texto vai inteiro).
+  const tokens = marker ? null : detectNatureTokens(toInterpret);
+  const question = isQuestionText(normalizeForNlu(toInterpret));
+  if (tokens && question) {
+    if (tokens.nature) ctx.reportScope = tokens.nature;
+    else if (tokens.both) ctx.reportScope = "ALL";
+  } else if (tokens?.nature) toInterpret = tokens.stripped;
   const result = await interpretText(ctx, toInterpret, { senderMemberId: ctx.memberId, messageId: opts.messageId, hc });
-  const outcome = await executeInterpretation(ctx, result, { ...exec, text: toInterpret });
+  const outcome = await executeInterpretation(ctx, result, {
+    ...exec,
+    text: toInterpret,
+    nature: { ...groupNature, explicit: question ? null : (tokens?.nature ?? null), perSegment: !question && Boolean(tokens?.both) },
+  });
   if (marker && outcome.intent === "CREATE_TRANSACTIONS" && outcome.transactionIds.length) {
     const marked = await applyExclusion(ctx, hc, marker, outcome.transactionIds);
     // Logo depois da confirmação do registro (antes de eventuais perguntas de complemento).
     if (marked.transactionIds.length) outcome.replies.splice(Math.min(1, outcome.replies.length), 0, ...marked.replies);
   }
+  // Grupo sem natureza: a resposta usa Tudo e mostra a divisão Pessoa física × Empresa.
+  if (outcome.intent === "QUERY" && outcome.replies.length && ctx.reportScope === "ALL" && opts.nature?.unassigned) {
+    const split = await natureSplitLine(ctx);
+    if (split) outcome.replies[outcome.replies.length - 1] += `\n\n${split}`;
+  }
   return outcome;
+}
+
+/** "Despesas de outubro: Pessoa física R$ X · Empresa R$ Y" (mês atual, repasses fora). */
+async function natureSplitLine(ctx: ServiceContext): Promise<string | null> {
+  try {
+    const month = monthKey(todayISO(ctx.timezone));
+    const period = monthRange(month);
+    const [pf, pj] = await Promise.all([
+      expensesByCategory(ctx, { period, filters: { scope: "PERSONAL" } }),
+      expensesByCategory(ctx, { period, filters: { scope: "BUSINESS" } }),
+    ]);
+    if (!pf.totalCents && !pj.totalCents) return null;
+    return `📊 Despesas de ${formatMonthBR(month)}: Pessoa física ${formatBRL(pf.totalCents)} · Empresa ${formatBRL(pj.totalCents)}`;
+  } catch (err) {
+    logger.debug({ err: errorInfo(err) }, "pipeline: divisão PF/Empresa indisponível");
+    return null;
+  }
 }
 
 type MessageWithAttachment = Prisma.WhatsAppMessageGetPayload<{ include: { attachment: true } }>;
 
-async function processAudio(ctx: ServiceContext, message: MessageWithAttachment, answerQueries: boolean, transcriptRetentionDays: number): Promise<ActionOutcome> {
+async function processAudio(ctx: ServiceContext, message: MessageWithAttachment, base: MessageOptions, transcriptRetentionDays: number): Promise<ActionOutcome> {
   const att = message.attachment;
   if (!att) return { status: "IGNORED", intent: "AUDIO", replies: [], transactionIds: [], detail: "áudio sem anexo" };
   let transcript = decryptStringSafe(att.transcription);
@@ -147,10 +221,10 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
     });
   }
   const outcome = await processText(ctx, transcript, {
+    ...base,
     messageId: message.id,
     chatId: message.chatId,
     source: "WHATSAPP_AUDIO",
-    answerQueries,
     attachmentId: att.id,
     quoted: message.quotedExternalId ? { connectionId: message.connectionId, externalId: message.quotedExternalId } : null,
   });
@@ -162,10 +236,10 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
   return { ...outcome, detail: `${outcome.detail ?? ""} (áudio transcrito)`.trim() };
 }
 
-async function processReceipt(ctx: ServiceContext, message: MessageWithAttachment, answerQueries: boolean): Promise<ActionOutcome> {
+async function processReceipt(ctx: ServiceContext, message: MessageWithAttachment, base: MessageOptions): Promise<ActionOutcome> {
   const att = message.attachment;
   const caption = message.text?.trim() ?? "";
-  if (!att) return caption ? processText(ctx, caption, { messageId: message.id, chatId: message.chatId, source: "WHATSAPP_IMAGE", answerQueries }) : { status: "IGNORED", intent: "IMAGE", replies: [], transactionIds: [] };
+  if (!att) return caption ? processText(ctx, caption, { ...base, messageId: message.id, chatId: message.chatId, source: "WHATSAPP_IMAGE" }) : { status: "IGNORED", intent: "IMAGE", replies: [], transactionIds: [] };
 
   // Mesmo comprovante já usado em outro lançamento → nunca duplica.
   if (att.transactionId) {
@@ -190,8 +264,14 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
       return failWithPending(ctx, message, "PROCESSING_FAILED", "PDF indisponível", "O arquivo não está mais armazenado.", "Não consegui acessar o PDF. Envie novamente.");
     }
     // Extrato/fatura em PDF → prévia de importação com confirmação pela conversa.
-    const statement = await processPdfStatement(ctx, message, att, caption, (title, description, reply) =>
-      failWithPending(ctx, message, "PROCESSING_FAILED", title, description, reply, att.id),
+    const pdfNature = caption ? detectNatureTokens(caption).nature : null;
+    const statement = await processPdfStatement(
+      ctx,
+      message,
+      att,
+      caption,
+      (title, description, reply) => failWithPending(ctx, message, "PROCESSING_FAILED", title, description, reply, att.id),
+      { defaultNature: pdfNature === "BUSINESS" || (!pdfNature && base.nature?.fallback === "BUSINESS") ? "BUSINESS" : null },
     );
     if (statement) return statement;
     return failWithPending(
@@ -206,7 +286,7 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
   }
   if (captionHasAmount) {
     // Texto + comprovante da mesma compra → um único lançamento, com o comprovante vinculado.
-    return processText(ctx, caption, { messageId: message.id, chatId: message.chatId, source: "WHATSAPP_IMAGE", answerQueries, attachmentId: att.id });
+    return processText(ctx, caption, { ...base, messageId: message.id, chatId: message.chatId, source: "WHATSAPP_IMAGE", attachmentId: att.id });
   }
 
   if (!att.storageKey) {
@@ -282,14 +362,17 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
   };
   const draft = resolveDraft(raw, 0, hc, `${sourceText} ${(data.items ?? []).map((i) => i.description).join(" ")}`);
   const result = { raw: { intent: "CREATE_TRANSACTIONS" as const, drafts: [raw], correction: null, deletion: null, question: null, confidence: draft.confidence, engine: "LOCAL" as const, model: extraction.model }, drafts: [draft], hc, recent: [], fallbackReason: null };
+  // Legenda "empresa"/"PF" decide a natureza do comprovante; senão, a do grupo.
+  const captionNature = caption ? detectNatureTokens(caption).nature : null;
   const outcome = await executeInterpretation(ctx, result, {
     channel: "WHATSAPP",
     chatId: message.chatId,
     messageId: message.id,
     source: "WHATSAPP_IMAGE",
     attachmentId: att.id,
-    answerQueries,
+    answerQueries: base.answerQueries,
     text: sourceText,
+    nature: { fallback: base.nature?.fallback ?? null, ask: Boolean(base.nature?.ask), explicit: captionNature },
   });
   if (outcome.replies.length) outcome.replies[0] = `🧾 Li o comprovante${merchant ? ` de *${merchant}*` : ""}.\n${outcome.replies[0]}`;
   return outcome;

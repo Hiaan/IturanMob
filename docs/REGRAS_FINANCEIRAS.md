@@ -290,6 +290,9 @@ e anuncia no próprio cartão).
   escolha vale sobre as regras ao importar; nas linhas já registradas, é aplicada ao lançamento existente.
 - Recorrências têm natureza; os lançamentos gerados herdam.
 - Exportações trazem a coluna "Natureza".
+- WhatsApp com vários grupos (pessoa física e empresa): natureza = o que a mensagem diz > regra >
+  natureza do grupo > perguntar (grupo não atribuído) ou padrão da família. Perguntas no grupo usam o
+  recorte dele (não atribuído = Tudo, com a divisão PF/Empresa). Detalhes em `docs/WHATSAPP.md`.
 
 ## 11. Indicadores do painel
 

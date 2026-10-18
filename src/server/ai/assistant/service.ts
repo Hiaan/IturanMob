@@ -8,6 +8,7 @@ import { sanitizeUntrusted } from "../nlu/text";
 import { logAI, resolveProvider } from "../providers/registry";
 import { assistantSystemPrompt } from "../prompts/assistant";
 import { answerLocally } from "./local";
+import { resolveScope } from "../../modules/analytics/service";
 import { runTool, toolDefinitions } from "./tools";
 
 export interface AssistantAnswer {
@@ -36,7 +37,7 @@ export async function answerQuestion(
       const household = await prisma.household.findUniqueOrThrow({ where: { id: ctx.householdId }, select: { name: true } });
       const member = ctx.memberId ? await prisma.householdMember.findUnique({ where: { id: ctx.memberId }, select: { displayName: true } }) : null;
       const res = await resolution.provider.runTools({
-        system: assistantSystemPrompt({ householdName: household.name, today: todayISO(ctx.timezone), memberName: member?.displayName ?? null, channel: opts.channel }),
+        system: assistantSystemPrompt({ householdName: household.name, today: todayISO(ctx.timezone), memberName: member?.displayName ?? null, channel: opts.channel, scope: await resolveScope(ctx) }),
         messages: [...(opts.history ?? []).slice(-8), { role: "user", content: question }],
         tools: toolDefinitions(),
         execute: (name, input) => runTool(ctx, name, input),

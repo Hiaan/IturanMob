@@ -28,6 +28,8 @@ import {
   requestGroupSync,
   requestLogout,
   setGroupAuthorization,
+  setGroupNature,
+  updateGroup,
   simulateInbound,
   updateWhatsAppSettings,
 } from "@/server/whatsapp/service";
@@ -134,27 +136,35 @@ describe("WhatsApp: serviço, simulador, gerenciador e webhook", () => {
     expect(baileys.official).toBe(false);
   });
 
-  it("no máximo UM grupo autorizado por família (com auditoria)", async () => {
+  it("vários grupos autorizados, cada um com sua natureza (com auditoria)", async () => {
     const fam = await familyWithMembers();
     await updateWhatsAppSettings(fam.ctx, { provider: "BAILEYS" });
     const conn = await prisma.whatsAppConnection.findUniqueOrThrow({ where: { householdId: fam.householdId } });
     const a = await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: "a@g.us", name: "A" } });
     const b = await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: "b@g.us", name: "B" } });
-    await setGroupAuthorization(fam.ctx, a.id, true);
-    const res = await setGroupAuthorization(fam.ctx, b.id, true);
-    expect(res).toMatchObject({ isAuthorized: true, revokedGroupId: a.id });
-    const authorized = await prisma.whatsAppGroup.findMany({ where: { householdId: fam.householdId, isAuthorized: true } });
-    expect(authorized.map((g) => g.id)).toEqual([b.id]);
-    expect(authorized[0]!.authorizedById).toBe(fam.husbandId);
+    // O primeiro grupo autorizado fica como pessoa física (como antes); o segundo, "não atribuído".
+    expect(await setGroupAuthorization(fam.ctx, a.id, true)).toMatchObject({ isAuthorized: true, defaultNature: "PERSONAL", revokedGroupId: null });
+    expect(await setGroupAuthorization(fam.ctx, b.id, true)).toMatchObject({ isAuthorized: true, defaultNature: null, revokedGroupId: null });
+    const authorized = await prisma.whatsAppGroup.findMany({ where: { householdId: fam.householdId, isAuthorized: true }, orderBy: { name: "asc" } });
+    expect(authorized.map((g) => g.id)).toEqual([a.id, b.id]);
+    expect(authorized[1]!.authorizedById).toBe(fam.husbandId);
+    // Natureza do grupo (pela rota PATCH): Empresa; e de volta a "não atribuído".
+    expect(await updateGroup(fam.ctx, b.id, { defaultNature: "BUSINESS" })).toMatchObject({ isAuthorized: true, defaultNature: "BUSINESS" });
+    expect(await updateGroup(fam.ctx, b.id, { authorized: true, defaultNature: null })).toMatchObject({ isAuthorized: true, defaultNature: null });
+    await expect(updateGroup(fam.ctx, b.id, {})).rejects.toThrow(/Informe a autorização ou a natureza/);
+    // Autorizações concorrentes não duplicam nada nem revogam o outro grupo.
     await Promise.all([setGroupAuthorization(fam.ctx, a.id, true), setGroupAuthorization(fam.ctx, b.id, true)]);
-    expect(await prisma.whatsAppGroup.count({ where: { householdId: fam.householdId, isAuthorized: true } })).toBe(1);
+    expect(await prisma.whatsAppGroup.count({ where: { householdId: fam.householdId, isAuthorized: true } })).toBe(2);
     await setGroupAuthorization(fam.ctx, b.id, false);
     await setGroupAuthorization(fam.ctx, a.id, false);
     expect(await prisma.whatsAppGroup.count({ where: { householdId: fam.householdId, isAuthorized: true } })).toBe(0);
-    expect(await prisma.auditLog.count({ where: { householdId: fam.householdId, entityType: "WhatsAppGroup", action: "SETTINGS_CHANGE" } })).toBe(6);
+    // A natureza continua guardada para quando o grupo voltar a ser autorizado.
+    expect((await prisma.whatsAppGroup.findUniqueOrThrow({ where: { id: a.id } })).defaultNature).toBe("PERSONAL");
+    expect(await prisma.auditLog.count({ where: { householdId: fam.householdId, entityType: "WhatsAppGroup", action: "SETTINGS_CHANGE" } })).toBe(9);
     // grupo de outra família não é acessível
     const other = await createFamily("Outra");
     await expect(setGroupAuthorization(other.ctx, a.id, true)).rejects.toThrow(/não encontrado/);
+    await expect(setGroupNature(other.ctx, a.id, "BUSINESS")).rejects.toThrow(/não encontrado/);
   });
 
   it("simulador sem worker: mesmo ingest + processamento em linha; respostas registradas como OUTBOUND", async () => {

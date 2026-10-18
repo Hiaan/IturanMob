@@ -92,6 +92,7 @@ const AUTO = "__auto__";
 function autoNatureLabel(n: ImportRowNature): string {
   if (n.ask) return "Decidir depois (Pendências)";
   if (n.source === "RULE") return `${NATURE_LABELS[n.value]} (regra)`;
+  if (n.source === "GROUP") return `${NATURE_LABELS[n.value]} (grupo do WhatsApp)`;
   return "Pessoal (padrão)";
 }
 

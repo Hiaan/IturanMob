@@ -3,7 +3,7 @@
 Este documento descreve a integração com o WhatsApp: provedores disponíveis, riscos, configuração,
 fluxo de processamento, idempotência, recuperação e privacidade.
 
-> **Resumo de privacidade:** somente o **grupo autorizado** da família (ou, na Cloud API, as conversas
+> **Resumo de privacidade:** somente os **grupos autorizados** da família (ou, na Cloud API, as conversas
 > diretas dos **membros autorizados**) é processado. Mensagens de qualquer outro chat, ou de pessoas
 > sem autorização/consentimento, são descartadas **sem persistir conteúdo**.
 
@@ -114,11 +114,13 @@ Números de outros países precisam começar com `+` e o DDI.
 
 1. `.env`: `WHATSAPP_ENABLE_SIMULATOR=true` (padrão) e, opcionalmente, `WHATSAPP_DEFAULT_PROVIDER=SIMULATOR`.
 2. `PATCH /api/v1/integrations/whatsapp/settings {"provider":"SIMULATOR"}`.
-3. `POST .../groups/sync` (cria o grupo "Finanças da Família (Simulador)" — não depende do worker) e
-   autorize-o com `PATCH .../groups/{id} {"authorized":true}`.
+3. `POST .../groups/sync` (cria os grupos "Finanças da Família (Simulador)" e "Empresa (Simulador)" —
+   não depende do worker) e autorize-os com `PATCH .../groups/{id} {"authorized":true}` (o da empresa
+   com `"defaultNature":"BUSINESS"`).
 4. (Opcional) `POST .../connect` — com o worker rodando, o status fica `CONNECTED` com o aviso do simulador.
 5. `POST .../simulate` com `{"memberId":"…","text":"gastei 50 no mercado"}` ou
-   `{"memberId":"…","audioBase64":"…","mimeType":"audio/ogg"}` / `imageBase64` / `documentBase64`.
+   `{"memberId":"…","audioBase64":"…","mimeType":"audio/ogg"}` / `imageBase64` / `documentBase64`;
+   `"groupId":"…"` escolhe o grupo simulado (padrão: o da família).
 
 A simulação passa pelo **mesmo** `ingest` e pelo **mesmo** processador:
 - **worker em execução** (heartbeat recente): o job vai para a fila `whatsapp-inbound` e o worker processa;
@@ -259,10 +261,37 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
 - *considerar de novo* / *volta a considerar* / *não é repasse* → desfaz.
 - A resposta lembra que saldo e fatura não mudam e, para repasse com cliente, mostra o saldo do repasse.
 - *desconsidera a mensagem anterior* continua sendo excluir o último lançamento (fluxo de exclusão).
-- Natureza: *isso é da empresa*, *marca como empresa o pix do Daniel*, *isso é pessoal* / *não é da
-  empresa* (mesmas regras de alvo); *paguei 750 pro Ícaro, empresa* registra já como Empresa.
-- Regra "perguntar natureza": depois de registrar, o bot pergunta *é da empresa, de cliente (repasse) ou
-  pessoal?* — responda *empresa*, *cliente* (ou *cliente Fulano*) ou *pessoal*; *pular* deixa em Pendências.
+- Natureza de lançamentos já feitos: *isso é da empresa*, *marca como empresa o pix do Daniel*, *isso é
+  pessoal* / *não é da empresa* (mesmas regras de alvo).
+
+**Vários grupos: pessoa física × empresa.** A família pode autorizar mais de um grupo na mesma conexão
+(ex.: "Finanças da Família" e "Empresa"). Cada grupo tem uma **natureza padrão**: *Pessoa física*,
+*Empresa* ou *Não atribuído*. O primeiro grupo autorizado começa como Pessoa física (como era antes); os
+demais começam Não atribuídos. Trocar a natureza do grupo não muda lançamentos já feitos.
+
+Natureza de um lançamento novo vindo do WhatsApp (texto, áudio, comprovante), nesta ordem:
+
+1. **O que a mensagem diz**: *empresa*, *da empresa*, *pra empresa*, *PJ* → Empresa; *PF*, *pessoa
+   física*, *é pessoal* → Pessoa física — no fim ou no meio da frase (*uber 30 pj*, *almoço 50 empresa no
+   itaú*). A palavra sai da descrição. PF e PJ na mesma mensagem (*mercado 120 pf, gasolina 80 pj*):
+   cada trecho decide. *pf* no fim de um pedido (*anota 50 de uber pf*) é "por favor" e não conta.
+2. **Regra** de natureza (definir Pessoal/Empresa, desconsiderar, perguntar) — continua valendo; a
+   mensagem explícita sempre vence a regra.
+3. **Natureza do grupo** (Pessoa física ou Empresa).
+4. **Grupo não atribuído**: o bot pergunta *é de pessoa física ou da empresa?* — *1* (PF), *2*
+   (Empresa), *cliente* (repasse) ou *pular* (fica em Pendências). Em Configurações → WhatsApp dá para
+   usar o **padrão da família** em vez de perguntar (`HouseholdSettings.whatsappUnassignedNature`:
+   `ASK` | `FAMILY_DEFAULT`).
+
+PDF de extrato/fatura enviado no grupo da empresa (ou com legenda *empresa*) chega à prévia com as linhas
+sem regra como Empresa ("grupo do WhatsApp"); dá para trocar na prévia.
+
+**Perguntas** respondem no recorte do grupo: grupo da empresa → Empresa; grupo pessoa física → Pessoa
+física; grupo não atribuído → Tudo, com a linha "Despesas de <mês>: Pessoa física R$ X · Empresa R$ Y".
+*empresa*/*PF* na própria pergunta (*quanto gastamos da empresa este mês?*) vale como recorte.
+
+As respostas do bot saem **no grupo de onde veio a mensagem**. Mensagens sem resposta a um lançamento
+(lembretes, avisos) vão para o grupo pessoa física (ou o primeiro autorizado).
 
 Status da conexão: `DISCONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`, `LOGGED_OUT`.
 Eventos (`WhatsAppConnectionEvent`): `CONNECTED`, `DISCONNECTED`, `QR`, `ERROR`, `LOGGED_OUT`.
@@ -313,11 +342,11 @@ Base: `/api/v1/integrations/whatsapp` (resposta `{ data }`; erros `{ error: { co
 | PATCH | `/settings` | `{ provider?, processingEnabled?, phoneNumberId? }` | `{ provider, processingEnabled, desiredConnected, requeued }` |
 | GET | `/qr` | — | `{ dataUrl, expiresInSeconds }` ou 404 |
 | POST | `/groups/sync` | — | `{ ok, … }` |
-| PATCH | `/groups/{id}` | `{ authorized: boolean }` | `{ id, name, isAuthorized, revokedGroupId }` (no máximo um autorizado) |
-| GET | `/messages` | `?limit&cursor&status&direction` | `{ items[{ status, type, sender, text, transactions, job, attachment }], nextCursor, scope }` |
+| PATCH | `/groups/{id}` | `{ authorized?: boolean, defaultNature?: "PERSONAL" \| "BUSINESS" \| null }` | `{ id, name, isAuthorized, defaultNature, revokedGroupId: null }` (vários grupos podem ficar autorizados) |
+| GET | `/messages` | `?limit&cursor&status&direction` | `{ items[{ status, type, sender, group, text, transactions, job, attachment }], nextCursor, scope, groups }` |
 | POST | `/messages/{id}/reprocess` | — | `{ messageId, jobId, queued }` |
 | POST | `/retry-failed` | — | `{ total, requeued, skipped }` |
-| POST | `/simulate` | `{ memberId, text? \| audioBase64? \| imageBase64? \| documentBase64?, mimeType?, fileName? }` | `{ accepted, reason, reasonLabel, messageId, status, mode, outcome }` (só com `SIMULATOR` + `WHATSAPP_ENABLE_SIMULATOR`) |
+| POST | `/simulate` | `{ memberId, text? \| audioBase64? \| imageBase64? \| documentBase64?, mimeType?, fileName?, groupId? }` | `{ accepted, reason, reasonLabel, messageId, status, mode, outcome }` (só com `SIMULATOR` + `WHATSAPP_ENABLE_SIMULATOR`) |
 
 Webhook da Cloud API: `GET/POST /api/webhooks/whatsapp`.
 

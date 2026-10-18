@@ -19,7 +19,7 @@ import {
 } from "@/lib/dates";
 import { formatBRL, formatMoney, percentChange } from "@/lib/money";
 import { normalizeText } from "@/lib/utils";
-import { budgetOverview, cashflowProjection, compareCategories, expensesByCategory, expensesByPerson, recognizedRows, topExpenses } from "../../modules/analytics/service";
+import { budgetOverview, cashflowProjection, compareCategories, expensesByCategory, expensesByPerson, recognizedRows, resolveScope, topExpenses } from "../../modules/analytics/service";
 import { listAccounts } from "../../modules/accounts/service";
 import { listCards, listStatements } from "../../modules/cards/service";
 import { listTransactions } from "../../modules/transactions/service";
@@ -136,7 +136,11 @@ export const ASSISTANT_TOOLS = [
       const member = await memberIdByName(ctx, input.person);
       if (input.category && !cat) return { basis: "CONFIRMADO", error: `Categoria "${input.category}" não encontrada.` };
       if (input.person && !member) return { basis: "CONFIRMADO", error: `Pessoa "${input.person}" não encontrada.` };
+      // Mesmo recorte dos relatórios: Pessoa física / Empresa / Tudo; repasses ficam de fora.
+      const nature = await resolveScope(ctx);
       const res = await listTransactions(ctx, {
+        ...(nature === "ALL" ? {} : { scope: nature }),
+        excluded: "hide",
         start: period?.start,
         end: period?.end,
         types: input.type ? [input.type] : ["EXPENSE", "INCOME"],

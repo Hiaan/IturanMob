@@ -20,7 +20,7 @@ import { qrKey, QR_TTL_SECONDS } from "./keys";
 import { whatsappCanSend } from "./outbound";
 import { runProcessingJob, type ProcessOutcome } from "./processor";
 import { queueReceivedMessages } from "./recovery";
-import { buildSimulatedMessage, SIMULATOR_GROUP_ID, SIMULATOR_GROUP_NAME } from "./simulator/provider";
+import { buildSimulatedMessage, SIMULATOR_BUSINESS_GROUP_ID, SIMULATOR_BUSINESS_GROUP_NAME, SIMULATOR_GROUP_ID, SIMULATOR_GROUP_IDS, SIMULATOR_GROUP_NAME } from "./simulator/provider";
 import { BAILEYS_RISK_WARNING, MAX_MEDIA_BYTES, PROVIDER_CAPABILITIES, PROVIDER_INFO, SIMULATOR_NOTICE } from "./types";
 
 /**
@@ -73,9 +73,11 @@ export async function getWhatsAppStatus(ctx: ServiceContext) {
     name: g.name,
     participantsCount: g.participantsCount,
     isAuthorized: g.isAuthorized,
+    /** Natureza padrão dos lançamentos do grupo: PERSONAL (pessoa física), BUSINESS (empresa) ou null (não atribuído). */
+    defaultNature: g.defaultNature,
     authorizedAt: g.authorizedAt,
     lastSyncedAt: g.lastSyncedAt,
-    isSimulator: g.externalId === SIMULATOR_GROUP_ID,
+    isSimulator: SIMULATOR_GROUP_IDS.includes(g.externalId),
   });
   return {
     provider: conn.provider,
@@ -306,7 +308,10 @@ export async function getQrCode(ctx: ServiceContext) {
 
 async function ensureSimulatorGroup(conn: { id: string; householdId: string }) {
   const members = await prisma.householdMember.count({ where: { householdId: conn.householdId, isActive: true, whatsappPhone: { not: null } } });
-  await upsertSyncedGroups(conn, [{ externalId: SIMULATOR_GROUP_ID, name: SIMULATOR_GROUP_NAME, participantsCount: members, participants: [] }]);
+  await upsertSyncedGroups(conn, [
+    { externalId: SIMULATOR_GROUP_ID, name: SIMULATOR_GROUP_NAME, participantsCount: members, participants: [] },
+    { externalId: SIMULATOR_BUSINESS_GROUP_ID, name: SIMULATOR_BUSINESS_GROUP_NAME, participantsCount: members, participants: [] },
+  ]);
 }
 
 export async function requestGroupSync(ctx: ServiceContext) {
@@ -324,29 +329,62 @@ export async function requestGroupSync(ctx: ServiceContext) {
   return afterCommand(ctx, "sync-groups");
 }
 
-export const groupAuthorizationSchema = z.object({ authorized: z.boolean() });
+export const groupAuthorizationSchema = z
+  .object({
+    authorized: z.boolean().optional(),
+    /** Natureza padrão: PERSONAL (pessoa física), BUSINESS (empresa) ou null (não atribuído). */
+    defaultNature: z.enum(["PERSONAL", "BUSINESS"]).nullable().optional(),
+  })
+  .refine((v) => v.authorized !== undefined || v.defaultNature !== undefined, "Informe a autorização ou a natureza do grupo.");
 
-/** Autoriza (ou revoga) um grupo. No máximo UM grupo autorizado por família. */
+/** Atualiza autorização e/ou natureza padrão de um grupo. */
+export async function updateGroup(ctx: ServiceContext, groupId: string, input: z.input<typeof groupAuthorizationSchema>) {
+  const data = groupAuthorizationSchema.parse(input);
+  let result: { id: string; name: string; isAuthorized: boolean; defaultNature?: string | null; revokedGroupId: string | null } | null = null;
+  if (data.authorized !== undefined) result = await setGroupAuthorization(ctx, groupId, data.authorized);
+  if (data.defaultNature !== undefined) result = { ...(result ?? { revokedGroupId: null }), ...(await setGroupNature(ctx, groupId, data.defaultNature)) };
+  return result!;
+}
+
+/** Natureza padrão dos lançamentos que chegam por este grupo. Não altera lançamentos já feitos. */
+export async function setGroupNature(ctx: ServiceContext, groupId: string, nature: "PERSONAL" | "BUSINESS" | null) {
+  assertCan(ctx, "integrations:manage");
+  const group = await prisma.whatsAppGroup.findFirst({ where: { id: groupId, householdId: ctx.householdId } });
+  if (!group) throw new NotFoundError("Grupo");
+  const updated = await prisma.whatsAppGroup.update({ where: { id: groupId }, data: { defaultNature: nature } });
+  await audit(ctx, {
+    action: "SETTINGS_CHANGE",
+    entityType: "WhatsAppGroup",
+    entityId: groupId,
+    before: { defaultNature: group.defaultNature },
+    after: { defaultNature: nature },
+    metadata: { groupName: group.name },
+  });
+  await publishEvent(ctx.householdId, "whatsapp.status");
+  return { id: groupId, name: group.name, isAuthorized: updated.isAuthorized, defaultNature: updated.defaultNature };
+}
+
+/** Autoriza (ou revoga) um grupo. Vários grupos podem ser autorizados (ex.: família e empresa). */
 export async function setGroupAuthorization(ctx: ServiceContext, groupId: string, authorized: boolean) {
   assertCan(ctx, "integrations:manage");
   const group = await prisma.whatsAppGroup.findFirst({ where: { id: groupId, householdId: ctx.householdId }, include: { connection: { select: { provider: true } } } });
   if (!group) throw new NotFoundError("Grupo");
   if (!PROVIDER_CAPABILITIES[group.connection.provider].groups) throw new ValidationError("Este provedor não trabalha com grupos.");
   const now = new Date();
-  const previous = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     // Trava a conexão da família para serializar autorizações concorrentes.
     await tx.$queryRaw`SELECT id FROM "WhatsAppConnection" WHERE "householdId" = ${ctx.householdId} FOR UPDATE`;
-    const prev = await tx.whatsAppGroup.findFirst({ where: { householdId: ctx.householdId, isAuthorized: true, id: { not: groupId } }, select: { id: true, name: true } });
     if (authorized) {
-      await tx.whatsAppGroup.updateMany({
-        where: { householdId: ctx.householdId, isAuthorized: true, id: { not: groupId } },
-        data: { isAuthorized: false, authorizedAt: null, authorizedById: null },
+      // Primeiro grupo da família continua como pessoa física (comportamento de antes); os demais
+      // começam "não atribuído" até a pessoa escolher a natureza.
+      const others = await tx.whatsAppGroup.count({ where: { householdId: ctx.householdId, isAuthorized: true, id: { not: groupId } } });
+      await tx.whatsAppGroup.update({
+        where: { id: groupId },
+        data: { isAuthorized: true, authorizedAt: group.isAuthorized ? group.authorizedAt : now, authorizedById: ctx.memberId, ...(!others && !group.defaultNature ? { defaultNature: "PERSONAL" } : {}) },
       });
-      await tx.whatsAppGroup.update({ where: { id: groupId }, data: { isAuthorized: true, authorizedAt: now, authorizedById: ctx.memberId } });
     } else {
       await tx.whatsAppGroup.update({ where: { id: groupId }, data: { isAuthorized: false, authorizedAt: null, authorizedById: null } });
     }
-    return prev;
   });
   await audit(ctx, {
     action: "SETTINGS_CHANGE",
@@ -354,10 +392,12 @@ export async function setGroupAuthorization(ctx: ServiceContext, groupId: string
     entityId: groupId,
     before: { isAuthorized: group.isAuthorized },
     after: { isAuthorized: authorized },
-    metadata: { groupName: group.name, ...(authorized && previous ? { revokedGroupId: previous.id, revokedGroupName: previous.name } : {}) },
+    metadata: { groupName: group.name },
   });
   await publishEvent(ctx.householdId, "whatsapp.status");
-  return { id: groupId, name: group.name, isAuthorized: authorized, revokedGroupId: authorized ? (previous?.id ?? null) : null };
+  const after = await prisma.whatsAppGroup.findUniqueOrThrow({ where: { id: groupId }, select: { defaultNature: true } });
+  // Vários grupos podem ficar autorizados ao mesmo tempo: nenhum outro é revogado.
+  return { id: groupId, name: group.name, isAuthorized: authorized, defaultNature: after.defaultNature, revokedGroupId: null };
 }
 
 // -----------------------------------------------------------------------------
@@ -376,12 +416,13 @@ export async function listWhatsAppMessages(ctx: ServiceContext, input: z.input<t
   const q = messagesQuerySchema.parse(input);
   const conn = await prisma.whatsAppConnection.findUnique({ where: { householdId: ctx.householdId }, select: { id: true, provider: true } });
   if (!conn) return { items: [], nextCursor: null, scope: null };
-  const group = await prisma.whatsAppGroup.findFirst({ where: { connectionId: conn.id, isAuthorized: true }, select: { id: true, name: true, externalId: true } });
+  const groups = await prisma.whatsAppGroup.findMany({ where: { connectionId: conn.id, isAuthorized: true }, select: { id: true, name: true, externalId: true } });
+  const group = groups[0] ?? null;
   const scope = await getVisibilityScope(ctx);
   const where: Prisma.WhatsAppMessageWhereInput = {
     householdId: ctx.householdId,
     connectionId: conn.id,
-    ...(conn.provider !== "CLOUD_API" && group ? { OR: [{ groupId: group.id }, { chatId: group.externalId }] } : {}),
+    ...(conn.provider !== "CLOUD_API" && groups.length ? { OR: [{ groupId: { in: groups.map((g) => g.id) } }, { chatId: { in: groups.map((g) => g.externalId) } }] } : {}),
     ...(q.status ? { status: q.status } : {}),
     ...(q.direction ? { direction: q.direction } : {}),
   };
@@ -392,6 +433,7 @@ export async function listWhatsAppMessages(ctx: ServiceContext, input: z.input<t
     ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
     include: {
       sender: { select: { id: true, displayName: true, color: true } },
+      group: { select: { id: true, name: true, defaultNature: true } },
       attachment: { select: { id: true, kind: true, mimeType: true, sizeBytes: true, contentDeletedAt: true, transactionId: true } },
       jobs: { select: { status: true, attempts: true, maxAttempts: true, lastError: true, runAfter: true, finishedAt: true } },
       transactions: {
@@ -414,6 +456,8 @@ export async function listWhatsAppMessages(ctx: ServiceContext, input: z.input<t
     quotedExternalId: m.quotedExternalId,
     isBot: m.direction === "OUTBOUND",
     sender: m.sender,
+    /** Grupo da mensagem (há famílias com grupo pessoa física e grupo da empresa). */
+    group: m.group,
     attachment: m.attachment
       ? { id: m.attachment.id, kind: m.attachment.kind, mimeType: m.attachment.mimeType, sizeBytes: m.attachment.sizeBytes, contentDeleted: Boolean(m.attachment.contentDeletedAt) }
       : null,
@@ -424,6 +468,7 @@ export async function listWhatsAppMessages(ctx: ServiceContext, input: z.input<t
     items,
     nextCursor: rows.length > q.limit ? (rows[q.limit]?.id ?? null) : null,
     scope: group ? { groupId: group.id, groupName: group.name } : null,
+    groups: groups.map((g) => ({ id: g.id, name: g.name })),
   };
 }
 
@@ -450,13 +495,15 @@ export const simulateSchema = z
       .optional(),
     fileName: z.string().max(200).optional(),
     quotedExternalId: z.string().max(200).optional(),
+    /** Grupo simulado de origem (id do grupo); padrão: o da família. */
+    groupId: z.string().max(40).optional(),
   })
   .refine((v) => Boolean(v.text?.trim() || v.audioBase64 || v.imageBase64 || v.documentBase64), { message: "Informe um texto ou um arquivo." })
   .refine((v) => [v.audioBase64, v.imageBase64, v.documentBase64].filter(Boolean).length <= 1, { message: "Envie apenas um arquivo por mensagem." });
 
 const SKIP_LABELS: Record<IngestSkipReason, string> = {
   connection_not_found: "Conexão não encontrada.",
-  chat_not_authorized: "O grupo do simulador não está autorizado. Sincronize os grupos e autorize-o.",
+  chat_not_authorized: "Este grupo do simulador não está autorizado. Sincronize os grupos e autorize-o.",
   bot_message: "Mensagem do próprio bot — ignorada.",
   sender_unknown: "O remetente não corresponde a nenhum membro com WhatsApp cadastrado.",
   sender_not_authorized: "O membro não está autorizado a usar o WhatsApp.",
@@ -486,10 +533,16 @@ export async function simulateInbound(ctx: ServiceContext, input: z.input<typeof
     media = { buffer, mimeType, fileName: data.fileName ?? null };
   }
 
-  const existingGroup = await prisma.whatsAppGroup.findUnique({ where: { connectionId_externalId: { connectionId: conn.id, externalId: SIMULATOR_GROUP_ID } } });
-  if (!existingGroup) await ensureSimulatorGroup(conn);
+  const simGroups = await prisma.whatsAppGroup.count({ where: { connectionId: conn.id, externalId: { in: SIMULATOR_GROUP_IDS } } });
+  if (simGroups < SIMULATOR_GROUP_IDS.length) await ensureSimulatorGroup(conn);
+  let chatId = SIMULATOR_GROUP_ID;
+  if (data.groupId) {
+    const g = await prisma.whatsAppGroup.findFirst({ where: { id: data.groupId, connectionId: conn.id, externalId: { in: SIMULATOR_GROUP_IDS } }, select: { externalId: true } });
+    if (!g) throw new NotFoundError("Grupo simulado");
+    chatId = g.externalId;
+  }
 
-  const msg = buildSimulatedMessage({ phone: member.whatsappPhone, text: data.text ?? null, media, quotedExternalId: data.quotedExternalId ?? null });
+  const msg = buildSimulatedMessage({ phone: member.whatsappPhone, chatId, text: data.text ?? null, media, quotedExternalId: data.quotedExternalId ?? null });
   const result = await ingestMessage({ id: conn.id, householdId: ctx.householdId }, msg);
 
   let mode: "worker" | "inline" | null = null;

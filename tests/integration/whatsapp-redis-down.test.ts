@@ -36,7 +36,7 @@ describe("WhatsApp: Redis indisponível", () => {
       data: { whatsappPhone: "+5581999990002", whatsappAuthorized: true, whatsappConsentAt: new Date() },
     });
     const conn = await prisma.whatsAppConnection.create({ data: { householdId: fam.householdId, provider: "BAILEYS", status: "CONNECTED" } });
-    await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: "g@g.us", name: "Finanças", isAuthorized: true } });
+    await prisma.whatsAppGroup.create({ data: { householdId: fam.householdId, connectionId: conn.id, externalId: "g@g.us", name: "Finanças", isAuthorized: true, defaultNature: "PERSONAL" } });
 
     const started = Date.now();
     const res = await ingestMessage(

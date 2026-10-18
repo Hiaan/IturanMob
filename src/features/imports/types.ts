@@ -70,7 +70,7 @@ export interface ImportRowTransfer {
 export interface ImportRowNature {
   value: "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
   /** MANUAL: escolhida na prévia; RULE: sugerida por regra; DEFAULT: Pessoal. */
-  source: "MANUAL" | "RULE" | "DEFAULT";
+  source: "MANUAL" | "RULE" | "GROUP" | "DEFAULT";
   ask: boolean;
 }
 

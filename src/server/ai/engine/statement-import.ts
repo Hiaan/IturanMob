@@ -56,6 +56,8 @@ export async function processPdfStatement(
   att: Attachment,
   caption: string,
   fail: Fail,
+  /** PDF enviado no grupo da empresa (ou com legenda "empresa"): linhas sem regra vêm como Empresa. */
+  opts: { defaultNature?: "BUSINESS" | null } = {},
 ): Promise<ActionOutcome | null> {
   if (!can(ctx.role, "data:import")) {
     return { status: "IGNORED", intent: "PDF_STATEMENT", replies: ["Seu perfil não pode importar extratos. Peça a um administrador da família."], transactionIds: [], detail: "sem permissão de importação" };
@@ -72,6 +74,7 @@ export async function processPdfStatement(
       format: "PDF",
       messageId: message.id,
       origin: { channel: "WHATSAPP", chatId: message.chatId, messageId: message.id },
+      defaultNature: opts.defaultNature ?? null,
       ...(await scopeFromCaption(ctx, caption)),
     });
   } catch (err) {

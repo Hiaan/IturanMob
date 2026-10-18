@@ -291,7 +291,7 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
       // Mesmo fluxo do texto: natureza pela mensagem ("empresa").
       const [tx] = await txsOf(fam.householdId);
       expect(tx).toMatchObject({ amountCents: 75_000, source: "WHATSAPP_AUDIO", scope: "BUSINESS" });
-      expect(sent.reply).toContain("Marcado como *Empresa*");
+      expect(sent.reply).toContain("🏢 Empresa");
       // Desligar a tarefa vale mais que o servidor.
       await updateTaskConfigs(fam.ctx, { items: [{ task: "TRANSCRIPTION", provider: "LOCAL", model: "", enabled: false }] });
       const off = await sendMessage(fam, { type: "AUDIO", media: audio() });

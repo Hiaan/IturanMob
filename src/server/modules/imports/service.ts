@@ -153,6 +153,8 @@ export interface ImportBatchMeta {
   scopeMismatch?: boolean;
   /** Prévia criada a partir de um PDF enviado no WhatsApp (confirmação pela conversa). */
   origin?: { channel: "WHATSAPP"; chatId: string; messageId: string } | null;
+  /** Natureza padrão das linhas sem regra (ex.: PDF enviado no grupo da empresa). */
+  defaultNature?: "BUSINESS" | null;
   commit?: {
     created: number;
     matched: number;
@@ -185,6 +187,8 @@ interface RowRawData {
   /** Natureza sugerida por regra (Pessoal/Empresa/Repasse) e pedido de escolha ("perguntar"). */
   natureSuggested?: Nature | null;
   natureAsk?: boolean;
+  /** Sugestão veio da natureza do grupo do WhatsApp (não de regra). */
+  natureFromGroup?: boolean;
 }
 
 interface PreparedRow {
@@ -352,21 +356,29 @@ async function crossCurrencyMessage(r: PreparedRow, name: string, scopeCurrency:
  * Natureza sugerida pelas regras (Pessoal/Empresa/Repasse) e linhas em que uma regra pede para
  * escolher (ex.: anúncios no cartão que podem ser da empresa, de cliente ou pessoais).
  */
-async function annotateNature(ctx: ServiceContext, rows: PreparedRow[], scope: { accountId: string | null; creditCardId: string | null }, warnings: string[]) {
+async function annotateNature(
+  ctx: ServiceContext,
+  rows: PreparedRow[],
+  scope: { accountId: string | null; creditCardId: string | null },
+  warnings: string[],
+  defaultNature: "BUSINESS" | null = null,
+) {
   const candidates = rows.filter((r) => (r.raw.kind === "EXPENSE" || r.raw.kind === "INCOME") && r.amountCents && (r.status === "NEW" || r.status === "MATCHED"));
   if (!candidates.length) return;
   const rules = await prisma.financialRule.findMany({
     where: { householdId: ctx.householdId, active: true, setTransferAccountId: null, OR: [{ setExcludeFromReports: true }, { setScope: { not: null } }, { askNature: true }] },
   });
-  if (!rules.length) return;
+  if (!rules.length && !defaultNature) return;
   let asks = 0;
   for (const r of candidates) {
     const subject = { description: r.description, merchant: null, amountCents: Math.abs(r.amountCents!), type: r.raw.kind, accountId: scope.accountId, creditCardId: scope.creditCardId };
     const ex = findMatchingRule(rules.filter((x) => x.setExcludeFromReports), subject);
     const sc = ex ? null : findMatchingRule(rules.filter((x) => x.setScope), subject);
     const ask = ex || sc ? null : findMatchingRule(rules.filter((x) => x.askNature), subject);
-    r.raw.natureSuggested = ex ? "PASSTHROUGH" : sc?.setScope === "BUSINESS" ? "BUSINESS" : sc ? "PERSONAL" : null;
+    // Regra vence a natureza do grupo de origem.
+    r.raw.natureSuggested = ex ? "PASSTHROUGH" : sc?.setScope === "BUSINESS" ? "BUSINESS" : sc ? "PERSONAL" : ask ? null : defaultNature;
     r.raw.natureAsk = Boolean(ask);
+    r.raw.natureFromGroup = !ex && !sc && !ask && Boolean(defaultNature);
     if (ask && r.status === "NEW") asks++;
   }
   if (asks) warnings.push(`${asks} lançamento(s) pedem a natureza (Pessoal, Empresa ou Repasse de cliente): escolha na prévia ou depois em Pendências.`);
@@ -1036,6 +1048,7 @@ async function buildRows(
     parsed?: ParseResult;
     fileName?: string;
     pdfAi?: ImportBatchMeta["pdfAi"];
+    defaultNature?: ImportBatchMeta["defaultNature"];
   },
 ) {
   const parsed = opts.parsed ?? (await parseImportFile(format, content, { ...opts, householdId: ctx.householdId, timezone: ctx.timezone }));
@@ -1058,7 +1071,7 @@ async function buildRows(
   const prepared = await prepareRows(ctx, scope, parsed.rows, { invertSigns: opts.invertSigns, warnings });
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
   await annotateTransfers(ctx, rows, warnings, scope.accountId);
-  await annotateNature(ctx, rows, scope, warnings);
+  await annotateNature(ctx, rows, scope, warnings, opts.defaultNature ?? null);
   if (pdfMismatch) {
     warnings.unshift(pdfMismatch);
     for (const r of rows) r.selected = false;
@@ -1109,7 +1122,7 @@ export async function createImportPreview(ctx: ServiceContext, rawInput: ImportP
 /** Prévia a partir do conteúdo binário (upload multipart). */
 export async function createImportPreviewFromBuffer(
   ctx: ServiceContext,
-  input: { fileName: string; content: Buffer; messageId?: string | null; origin?: ImportBatchMeta["origin"] } & ImportPreviewFileOptions,
+  input: { fileName: string; content: Buffer; messageId?: string | null; origin?: ImportBatchMeta["origin"]; defaultNature?: ImportBatchMeta["defaultNature"] } & ImportPreviewFileOptions,
 ) {
   assertCan(ctx, "data:import");
   const opts = importPreviewFileSchema.parse(input);
@@ -1138,9 +1151,11 @@ export async function createImportPreviewFromBuffer(
     invertSigns: opts.invertSigns,
     parsed,
     fileName,
+    defaultNature: input.defaultNature ?? null,
   });
   if (autoScope) meta.warnings.unshift(autoScope);
   meta.origin = input.origin ?? null;
+  meta.defaultNature = input.defaultNature ?? null;
   const overlap = await overlappingPreviews(ctx, scope, rows);
   if (overlap) meta.warnings.push(overlap);
 
@@ -1220,7 +1235,7 @@ function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency:
       raw.kind === "EXPENSE" || raw.kind === "INCOME"
         ? {
             value: (raw.nature ?? raw.natureSuggested ?? "PERSONAL") as Nature,
-            source: raw.nature ? ("MANUAL" as const) : raw.natureSuggested ? ("RULE" as const) : ("DEFAULT" as const),
+            source: raw.nature ? ("MANUAL" as const) : raw.natureSuggested ? (raw.natureFromGroup ? ("GROUP" as const) : ("RULE" as const)) : ("DEFAULT" as const),
             ask: Boolean(raw.natureAsk && !raw.nature),
           }
         : null,
@@ -1481,9 +1496,11 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
     excludeBatchId: batchId,
     fileName: batch.fileName,
     pdfAi: meta.pdfAi ?? null,
+    defaultNature: meta.defaultNature ?? null,
   });
   newMeta.storageKey = meta.storageKey;
   newMeta.origin = meta.origin ?? null;
+  newMeta.defaultNature = meta.defaultNature ?? null;
   const kept = meta.warnings.filter((w) => w.startsWith("Este arquivo já foi importado") || /escolhid[oa] automaticamente pelo banco do PDF/.test(w));
   if (kept.length) newMeta.warnings.unshift(...kept);
   await withTransaction(async (db) => {
@@ -1683,7 +1700,14 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                 // Natureza escolhida na prévia vale sobre as regras; sem escolha, as regras decidem.
                 ...(raw.nature && (raw.kind === "EXPENSE" || raw.kind === "INCOME") ? { nature: raw.nature } : {}),
               },
-              { source: "IMPORT", importBatchId: batchId, checkDuplicates: false, db },
+              {
+                source: "IMPORT",
+                importBatchId: batchId,
+                checkDuplicates: false,
+                db,
+                // PDF do grupo da empresa: sem escolha nem regra, entra como Empresa.
+                natureFallback: raw.natureFromGroup && raw.natureSuggested === "BUSINESS" ? { scope: "BUSINESS" } : null,
+              },
             );
             await db.importRow.update({ where: { id: row.id }, data: { createdTransactionId: res.transaction.id } });
             return true;
