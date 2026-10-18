@@ -287,7 +287,7 @@ Natureza de um lançamento novo vindo do WhatsApp (texto, áudio, comprovante), 
    mensagem explícita sempre vence a regra.
 3. **Natureza do grupo** (Pessoa física ou Empresa).
 4. **Grupo não atribuído**: o bot pergunta *é de pessoa física ou da empresa?* — *1* (PF), *2*
-   (Empresa), *cliente* (repasse) ou *pular* (fica em Pendências). Em Configurações → WhatsApp dá para
+   (Empresa), *cliente* (repasse) ou *pular* (fica em Pendências). Em Integrações → WhatsApp (lista de grupos) dá para
    usar o **padrão da família** em vez de perguntar (`HouseholdSettings.whatsappUnassignedNature`:
    `ASK` | `FAMILY_DEFAULT`).
 

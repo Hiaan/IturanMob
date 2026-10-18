@@ -277,9 +277,13 @@ e anuncia no próprio cartão).
 - Cada receita/despesa tem natureza **Pessoal** (padrão), **Empresa** ou **Repasse** (o desconsiderado
   da seção 10.5). Internamente: `Transaction.scope` (PERSONAL/BUSINESS) + a marca de desconsiderado.
 - **Nunca muda** saldo, ledger, fatura, limite, projeção de caixa ou contas a pagar — só relatórios.
-- Painel, relatórios, orçamentos, categorias e assistente usam o recorte **Pessoal | Empresa | Tudo**:
-  informado na tela ou, sem informar, o padrão da família (`HouseholdSettings.defaultReportScope`,
-  padrão Pessoal — famílias sem nada marcado não veem diferença). Repasse fica fora de todos.
+- Painel, relatórios, orçamentos, categorias e assistente usam o recorte **Pessoa física | Empresa |
+  Tudo**: informado na tela ou, sem informar, o padrão da família (`HouseholdSettings.defaultReportScope`,
+  padrão Pessoa física — famílias sem nada marcado não veem diferença). Repasse fica fora de todos.
+- Painel, Lançamentos, Relatórios e Gastos fixos têm a barra fixa "Pessoa física | Empresa | Tudo" no
+  topo; a última escolha fica lembrada no navegador (todas as telas e abas em sincronia) e um link com
+  `?scope=` vence. Em Lançamentos, Pessoa física/Empresa mostram só receitas e despesas daquela natureza;
+  transferências e pagamentos de fatura aparecem em Tudo.
 - O painel e o relatório mensal mostram o **resultado da empresa** (receitas − despesas Empresa) à parte.
 - Regras: ação "definir natureza" (Pessoal/Empresa), "desconsiderar" (Repasse) ou **"perguntar"**
   (ex.: "Facebk" no cartão Nubank acima de R$ 150): o lançamento novo fica marcado "escolher natureza",
