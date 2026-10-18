@@ -16,6 +16,11 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(40, "ENCRYPTION_KEY deve ser 32 bytes em base64"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   ALLOW_REGISTRATION: bool(false),
+  /**
+   * E-mails (separados por vírgula) do administrador da instância: quem pode gerar convites de uso
+   * único para criar uma NOVA família. Vazio = o proprietário da primeira família criada.
+   */
+  INSTANCE_ADMIN_EMAILS: z.string().default(""),
   SECURE_COOKIES: bool(false),
   DEFAULT_TIMEZONE: z.string().default("America/Recife"),
   STORAGE_DIR: z.string().default("./storage"),

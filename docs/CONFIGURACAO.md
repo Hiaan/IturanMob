@@ -20,6 +20,7 @@ A configuração vem de dois lugares:
 | `ENCRYPTION_KEY` | sim | 32 bytes em base64 (`openssl rand -base64 32`). Criptografa as credenciais salvas. |
 | `POSTGRES_PASSWORD` | Docker | Senha do banco criado pelo compose (use só letras e números). |
 | `ALLOW_REGISTRATION` | não | `false` (padrão): só o primeiro cadastro é livre; depois, apenas por convite. |
+| `INSTANCE_ADMIN_EMAILS` | não | E-mails (vírgula) de quem pode gerar convites de **nova família** (uso único, 7 dias). Vazio = proprietário da primeira família. |
 | `DEFAULT_TIMEZONE` | não | `America/Recife`. Cada família pode alterar. |
 
 ## Inteligência artificial

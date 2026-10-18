@@ -21,7 +21,7 @@ const schema = z.object({
     .refine((p) => [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length >= 3, "Use ao menos três tipos: minúsculas, maiúsculas, números e símbolos"),
 });
 
-export function RegisterForm({ firstRun }: { firstRun: boolean }) {
+export function RegisterForm({ firstRun, invite }: { firstRun: boolean; invite?: { token: string; expiresAt: string } }) {
   const [error, setError] = useState<string | null>(null);
   const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema), defaultValues: { householdName: "", name: "", relation: "", email: "", password: "" } });
   const e = form.formState.errors;
@@ -29,7 +29,7 @@ export function RegisterForm({ firstRun }: { firstRun: boolean }) {
   const onSubmit = form.handleSubmit(async (values) => {
     setError(null);
     try {
-      await api.post("/api/auth/register", { ...values, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      await api.post("/api/auth/register", { ...values, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(invite ? { inviteToken: invite.token } : {}) });
       window.location.href = "/?boasvindas=1";
     } catch (err) {
       setError(errorMessage(err));
@@ -38,10 +38,20 @@ export function RegisterForm({ firstRun }: { firstRun: boolean }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">{firstRun ? "Configure sua família" : "Criar nova família"}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">{firstRun ? "Configure sua família" : invite ? "Convite para uma nova família" : "Criar nova família"}</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        {firstRun ? "Este é o primeiro acesso. Você será o proprietário e poderá convidar seu cônjuge depois." : "Crie uma nova família e convide os participantes."}
+        {firstRun
+          ? "Este é o primeiro acesso. Você será o proprietário e poderá convidar seu cônjuge depois."
+          : invite
+            ? "Crie a sua família no Finance AI. Ela é separada: ninguém de outra família vê os seus dados, e você não vê os dela."
+            : "Crie uma nova família e convide os participantes."}
       </p>
+      {invite && (
+        <p className="mt-3 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Convite de uso único, válido até {new Date(invite.expiresAt).toLocaleDateString("pt-BR")}. Depois de criar, conecte o WhatsApp da sua família em{" "}
+          <strong>WhatsApp → Conectar</strong> (QR Code) e convide quem mora com você em <strong>Configurações → Membros</strong>.
+        </p>
+      )}
       <form onSubmit={onSubmit} method="post" className="mt-8 grid gap-4" noValidate>
         <Field label="Nome da família" htmlFor="householdName" error={e.householdName?.message}>
           <Input id="householdName" placeholder="Ex.: Família Silva" {...form.register("householdName")} />

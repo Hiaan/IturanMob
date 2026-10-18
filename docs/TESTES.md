@@ -80,6 +80,10 @@ Outras coberturas além dos 22 cenários:
   origem) e `nature-tokens.test.ts` (frases com empresa/PJ/PF/pessoa física);
 - criar categoria fácil: `whatsapp-category-commands.test.ts` (comandos, oferta sim/não, criação rápida
   que reaproveita a existente/arquivada) e `category-commands.test.ts` (frases);
+- convite de nova família: `household-invites.test.ts` (administrador da instância, uso único com
+  cadastro fechado, cadastros simultâneos, expirado/revogado, dados separados);
+  `whatsapp-two-connections.test.ts` (duas conexões Baileys no mesmo worker sem misturar QR,
+  credenciais, grupos e mensagens);
 - gastos fixos: `fixed-expenses.test.ts` (recorrências, parcelas em andamento conferidas com as parcelas
   do banco, projeção, recortes Pessoal/Empresa/Tudo sem Repasse, fatura por categoria e por natureza,
   cartões atual/anterior, filtro por forma de pagamento/cartão).

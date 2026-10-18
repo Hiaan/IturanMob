@@ -85,6 +85,22 @@ Com `APP_URL` em `https://`, os cookies passam a ser `Secure` automaticamente e 
 2. Convide os demais membros em Configurações → Membros.
 3. Configure o WhatsApp e a IA. A comparação entre a Cloud API oficial (sem grupos) e o QR Code (grupo, não oficial) está em [CONFIGURACAO.md](CONFIGURACAO.md#whatsapp).
 
+### Outra família na mesma instalação (convite de nova família)
+
+Com `ALLOW_REGISTRATION=false`, ninguém cria família sozinho. O **administrador da instância** gera em
+**Configurações → Família → Convidar nova família** um link de **uso único** que vale **7 dias**
+(`/cadastro?convite=…`). Quem abre cria UMA família nova, separada (outros dados, outros membros,
+outro WhatsApp). O link só aparece na hora de gerar (no banco fica o hash); dá para revogar enquanto
+não for usado.
+
+- Administrador da instância: os e-mails de `INSTANCE_ADMIN_EMAILS` (separados por vírgula); sem a
+  variável, o proprietário da primeira família criada.
+- A família nova conecta o próprio WhatsApp pelo QR Code. **Um único worker** atende todas as
+  famílias ao mesmo tempo (cada uma com sua sessão, QR, credenciais criptografadas e grupos —
+  testado em `whatsapp-two-connections.test.ts`). Cada conexão Baileys usa ~50–100 MB de RAM no
+  worker; com o Whisper ligado, some isso à memória do Whisper.
+- Os riscos do Baileys (não oficial, sujeito a bloqueio/incompatibilidade) valem para cada número.
+
 Para o webhook da **WhatsApp Cloud API**, cadastre no painel da Meta:
 
 - URL: `https://financas.seudominio.com.br/api/webhooks/whatsapp`
@@ -183,8 +199,9 @@ derivados de forma idempotente. Os dois também estão disponíveis na tela **Co
 
 ## 9. Escala e limites
 
-- **Worker: sempre 1 réplica.** Uma sessão de WhatsApp não pode ficar aberta em dois processos. As
-  filas aceitam mais concorrência via `WORKER_CONCURRENCY`.
+- **Worker: sempre 1 réplica.** Uma sessão de WhatsApp não pode ficar aberta em dois processos. O
+  mesmo worker mantém as conexões de todas as famílias. As filas aceitam mais concorrência via
+  `WORKER_CONCURRENCY`.
 - O `web` é stateless (sessões no banco, eventos no Redis) e pode ter mais réplicas atrás do proxy,
   desde que compartilhe o volume `storage`.
 - Limites: corpo JSON até 2 MB, arquivos de importação até 15 MB (multipart; o middleware do Next.js

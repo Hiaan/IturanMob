@@ -9,6 +9,7 @@ import { seedDefaultCategories } from "../categories/seed";
 import { audit } from "../audit/service";
 import { env } from "../../env";
 import { normalizePhoneInput } from "@/lib/phone";
+import { claimHouseholdInvite, householdInviteStatus } from "../instance/invites";
 
 export const MEMBER_COLORS = ["#0f766e", "#1d4ed8", "#be185d", "#7c3aed", "#c2410c", "#0369a1", "#4d7c0f"];
 
@@ -41,6 +42,8 @@ export const registerSchema = z.object({
   password: z.string().min(1).max(200),
   relation: z.string().trim().max(40).optional(),
   timezone: z.string().max(64).optional(),
+  /** Convite de uso único para criar uma nova família com o cadastro público fechado. */
+  inviteToken: z.string().max(200).optional(),
 });
 
 export async function isFirstRun(): Promise<boolean> {
@@ -57,15 +60,20 @@ export async function registerHousehold(input: z.infer<typeof registerSchema>) {
   const data = registerSchema.parse(input);
   const pwError = passwordPolicyError(data.password);
   if (pwError) throw new ValidationError(pwError, { field: "password" });
-  if (!(await registrationOpen())) throw new ForbiddenError("O cadastro público está desativado. Peça um convite.");
+  // Cadastro fechado: só com convite de nova família válido (consumido na mesma transação).
+  const useInvite = !(await registrationOpen());
+  if (useInvite && !data.inviteToken) throw new ForbiddenError("O cadastro público está desativado. Peça um convite.");
+  if (useInvite && !(await householdInviteStatus(data.inviteToken)).valid) throw new ForbiddenError("Convite inválido, expirado ou já usado. Peça um novo link a quem enviou o convite.");
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) throw new ConflictError("Já existe uma conta com este e-mail.");
   const passwordHash = await hashPassword(data.password);
   const tz = data.timezone && isValidTimezone(data.timezone) ? data.timezone : env().DEFAULT_TIMEZONE;
 
   return withTransaction(async (db) => {
+    const inviteId = useInvite ? await claimHouseholdInvite(db, data.inviteToken!) : null;
     const user = await db.user.create({ data: { email: data.email, name: data.name, passwordHash } });
     const household = await db.household.create({ data: { name: data.householdName, timezone: tz } });
+    if (inviteId) await db.householdInvite.update({ where: { id: inviteId }, data: { usedByUserId: user.id, createdHouseholdId: household.id } });
     await db.householdSettings.create({ data: { householdId: household.id } });
     const member = await db.householdMember.create({
       data: {
@@ -93,6 +101,7 @@ export async function registerHousehold(input: z.infer<typeof registerSchema>) {
         action: "CREATE",
         entityType: "Household",
         entityId: household.id,
+        ...(inviteId ? { metadata: { via: "HouseholdInvite", inviteId } } : {}),
       },
     });
     return { user, household, member };

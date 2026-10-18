@@ -588,6 +588,26 @@ model HouseholdMember {
   @@index([whatsappPhone])
 }
 
+/// Convite de uso único para criar UMA nova família (outra conta, dados separados) com o cadastro
+/// público fechado. Gerado pelo administrador da instância; vale 7 dias.
+model HouseholdInvite {
+  id                     String    @id @default(cuid())
+  tokenHash              String    @unique
+  /// Rótulo só para quem gerou ("Família do Ícaro"); o convidado não vê.
+  label                  String?
+  createdByUserId        String
+  /// Família de onde o convite foi gerado (auditoria).
+  createdFromHouseholdId String
+  expiresAt              DateTime
+  usedAt                 DateTime?
+  usedByUserId           String?
+  createdHouseholdId     String?
+  revokedAt              DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@index([createdByUserId])
+}
+
 model Invitation {
   id          String     @id @default(cuid())
   householdId String
