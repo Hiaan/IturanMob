@@ -58,6 +58,24 @@ describe("normalizeTranscript", () => {
     expect(normalizeTranscript("sem vocabulário", { accounts: [], names: [] })).toBe("sem vocabulário");
   });
 
+  it("mesma palavra como conta e como nome (ex.: 'Nubank' também nas descrições) não é ambiguidade", () => {
+    const t = "Almoço 45 reais no cartão no banque, pessoal!";
+    expect(normalizeTranscript(t, { accounts: ["Nubank", "Inter", "C6", "Wise"], names: [] })).toBe("Almoço 45 reais no cartão Nubank, pessoal!");
+    expect(normalizeTranscript(t, { accounts: ["Nubank", "Inter", "C6", "Wise"], names: ["Guilherme", "Ícaro", "Nubank"] })).toBe("Almoço 45 reais no cartão Nubank, pessoal!");
+  });
+
+  it("centavos mal ouvidos: 'D87-50', 'D87,50', 'de 87 e 50' → 87,50; '100 e 50 de pão' continua dois valores", () => {
+    const cents = (t: string) => extractAmounts(normalizeTranscript(t, vocab)).map((a) => a.cents);
+    expect(normalizeTranscript("almoço com o Guilherme D87-50", vocab)).toBe("almoço com o Guilherme de 87,50");
+    expect(cents("almoço com o Guilherme D87-50")).toEqual([8_750]);
+    expect(cents("almoço D87,50 no nubank")).toEqual([8_750]);
+    expect(cents("almoço com o Guilherme de 87 e 50")).toEqual([8_750]);
+    expect(cents("almoço de 87 reais e 50 centavos")).toEqual([8_750]);
+    expect(cents("almoço de 87 e 50.")).toEqual([8_750]);
+    expect(cents("gasolina 100 e 50 de pão")).toEqual([10_000, 5_000]);
+    expect(cents("uber R$ 87,50")).toEqual([8_750]);
+  });
+
   it("chave sonora", () => {
     expect(soundKey("no banque")).toBe(soundKey("Nubank"));
     expect(soundKey("no bank")).toBe(soundKey("Nubank"));

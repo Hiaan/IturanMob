@@ -130,7 +130,7 @@ Feito para dividir um servidor pequeno (ex.: 4 GB / 2 vCPU) com outros serviços
   mais usadas, por uso, ~200 tokens) — só no servidor próprio; para provedor externo vai só o texto
   genérico. Depois da transcrição, o texto é corrigido antes do interpretador: "em presa" → "empresa",
   "personal" → "pessoal", "no bank"/"no banque" → "Nubank", "proí caro" → "pro Ícaro" (só quando o
-  som casa com um único nome conhecido).
+  som casa com um único nome conhecido) e centavos "D87-50", "D87,50" ou "de 87 e 50" → "87,50".
 
 Medido com o modelo de verdade (`server.py` com estas versões, preso a 1 núcleo, áudios em pt-BR em
 Opus 24k como os do WhatsApp). **A CPU da medição é mais rápida que a do Lightsail: espere de 1,5 a 2×

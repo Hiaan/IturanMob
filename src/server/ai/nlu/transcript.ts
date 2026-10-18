@@ -5,9 +5,10 @@ import { normalizeText } from "@/lib/utils";
  * o Whisper costuma ouvir errado e que decidem o lançamento:
  * - natureza: "em presa" → "empresa"; "personal" no fim/"é personal" → "pessoal";
  * - contas e cartões da família por som parecido: "no bank", "no banque" → "Nubank";
- * - nomes conhecidos (membros, clientes, pessoas das regras): "proí caro" → "pro Ícaro".
+ * - nomes conhecidos (membros, clientes, pessoas das regras): "proí caro" → "pro Ícaro";
+ * - centavos: "D87-50", "D87,50" e "87 e 50" → "87,50".
  * Nada é inventado: quando um trecho casa com mais de um nome, fica como está (o fluxo normal
- * pergunta o que faltar). Valores nunca são alterados.
+ * pergunta o que faltar). Valores só mudam de forma ("D87-50" → "de 87,50"), nunca de número.
  */
 
 export interface TranscriptVocabulary {
@@ -62,7 +63,7 @@ interface Candidate {
   key: string;
   /** Texto que entra no lugar do trecho. */
   replacement: string;
-  /** O que identifica a coisa (para detectar ambiguidade). */
+  /** A palavra trocada (a mesma palavra como conta e como nome não é ambiguidade). */
   target: string;
   /** Aceita uma letra de diferença (marcas longas). */
   fuzzy: boolean;
@@ -74,14 +75,14 @@ function candidates(vocab: TranscriptVocabulary): Candidate[] {
     const name = raw.trim();
     const key = soundKey(name);
     if (key.length < 4) continue;
-    out.push({ key, replacement: name, target: `acc:${normalizeText(name)}`, fuzzy: key.length >= 6 });
+    out.push({ key, replacement: name, target: normalizeText(name), fuzzy: key.length >= 6 });
   }
   for (const raw of vocab.names) {
     const name = raw.trim();
     const key = soundKey(name);
     if (key.length < 4) continue;
-    out.push({ key, replacement: name, target: `name:${normalizeText(name)}`, fuzzy: false });
-    for (const p of NAME_PREFIXES) out.push({ key: soundKey(`${p}${name}`), replacement: `${p} ${name}`, target: `name:${normalizeText(name)}`, fuzzy: false });
+    out.push({ key, replacement: name, target: normalizeText(name), fuzzy: false });
+    for (const p of NAME_PREFIXES) out.push({ key: soundKey(`${p}${name}`), replacement: `${p} ${name}`, target: normalizeText(name), fuzzy: false });
   }
   return out;
 }
@@ -96,8 +97,19 @@ function fixNature(text: string): string {
     .replace(/([,;:.-]\s*)personal(\s*[.!?]?\s*)$/iu, "$1pessoal$2");
 }
 
+/**
+ * Valor com centavos mal ouvido: "D87-50"/"D87,50" ("de 87,50" colado) → "de 87,50"; "de 87 e 50"
+ * (oitenta e sete e cinquenta) → "de 87,50". "100 e 50 de pão" continua sendo dois valores.
+ */
+function fixMoney(text: string): string {
+  return text
+    .replace(/(^|[\s(])D\s?(\d{1,6})[-.,](\d{2})(?!\d)/gu, "$1de $2,$3")
+    .replace(/(^|[\s(])(de|R\$)\s?(\d{1,6})-(\d{2})(?!\d)/giu, "$1$2 $3,$4")
+    .replace(/(^|[\s(])(\d{1,6}) (?:reais )?e (\d{2})(?: centavos)?(?!\d|[,.]\d)(?!\s+(?:de|do|da|dos|das)\s)/gu, "$1$2,$3");
+}
+
 export function normalizeTranscript(text: string, vocab: TranscriptVocabulary): string {
-  let out = fixNature(text);
+  let out = fixMoney(fixNature(text));
   const cands = candidates(vocab);
   if (!cands.length) return out;
 
