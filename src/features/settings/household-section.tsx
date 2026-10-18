@@ -14,6 +14,7 @@ import { qk } from "@/lib/client/query-keys";
 import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { useCan } from "@/features/me/use-me";
 import { NATURE_KEEPS_BALANCE, REPORT_SCOPES, REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS, REPORT_SCOPE_PASSTHROUGH_NOTE } from "@/features/transactions/nature";
+import { HouseholdInvitesCard } from "./household-invites-card";
 import { useHousehold, useUpdateSettings } from "./use-household";
 
 const TIMEZONES = [
@@ -158,6 +159,7 @@ export function HouseholdSection() {
           {!canManage && <p className="text-xs text-muted-foreground">Só quem administra a família pode mudar o recorte padrão.</p>}
         </CardContent>
       </Card>
+      <HouseholdInvitesCard className="lg:col-span-2" />
     </div>
   );
 }

@@ -41,7 +41,7 @@ export function RegisterForm({ firstRun, invite }: { firstRun: boolean; invite?:
       <h1 className="text-2xl font-semibold tracking-tight">{firstRun ? "Configure sua família" : invite ? "Convite para uma nova família" : "Criar nova família"}</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {firstRun
-          ? "Este é o primeiro acesso. Você será o proprietário e poderá convidar seu cônjuge depois."
+          ? "Este é o primeiro acesso. Sua conta fica com o papel de proprietário da família e pode convidar quem mora com você depois."
           : invite
             ? "Crie a sua família no Finance AI. Ela é separada: ninguém de outra família vê os seus dados, e você não vê os dela."
             : "Crie uma nova família e convide os participantes."}

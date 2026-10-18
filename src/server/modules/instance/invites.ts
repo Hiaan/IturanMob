@@ -97,7 +97,14 @@ export async function createHouseholdInvite(ctx: ServiceContext, input: z.input<
   });
   await audit(ctx, { action: "CREATE", entityType: "HouseholdInvite", entityId: row.id, after: { label: row.label, expiresAt: row.expiresAt } });
   const [item] = await dto([row]);
-  return { ...item!, url: `${env().APP_URL}/cadastro?convite=${encodeURIComponent(token)}` };
+  const appUrl = env().APP_URL;
+  const local = /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(appUrl);
+  return {
+    ...item!,
+    url: `${appUrl}/cadastro?convite=${encodeURIComponent(token)}`,
+    /** APP_URL ainda no padrão local: o link não abre em outro aparelho. */
+    warning: local ? `O link usa ${appUrl} (APP_URL no .env). Para abrir em outro aparelho, ajuste APP_URL para o endereço público e gere o link de novo.` : null,
+  };
 }
 
 /** Lista para a tela (quem não é administrador recebe `canInvite: false` e nenhuma linha). */

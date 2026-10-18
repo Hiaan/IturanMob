@@ -66,6 +66,8 @@ describe("Convite para nova família", () => {
     const invite = await createHouseholdInvite(admin.ctx, { label: "Família do Ícaro" });
     expect(invite).toMatchObject({ status: "ACTIVE", label: "Família do Ícaro" });
     expect(invite.url).toMatch(/\/cadastro\?convite=/);
+    // APP_URL local (padrão): o link não abre em outro aparelho — a tela avisa.
+    expect(invite.warning).toMatch(/APP_URL/);
     const token = tokenOf(invite.url);
     expect(invite.expiresAt.getTime() - Date.now()).toBeGreaterThan(6.9 * 86_400_000);
     expect(invite.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(7 * 86_400_000);
