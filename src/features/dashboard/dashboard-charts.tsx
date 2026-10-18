@@ -23,6 +23,7 @@ import { useCards } from "@/features/finance/hooks";
 import { BusinessBadge } from "@/features/transactions/nature-control";
 import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { useFixedExpenses } from "@/features/fixed-expenses/use-fixed-expenses";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
 import { filtersToParams, type DashboardFilters } from "./use-filters";
 
 const SERIES = {
@@ -32,8 +33,10 @@ const SERIES = {
   cumulative: "var(--series-7)",
 };
 
+/** Só consulta quando o recorte da barra já é conhecido (evita buscar tudo duas vezes ao abrir). */
 function useAnalytics<T>(name: string, path: string, params: Record<string, unknown>) {
-  return useQuery({ queryKey: qk.analytics(name, params), queryFn: () => api.get<T>(path, params), placeholderData: keepPreviousData });
+  const { ready } = useReportScopePreference();
+  return useQuery({ queryKey: qk.analytics(name, params), queryFn: () => api.get<T>(path, params), placeholderData: keepPreviousData, enabled: ready });
 }
 
 const MAX_CATEGORIES = 8;
@@ -698,7 +701,8 @@ export function BalanceEvolution({ filters }: { filters: DashboardFilters }) {
 
 /** Contas fixas (recorrências de despesa ativas) no recorte do painel; o detalhe e a projeção ficam em Gastos fixos. */
 export function RecurringExpenses({ filters }: { filters: DashboardFilters }) {
-  const q = useFixedExpenses(filters.scope);
+  const { ready } = useReportScopePreference();
+  const q = useFixedExpenses(filters.scope, 12, ready);
   const data = q.data?.recurring;
   const items = data?.items ?? [];
   const scope = q.data?.scope;
