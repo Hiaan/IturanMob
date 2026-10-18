@@ -3,7 +3,8 @@ Servidor de transcrição do Finance AI (faster-whisper), compatível com a rota
 OpenAI: POST /v1/audio/transcriptions (multipart: file, model, language, prompt, response_format).
 
 Feito para servidor pequeno, dividido com outros serviços:
-- CPU, int8, beam 1, idioma pt e 1 thread por padrão;
+- CPU, int8, beam 5, idioma pt e 1 thread por padrão (beam 1 é ~20% mais rápido, mas o base erra
+  "empresa" e nomes; ajuste em WHISPER_BEAM_SIZE);
 - UMA transcrição por vez (as demais esperam na fila);
 - o modelo é baixado no primeiro uso (cache no volume /models), nunca na partida;
 - o modelo sai da memória depois de WHISPER_IDLE_UNLOAD_SECONDS sem uso (padrão 10 min);
@@ -39,7 +40,7 @@ def _int(name: str, default: int) -> int:
 MODEL = os.environ.get("WHISPER_MODEL", "base").strip() or "base"
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 CPU_THREADS = max(1, _int("WHISPER_CPU_THREADS", 1))
-BEAM_SIZE = max(1, _int("WHISPER_BEAM_SIZE", 1))
+BEAM_SIZE = max(1, _int("WHISPER_BEAM_SIZE", 5))
 LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "pt").strip() or None
 IDLE_UNLOAD_SECONDS = _int("WHISPER_IDLE_UNLOAD_SECONDS", 600)
 MAX_AUDIO_SECONDS = _int("WHISPER_MAX_AUDIO_SECONDS", 330)

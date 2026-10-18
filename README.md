@@ -114,8 +114,9 @@ motivo curto.
 
 Feito para dividir um servidor pequeno (ex.: 4 GB / 2 vCPU) com outros serviços:
 
-- CPU, `int8`, beam 1, idioma `pt`, **1 thread** e `cpus: 1.0` — nunca usa os 2 núcleos; prioridade
-  baixa (`nice` + `cpu_shares`) e, sob falta de memória, é o primeiro a ser encerrado (reinicia sozinho).
+- CPU, `int8`, beam 5 (`WHISPER_BEAM_SIZE`), idioma `pt`, **1 thread** e `cpus: 1.0` — nunca usa os 2
+  núcleos; prioridade baixa (`nice` + `cpu_shares`) e, sob falta de memória, é o primeiro a ser
+  encerrado (reinicia sozinho).
 - Memória fixa em `WHISPER_MEM_LIMIT` (padrão `900m`), sem swap.
 - **Uma transcrição por vez** (no worker e no servidor); as outras esperam na fila.
 - Nada é baixado na partida: o modelo vem no **primeiro áudio** e fica no volume `whisper-cache`
@@ -125,21 +126,27 @@ Feito para dividir um servidor pequeno (ex.: 4 GB / 2 vCPU) com outros serviços
 - Tempo limite de 120 s por transcrição (`TRANSCRIPTION_TIMEOUT_MS`); áudio acima de 5 min
   (`TRANSCRIPTION_MAX_SECONDS=300`) recebe "Esse áudio tem X min — passa do limite… pode mandar em
   partes menores ou por texto?".
+- O prompt leva o vocabulário da família (nomes de pessoas e clientes, contas e cartões, categorias
+  mais usadas, por uso, ~200 tokens) — só no servidor próprio; para provedor externo vai só o texto
+  genérico. Depois da transcrição, o texto é corrigido antes do interpretador: "em presa" → "empresa",
+  "personal" → "pessoal", "no bank"/"no banque" → "Nubank", "proí caro" → "pro Ícaro" (só quando o
+  som casa com um único nome conhecido).
 
-Estimativa para 2 vCPU com o limite de 1 núcleo (faster-whisper int8, beam 1). **Não foi medido no
-seu servidor** — confira com `docker compose logs whisper` ("áudio de 60s transcrito em 14.2s") e
-`docker stats`:
+Medido com o modelo de verdade (`server.py` com estas versões, preso a 1 núcleo, áudios em pt-BR em
+Opus 24k como os do WhatsApp). **A CPU da medição é mais rápida que a do Lightsail: espere de 1,5 a 2×
+mais tempo lá** (e mais ainda se os créditos de CPU "burstable" acabarem):
 
-| `WHISPER_MODEL` | RAM parado | RAM transcrevendo | `WHISPER_MEM_LIMIT` | Tempo por minuto de áudio | Download (cache) |
+| Modelo e beam | Áudio de 44,7 s | Áudio curto (~5 s) | RAM de pico | `WHISPER_MEM_LIMIT` | Erros no teste |
 |---|---|---|---|---|---|
-| `base` (padrão) | ~35 MB (modelo descarregado) | ~300–450 MB | `900m` | ~10–25 s | ~145 MB |
-| `small` | ~35 MB (modelo descarregado) | ~650–1.000 MB | `1500m` | ~30–70 s | ~480 MB |
+| `base`, beam 1 | 4,6 s | 1,3–1,6 s | 474 MB | `900m` | "em presa", "proí caro", "no banque" |
+| **`base`, beam 5 (padrão)** | 5,7 s | — | 468 MB | `900m` | "no bank", "Personal" (corrigidos depois da transcrição) |
+| `small`, beam 1 | 14,6 s | 4,8–6,4 s | 856 MB | `1200m` | quase nenhum ("de 87 e 50" → "D8750") |
+| `small`, beam 5 | 18,8 s | — | 824 MB | `1200m` | igual ao small beam 1 |
 
-- O primeiro áudio depois de o modelo sair da memória leva alguns segundos a mais para carregar (base
-  ~2–5 s, small ~5–10 s); o primeiríssimo inclui o download.
-- Instâncias com CPU "burstable" (ex.: Lightsail) ficam mais lentas quando os créditos de CPU acabam.
-- `small` transcreve melhor nomes e valores, mas com `TRANSCRIPTION_TIMEOUT_MS=120000` áudios de 2 min
-  podem passar do limite em CPU lenta; aumente o tempo limite junto com a memória.
+- Parado (modelo descarregado): ~35 MB. Download no primeiro uso: base ~145 MB, small ~480 MB.
+- O primeiro áudio depois de o modelo sair da memória leva alguns segundos a mais para carregar.
+- No seu servidor, o tempo real aparece em `docker compose logs whisper` ("áudio de 60s transcrito em
+  X s") e a memória em `docker stats`.
 
 ## Licença
 

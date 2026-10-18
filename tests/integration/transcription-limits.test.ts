@@ -108,6 +108,40 @@ describe("Transcrição: fila, duração máxima e tempo limite", () => {
     expect(ok.reply).toContain("gastei 20 de pão");
   });
 
+  it("prompt com o vocabulário da família (só no servidor próprio) e correção do texto antes do interpretador", async () => {
+    const fam = await createWaFamily("Família Vocabulário");
+    const { createAccount } = await import("@/server/modules/accounts/service");
+    const { createCard } = await import("@/server/modules/cards/service");
+    const { createTransaction } = await import("@/server/modules/transactions/service");
+    const itau = await createAccount(fam.ctx, { name: "Itaú", institution: "Itaú", type: "CHECKING", initialBalanceCents: 100_000, initialBalanceDate: "2026-01-01" });
+    await createCard(fam.ctx, { name: "Nubank", issuer: "Nubank", closingDay: 3, dueDay: 10, limitCents: 500_000, paymentAccountId: itau.id });
+    await createTransaction(fam.ctx, { type: "EXPENSE", amountCents: 50_000, description: "Pix Ícaro", date: "2026-10-01", accountId: itau.id });
+
+    fake.transcribe.mockResolvedValueOnce({ text: "Paguei 750 reais proí caro em presa." }).mockResolvedValueOnce({ text: "Almoço 45 reais no cartão no banque, pessoal!" });
+    const a = await sendMessage(fam, { type: "AUDIO", media: { bytes: opus(3), mimeType: "audio/ogg; codecs=opus" } });
+    const prompt = (fake.transcribe.mock.calls[0]![0] as { prompt: string }).prompt;
+    expect(prompt).toContain("Ícaro");
+    expect(prompt).toContain("Nubank");
+    expect(prompt).toContain("Natureza: empresa, pessoal, PJ, PF.");
+    expect(a.reply).toContain("pro Ícaro empresa");
+    const { prisma } = await import("@/server/db");
+    const icaro = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 75_000 } });
+    expect(icaro.scope).toBe("BUSINESS");
+    expect(icaro.description).toContain("Ícaro");
+
+    await sendMessage(fam, { type: "AUDIO", media: { bytes: opus(3), mimeType: "audio/ogg; codecs=opus" } });
+    const lunch = await prisma.transaction.findFirstOrThrow({ where: { householdId: fam.householdId, amountCents: 4_500 }, include: { creditCard: true } });
+    expect(lunch).toMatchObject({ scope: "PERSONAL", paymentMethod: "CREDIT_CARD" });
+    expect(lunch.creditCard?.name).toBe("Nubank");
+
+    // Provedor externo: só o texto genérico (nomes e contas não saem do servidor).
+    const { transcriptionPrompt, familyVocabulary } = await import("@/server/ai/transcription/vocabulary");
+    const vocab = await familyVocabulary(fam.householdId);
+    expect(vocab.names).toContain("Ícaro");
+    expect(transcriptionPrompt(vocab, true)).not.toMatch(/Ícaro|Nubank|Itaú/);
+    expect(transcriptionPrompt(vocab, false).length).toBeLessThan(800);
+  });
+
   it("tempo esgotado, 413 do servidor e modelo ausente viram respostas claras", async () => {
     const fam = await createWaFamily("Família Erros");
     const audio = opus(3);

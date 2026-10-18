@@ -15,6 +15,8 @@ import { executeInterpretation, tryAnswerClarification, type ActionOutcome } fro
 import { resolveDraft } from "../engine/resolve";
 import type { RawDraft } from "../engine/schemas";
 import { transcribeAudio } from "../transcription";
+import { familyVocabulary, type FamilyVocabulary } from "../transcription/vocabulary";
+import { normalizeTranscript } from "../nlu/transcript";
 import { extractReceipt } from "../vision/receipt";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
@@ -198,12 +200,14 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
   const att = message.attachment;
   if (!att) return { status: "IGNORED", intent: "AUDIO", replies: [], transactionIds: [], detail: "áudio sem anexo" };
   let transcript = decryptStringSafe(att.transcription);
+  let vocabulary: FamilyVocabulary | null = null;
+  const loadVocabulary = async () => (vocabulary ??= await familyVocabulary(ctx.householdId));
   if (!transcript) {
     if (!att.storageKey) {
       return failWithPending(ctx, message, "PROCESSING_FAILED", "Áudio indisponível", "O conteúdo do áudio não está mais armazenado (política de retenção).", "Não consegui acessar o áudio. Envie novamente ou escreva a mensagem.");
     }
     const audio = await readStoredFile(att.storageKey);
-    const res = await transcribeAudio(ctx.householdId, audio, att.mimeType, message.id);
+    const res = await transcribeAudio(ctx.householdId, audio, att.mimeType, message.id, { vocabulary: loadVocabulary });
     if (!res.ok) {
       return failWithPending(
         ctx,
@@ -224,6 +228,9 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
       },
     });
   }
+  // Corrige o que o Whisper costuma ouvir errado ("em presa", "no banque", "proí caro"). O texto
+  // original continua guardado; o corrigido é o que segue e aparece na resposta.
+  transcript = normalizeTranscript(transcript, await loadVocabulary());
   const outcome = await processText(ctx, transcript, {
     ...base,
     messageId: message.id,

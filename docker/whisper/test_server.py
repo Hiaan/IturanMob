@@ -47,7 +47,7 @@ with TestClient(server.app) as c:
     assert body["text"] == "gastei 50 no mercado", body
     assert 11.5 < body["duration"] < 12.5, body
     t = calls["transcribe"][0]
-    assert t["beam_size"] == 1 and t["language"] == "pt" and t["vad_filter"] is True and t["initial_prompt"] == "finanças", t
+    assert t["beam_size"] == server.BEAM_SIZE == 5 and t["language"] == "pt" and t["vad_filter"] is True and t["initial_prompt"] == "finanças", t
     assert c.get("/health").json()["loaded"] is True
     # whisper-1 também é aceito; outro modelo não (não baixa modelo grande por engano)
     assert c.post("/v1/audio/transcriptions", files={"file": ("a.ogg", open(f"{D}/short.ogg", "rb"))}, data={"model": "whisper-1", "response_format": "text"}).text == "gastei 50 no mercado"

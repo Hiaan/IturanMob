@@ -99,14 +99,14 @@ services:
 
   # ---- Opcionais -------------------------------------------------------------
   # Transcrição própria (faster-whisper, compatível com a API da OpenAI): o áudio não sai do servidor.
-  # Imagem pequena feita aqui (docker/whisper): CPU, int8, beam 1, idioma pt, 1 thread, uma
+  # Imagem pequena feita aqui (docker/whisper): CPU, int8, beam 5, idioma pt, 1 thread, uma
   # transcrição por vez, prioridade baixa (nice + cpu_shares) e limites fixos de memória e CPU —
   # pensado para dividir um servidor de 4 GB com outros serviços sem prejudicá-los.
   # Ligar: `docker compose --profile whisper up -d --build` e, no .env:
   #   TRANSCRIPTION_PROVIDER=openai_compatible
   #   TRANSCRIPTION_BASE_URL=http://whisper:8000/v1
-  #   WHISPER_MODEL=base          # padrão; "small" transcreve melhor mas pede ~1,5 GB (tabela no README)
-  #   WHISPER_MEM_LIMIT=900m      # small: 1500m
+  #   WHISPER_MODEL=base          # padrão; "small" transcreve melhor, ~3x mais lento (tabela no README)
+  #   WHISPER_MEM_LIMIT=900m      # small: 1200m
   # O modelo é baixado no PRIMEIRO áudio (base ≈ 145 MB, small ≈ 480 MB) e fica no volume
   # whisper-cache; nada é baixado na partida. Para baixar antes:
   #   docker compose --profile whisper run --rm whisper python server.py --download
@@ -123,7 +123,8 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-base}
       WHISPER_COMPUTE_TYPE: int8
       WHISPER_CPU_THREADS: "1"
-      WHISPER_BEAM_SIZE: "1"
+      # 5 acerta "empresa" e nomes no base (medido); 1 é ~20% mais rápido.
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-5}
       WHISPER_LANGUAGE: pt
       WHISPER_IDLE_UNLOAD_SECONDS: ${WHISPER_IDLE_UNLOAD_SECONDS:-600}
       # Um pouco acima do limite do worker (TRANSCRIPTION_MAX_SECONDS=300), que avisa antes.

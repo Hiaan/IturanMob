@@ -111,7 +111,7 @@ Para o webhook da **WhatsApp Cloud API**, cadastre no painel da Meta:
 Sem transcrição configurada, o bot responde no grupo "Não consegui ouvir o áudio: transcrição
 desligada". Para ligar o Whisper próprio: `docker compose --profile whisper up -d --build` e, no
 `.env`, `TRANSCRIPTION_PROVIDER=openai_compatible`, `TRANSCRIPTION_BASE_URL=http://whisper:8000/v1`,
-`WHISPER_MODEL=base` (ou `small` com `WHISPER_MEM_LIMIT=1500m`); recrie web e worker. O modelo é
+`WHISPER_MODEL=base` (ou `small` com `WHISPER_MEM_LIMIT=1200m`); recrie web e worker. O modelo é
 baixado no primeiro áudio (ou antes, com `docker compose --profile whisper run --rm whisper python
 server.py --download`). Limites, fila, descarga por ociosidade e a tabela de RAM/tempo estão no README. Se a família tiver escolhido "Desativada" em Configurações → IA, a transcrição em "Local" já
 passa a usar esse servidor; para desligar de vez, desmarque a tarefa ali.

@@ -5,6 +5,7 @@ import { env } from "../../env";
 import { logger } from "../../logger";
 import { decryptStringSafe } from "../../crypto";
 import { credentialsFor, logAI } from "../providers/registry";
+import { familyVocabulary, transcriptionPrompt, type FamilyVocabulary } from "./vocabulary";
 
 /**
  * Transcrição de áudio (API compatível com Whisper: OpenAI ou servidor próprio).
@@ -201,7 +202,14 @@ async function downloadSpeachesModel(baseURL: string, model: string): Promise<bo
   }
 }
 
-export async function transcribeAudio(householdId: string, audio: Buffer, mimeType: string, messageId?: string | null): Promise<TranscriptionResult> {
+export async function transcribeAudio(
+  householdId: string,
+  audio: Buffer,
+  mimeType: string,
+  messageId?: string | null,
+  /** Vocabulário da família (ou quem o carrega, só se for preciso). */
+  opts: { vocabulary?: FamilyVocabulary | (() => Promise<FamilyVocabulary>) | null } = {},
+): Promise<TranscriptionResult> {
   const setup = await transcriptionClient(householdId);
   if ("reason" in setup) return { ok: false, reason: setup.reason, userReason: setup.short };
   if (setup.external) {
@@ -231,6 +239,10 @@ export async function transcribeAudio(householdId: string, audio: Buffer, mimeTy
   seconds = Math.round(seconds);
   if (e.TRANSCRIPTION_MAX_SECONDS > 0 && seconds > e.TRANSCRIPTION_MAX_SECONDS) return tooLong(seconds, e.TRANSCRIPTION_MAX_SECONDS);
 
+  // Prompt com o vocabulário da família (nomes, contas, cartões) só no servidor próprio.
+  const vocabulary = setup.external ? null : typeof opts.vocabulary === "function" ? await opts.vocabulary() : (opts.vocabulary ?? (await familyVocabulary(householdId)));
+  const prompt = transcriptionPrompt(vocabulary, setup.external);
+
   // Uma transcrição por vez: o tempo na fila não conta para o tempo limite.
   return withSlot(async () => {
     const started = Date.now();
@@ -239,7 +251,7 @@ export async function transcribeAudio(householdId: string, audio: Buffer, mimeTy
         file: await toFile(payload, name, { type }),
         model: setup.model,
         language: "pt",
-        prompt: "Mensagem de controle financeiro familiar em português do Brasil: valores em reais e centavos, cartão de crédito, débito, Pix, parcelas, mercado, farmácia.",
+        prompt,
       });
     try {
       let res: Awaited<ReturnType<typeof request>>;

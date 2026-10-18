@@ -164,6 +164,8 @@ export function buildDescription(segmentOriginal: string, extraRemovals: string[
   const removals = new Set(extraRemovals.flatMap((r) => r.split(" ")));
   const tokens = segmentOriginal
     .replace(/[“”"]/g, " ")
+    // "R$ 750" / "R$120": o símbolo não vira descrição (antes sobrava um "R").
+    .replace(/\bR\$\s*/gi, " ")
     .split(/\s+/)
     .map((t) => t.replace(/^[^\p{L}\p{N}$]+|[^\p{L}\p{N}]+$/gu, ""))
     .filter(Boolean);

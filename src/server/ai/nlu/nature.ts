@@ -6,11 +6,11 @@ import { normalizeForNlu } from "./text";
  * empresa"). "pessoal" sozinho no meio da frase não conta ("almoço com o pessoal").
  */
 const PJ_RE = /(^|[\s,;.(\/-])(pj|da empresa|pra empresa|para a empresa|empresa)(?=$|[\s,;:.)!?\/-])/;
-const PF_RE = /(^|[\s,;.(\/-])(pf|pessoa fisica)(?=$|[\s,;:.)!?\/-])|\b(e|eh|foi)\s+pessoal\b|[,;-]\s*pessoal\s*[.!]?$/;
+const PF_RE = /(^|[\s,;.(\/-])(pf|pessoa fisica)(?=$|[\s,;:.)!?\/-])|\b(e|eh|foi)\s+pessoal\b|[,;.!-]\s*pessoal\s*[.!]?$/;
 
 /** Remove os marcadores do texto original (com acentos) para não virarem descrição. */
 const STRIP_RE =
-  /(^|[\s,;.(\/-])(?:(?:é|e|eh|foi)\s+)?(?:(?:da|pra|para a)\s+)?(?:pj|empresa|pf|pessoa\s+f[ií]sica)(?=$|[\s,;:.)!?\/-])|(?:^|\s)(?:é|e|eh|foi)\s+pessoal\b|[,;-]\s*pessoal\s*[.!]?$/giu;
+  /(^|[\s,;.(\/-])(?:(?:é|e|eh|foi)\s+)?(?:(?:da|pra|para a)\s+)?(?:pj|empresa|pf|pessoa\s+f[ií]sica)(?=$|[\s,;:.)!?\/-])|(?:^|\s)(?:é|e|eh|foi)\s+pessoal\b|[,;.!-]\s*pessoal\s*[.!]?$/giu;
 
 export interface NatureTokens {
   nature: "PERSONAL" | "BUSINESS" | null;

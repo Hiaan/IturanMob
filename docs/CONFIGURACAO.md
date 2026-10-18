@@ -62,7 +62,7 @@ No `.env`:
 ```
 TRANSCRIPTION_PROVIDER=openai_compatible
 TRANSCRIPTION_BASE_URL=http://whisper:8000/v1
-WHISPER_MODEL=base            # ou small, com WHISPER_MEM_LIMIT=1500m
+WHISPER_MODEL=base            # ou small, com WHISPER_MEM_LIMIT=1200m
 ```
 
 O worker envia `Systran/faster-whisper-<WHISPER_MODEL>`; o servidor só atende o modelo dele (outro nome
