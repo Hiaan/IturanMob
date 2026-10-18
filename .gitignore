@@ -20,3 +20,4 @@ blob-report/
 
 # Snapshot do Redis local (dados de filas — nunca versionar)
 dump.rdb
+__pycache__/

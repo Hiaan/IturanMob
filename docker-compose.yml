@@ -98,34 +98,54 @@ services:
     stop_grace_period: 35s
 
   # ---- Opcionais -------------------------------------------------------------
-  # Transcrição própria (Whisper, compatível com a API da OpenAI): o áudio não sai do servidor.
-  # Ligar: `docker compose --profile whisper up -d` e, no .env:
+  # Transcrição própria (faster-whisper, compatível com a API da OpenAI): o áudio não sai do servidor.
+  # Imagem pequena feita aqui (docker/whisper): CPU, int8, beam 1, idioma pt, 1 thread, uma
+  # transcrição por vez, prioridade baixa (nice + cpu_shares) e limites fixos de memória e CPU —
+  # pensado para dividir um servidor de 4 GB com outros serviços sem prejudicá-los.
+  # Ligar: `docker compose --profile whisper up -d --build` e, no .env:
   #   TRANSCRIPTION_PROVIDER=openai_compatible
   #   TRANSCRIPTION_BASE_URL=http://whisper:8000/v1
-  #   WHISPER_MODEL=small        # "base" em servidor com pouca memória (tabela de RAM no README)
-  #   WHISPER_MEM_LIMIT=2g       # limite de memória do serviço
+  #   WHISPER_MODEL=base          # padrão; "small" transcreve melhor mas pede ~1,5 GB (tabela no README)
+  #   WHISPER_MEM_LIMIT=900m      # small: 1500m
+  # O modelo é baixado no PRIMEIRO áudio (base ≈ 145 MB, small ≈ 480 MB) e fica no volume
+  # whisper-cache; nada é baixado na partida. Para baixar antes:
+  #   docker compose --profile whisper run --rm whisper python server.py --download
+  # Sem uso por WHISPER_IDLE_UNLOAD_SECONDS (padrão 600 s), o modelo sai da memória; o próximo áudio
+  # carrega de novo (alguns segundos a mais).
   # Host privado (rede interna do Docker): não exige o consentimento de envio externo.
   # Nenhuma porta é publicada — só o web/worker alcançam o serviço pela rede interna.
   whisper:
     profiles: ["whisper"]
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    build: ./docker/whisper
+    image: finance-ai-whisper:local
     restart: unless-stopped
     environment:
-      # Baixado na primeira partida e guardado no volume whisper-cache.
-      PRELOAD_MODELS: '["Systran/faster-whisper-${WHISPER_MODEL:-small}"]'
-      WHISPER__INFERENCE_DEVICE: cpu
-      WHISPER__COMPUTE_TYPE: int8
-      ENABLE_UI: "false"
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_CPU_THREADS: "1"
+      WHISPER_BEAM_SIZE: "1"
+      WHISPER_LANGUAGE: pt
+      WHISPER_IDLE_UNLOAD_SECONDS: ${WHISPER_IDLE_UNLOAD_SECONDS:-600}
+      # Um pouco acima do limite do worker (TRANSCRIPTION_MAX_SECONDS=300), que avisa antes.
+      WHISPER_MAX_AUDIO_SECONDS: "330"
+      LOG_LEVEL: info
     volumes:
-      - whisper-cache:/home/ubuntu/.cache/huggingface
-    mem_limit: ${WHISPER_MEM_LIMIT:-2g}
+      - whisper-cache:/models
+    # Memória e CPU fixas: o serviço nunca passa disso (sem swap) e nunca usa os 2 núcleos.
+    mem_limit: ${WHISPER_MEM_LIMIT:-900m}
+    memswap_limit: ${WHISPER_MEM_LIMIT:-900m}
+    cpus: ${WHISPER_CPUS:-1.0}
+    # Prioridade baixa: na disputa de CPU, os outros serviços vêm primeiro; sob falta de memória,
+    # o kernel encerra o whisper antes deles (ele reinicia sozinho).
+    cpu_shares: 256
+    oom_score_adj: 800
     healthcheck:
+      # Só verifica o servidor (não carrega nem baixa o modelo).
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]
       interval: 30s
       timeout: 6s
-      retries: 5
-      # A primeira partida baixa o modelo (small ≈ 480 MB).
-      start_period: 300s
+      retries: 3
+      start_period: 20s
 
   # LLM local (Ollama) acessível como provedor "Compatível com OpenAI":
   # OPENAI_COMPATIBLE_BASE_URL=http://ollama:11434/v1

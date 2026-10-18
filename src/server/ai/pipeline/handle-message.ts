@@ -211,7 +211,7 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
         "CLARIFICATION",
         "Áudio não transcrito",
         res.reason ?? "Transcrição indisponível.",
-        `🎙️ Não consegui ouvir o áudio: ${res.userReason ?? res.reason ?? "transcrição indisponível"}. Pode enviar por texto?`,
+        res.reply ?? `🎙️ Não consegui ouvir o áudio: ${res.userReason ?? res.reason ?? "transcrição indisponível"}. Pode enviar por texto?`,
       );
     }
     transcript = res.text!;

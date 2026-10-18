@@ -84,6 +84,10 @@ Outras coberturas além dos 22 cenários:
   cadastro fechado, cadastros simultâneos, expirado/revogado, dados separados);
   `whatsapp-two-connections.test.ts` (duas conexões Baileys no mesmo worker sem misturar QR,
   credenciais, grupos e mensagens);
+- transcrição em servidor pequeno: `transcription-limits.test.ts` (uma por vez, áudio longo demais
+  recusado antes de enviar, tempo limite, 413 do servidor, download do modelo no speaches) e
+  `docker/whisper/test_server.py` (servidor Python com modelo falso: beam 1/pt, fila, 413, descarga por
+  ociosidade, erro claro sem o modelo — instruções no topo do arquivo);
 - gastos fixos: `fixed-expenses.test.ts` (recorrências, parcelas em andamento conferidas com as parcelas
   do banco, projeção, recortes Pessoal/Empresa/Tudo sem Repasse, fatura por categoria e por natureza,
   cartões atual/anterior, filtro por forma de pagamento/cartão).

@@ -54,7 +54,7 @@ Detalhes do funcionamento em [IA.md](IA.md).
 Para transcrever áudios sem enviá-los a terceiros:
 
 ```bash
-docker compose --profile whisper up -d
+docker compose --profile whisper up -d --build
 ```
 
 No `.env`:
@@ -62,8 +62,12 @@ No `.env`:
 ```
 TRANSCRIPTION_PROVIDER=openai_compatible
 TRANSCRIPTION_BASE_URL=http://whisper:8000/v1
-TRANSCRIPTION_MODEL=Systran/faster-whisper-small
+WHISPER_MODEL=base            # ou small, com WHISPER_MEM_LIMIT=1500m
 ```
+
+O worker envia `Systran/faster-whisper-<WHISPER_MODEL>`; o servidor só atende o modelo dele (outro nome
+→ erro "Este servidor só tem o modelo…"). Limites (memória, 1 núcleo, fila de uma transcrição,
+tempo limite de 120 s, áudio até 5 min, descarga após 10 min parado) e a tabela de RAM/tempo: README.
 
 Endereços privados (rede interna do Docker, `localhost`, `10.x`, `192.168.x`) são tratados como
 processamento local e não exigem autorização de envio externo de áudio. Com a API da OpenAI,

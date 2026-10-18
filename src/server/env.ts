@@ -50,7 +50,13 @@ const envSchema = z.object({
   TRANSCRIPTION_BASE_URL: z.string().optional(),
   TRANSCRIPTION_MODEL: z.string().default("whisper-1"),
   /** Modelo do Whisper próprio (serviço "whisper" do docker-compose): tiny, base, small, medium… */
-  WHISPER_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default("small"),
+  WHISPER_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default("base"),
+  /** Tempo máximo de uma transcrição (áudio de 1–2 min em CPU leva até ~1 min no modelo base). */
+  TRANSCRIPTION_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(900_000).default(120_000),
+  /** Áudio mais longo que isto não é transcrito (o bot pede para mandar em partes). 0 = sem limite. */
+  TRANSCRIPTION_MAX_SECONDS: z.coerce.number().int().min(0).max(7_200).default(300),
+  /** Transcrições ao mesmo tempo neste processo (1 = fila: uma por vez). */
+  TRANSCRIPTION_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   FFMPEG_PATH: z.string().default("ffmpeg"),
 
   // WhatsApp

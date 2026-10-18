@@ -104,25 +104,42 @@ O uso de qualquer provedor externo depende de autorização explícita da famíl
 
 ### Transcrição própria (Whisper no Docker)
 
-Para os áudios do WhatsApp sem enviar nada a terceiros: `docker compose --profile whisper up -d` e,
-no `.env`, `TRANSCRIPTION_PROVIDER=openai_compatible`, `TRANSCRIPTION_BASE_URL=http://whisper:8000/v1`
-e `WHISPER_MODEL` (padrão `small`). O serviço fica só na rede interna (sem porta publicada) e, por ser
-host privado, não exige o consentimento de envio externo. Em Configurações → IA, a transcrição em
-"Local" usa esse servidor; o texto transcrito segue exatamente o mesmo fluxo de uma mensagem de texto.
-Sem transcrição (ou se ela falhar), o bot responde no grupo com o motivo curto.
+Para os áudios do WhatsApp sem enviar nada a terceiros: `docker compose --profile whisper up -d --build`
+e, no `.env`, `TRANSCRIPTION_PROVIDER=openai_compatible`, `TRANSCRIPTION_BASE_URL=http://whisper:8000/v1`
+e `WHISPER_MODEL` (padrão `base`). O serviço (`docker/whisper`, faster-whisper) fica só na rede
+interna (sem porta publicada) e, por ser host privado, não exige o consentimento de envio externo. Em
+Configurações → IA, a transcrição em "Local" usa esse servidor; o texto transcrito segue exatamente o
+mesmo fluxo de uma mensagem de texto. Sem transcrição (ou se ela falhar), o bot responde no grupo com o
+motivo curto.
 
-Memória aproximada do serviço (faster-whisper em CPU, int8, já com o servidor; varia com a duração do
-áudio — confira com `docker stats` no seu servidor):
+Feito para dividir um servidor pequeno (ex.: 4 GB / 2 vCPU) com outros serviços:
 
-| `WHISPER_MODEL` | RAM em uso | `WHISPER_MEM_LIMIT` sugerido | Download (cache) | Observação |
-|---|---|---|---|---|
-| `tiny` | ~350–450 MB | `1g` | ~75 MB | rápido, erra mais em português |
-| `base` | ~450–650 MB | `1g` | ~145 MB | servidor com pouca memória |
-| `small` (padrão) | ~0,9–1,3 GB | `2g` | ~480 MB | bom equilíbrio para áudios curtos |
-| `medium` | ~2–2,7 GB | `3g` | ~1,5 GB | mais preciso e bem mais lento em CPU |
+- CPU, `int8`, beam 1, idioma `pt`, **1 thread** e `cpus: 1.0` — nunca usa os 2 núcleos; prioridade
+  baixa (`nice` + `cpu_shares`) e, sob falta de memória, é o primeiro a ser encerrado (reinicia sozinho).
+- Memória fixa em `WHISPER_MEM_LIMIT` (padrão `900m`), sem swap.
+- **Uma transcrição por vez** (no worker e no servidor); as outras esperam na fila.
+- Nada é baixado na partida: o modelo vem no **primeiro áudio** e fica no volume `whisper-cache`
+  (para baixar antes: `docker compose --profile whisper run --rm whisper python server.py --download`).
+- Sem uso por 10 min (`WHISPER_IDLE_UNLOAD_SECONDS=600`), o modelo sai da memória; o próximo áudio
+  carrega de novo.
+- Tempo limite de 120 s por transcrição (`TRANSCRIPTION_TIMEOUT_MS`); áudio acima de 5 min
+  (`TRANSCRIPTION_MAX_SECONDS=300`) recebe "Esse áudio tem X min — passa do limite… pode mandar em
+  partes menores ou por texto?".
 
-Áudios curtos (10–30 s) costumam levar alguns segundos com `small` em 2 vCPUs. A primeira partida
-baixa o modelo; os seguintes reiniciam rápido (volume `whisper-cache`).
+Estimativa para 2 vCPU com o limite de 1 núcleo (faster-whisper int8, beam 1). **Não foi medido no
+seu servidor** — confira com `docker compose logs whisper` ("áudio de 60s transcrito em 14.2s") e
+`docker stats`:
+
+| `WHISPER_MODEL` | RAM parado | RAM transcrevendo | `WHISPER_MEM_LIMIT` | Tempo por minuto de áudio | Download (cache) |
+|---|---|---|---|---|---|
+| `base` (padrão) | ~35 MB (modelo descarregado) | ~300–450 MB | `900m` | ~10–25 s | ~145 MB |
+| `small` | ~35 MB (modelo descarregado) | ~650–1.000 MB | `1500m` | ~30–70 s | ~480 MB |
+
+- O primeiro áudio depois de o modelo sair da memória leva alguns segundos a mais para carregar (base
+  ~2–5 s, small ~5–10 s); o primeiríssimo inclui o download.
+- Instâncias com CPU "burstable" (ex.: Lightsail) ficam mais lentas quando os créditos de CPU acabam.
+- `small` transcreve melhor nomes e valores, mas com `TRANSCRIPTION_TIMEOUT_MS=120000` áudios de 2 min
+  podem passar do limite em CPU lenta; aumente o tempo limite junto com a memória.
 
 ## Licença
 
