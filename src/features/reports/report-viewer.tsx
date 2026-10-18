@@ -14,6 +14,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatBRL } from "@/lib/money";
 import { formatDateBR, formatDateTimeBR, formatMonthBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
 import { CertaintyBadge, Delta, RankedBars, ReportSection, StatTile } from "./report-ui";
 import { downloadWithToast } from "./use-reports";
 import type { MonthlyReportData, ReportData, ReportView, WeeklyReportData } from "./types";
@@ -49,6 +51,9 @@ function ExportButtons({ report }: { report: ReportView }) {
 
 function ReportHeader({ report }: { report: ReportView }) {
   const d = report.data;
+  // A barra do topo diz o recorte do PRÓXIMO relatório; este mostra o que foi usado quando foi gerado.
+  const pref = useReportScopePreference();
+  const otherScope = d.natureScope && pref.scope && pref.scope !== d.natureScope ? pref.scope : null;
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -61,9 +66,9 @@ function ReportHeader({ report }: { report: ReportView }) {
             </Badge>
             <Badge variant="secondary">Regime: {d.regimeLabel}</Badge>
             {d.natureScope && (
-              <Badge variant="secondary" title="Natureza dos totais. Repasses de clientes ficam sempre de fora; saldo e faturas não mudam com o recorte.">
+              <Badge variant={d.natureScope === "BUSINESS" ? "outline" : "secondary"} title="Natureza dos totais deste relatório. Repasses de clientes ficam sempre de fora; saldo e faturas não mudam com o recorte.">
                 {d.natureScope === "BUSINESS" && <Briefcase aria-hidden className="text-series-7" />}
-                Recorte: {d.natureScope === "BUSINESS" ? "Empresa" : d.natureScope === "ALL" ? "Tudo (Pessoal e Empresa)" : "Pessoal"}
+                Recorte: {d.natureScope === "ALL" ? "Tudo (Pessoa física e Empresa)" : REPORT_SCOPE_LABELS[d.natureScope]}
               </Badge>
             )}
             <Badge variant="secondary">
@@ -82,6 +87,15 @@ function ReportHeader({ report }: { report: ReportView }) {
             )}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Gerado em {formatDateTimeBR(d.generatedAt, d.timezone)}</p>
+          {!d.natureScope && <p className="mt-1 text-xs text-muted-foreground">Recorte não registrado: relatório gerado antes da escolha Pessoa física, Empresa ou Tudo.</p>}
+          {otherScope && d.natureScope && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Este relatório usou o recorte {REPORT_SCOPE_LABELS[d.natureScope]}; a barra do topo está em {REPORT_SCOPE_LABELS[otherScope]} (vale para o próximo relatório gerado).{" "}
+              <button type="button" onClick={() => d.natureScope && pref.setScope(d.natureScope)} className="font-medium text-brand hover:underline">
+                Usar {REPORT_SCOPE_LABELS[d.natureScope]} na barra
+              </button>
+            </p>
+          )}
         </div>
         <ExportButtons report={report} />
       </div>

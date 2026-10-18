@@ -14,7 +14,11 @@ import { PAYMENT_METHOD_LABELS, TRANSACTION_SOURCE_LABELS, TRANSACTION_TYPE_LABE
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
 import { CategoryPicker } from "@/features/categories/category-picker";
-import { SORT_LABELS, countAdvanced, type TxFilters, type TxPreset, type TxSort } from "./use-transaction-filters";
+import type { TransactionScope } from "@/features/finance/types";
+import { NON_NATURE_TYPES, SORT_LABELS, countAdvanced, listNatureScope, type TxFilters, type TxPreset, type TxSort } from "./use-transaction-filters";
+import { REPORT_SCOPE_LABELS } from "./nature";
+import { ReportScopeSwitch } from "./nature-control";
+import { useReportScopePreference } from "./report-scope-preference";
 import type { SmartToken } from "./smart-search";
 
 const ALL = "__all__";
@@ -25,14 +29,16 @@ export function presetLabel(p: TxPreset) {
 }
 
 /** Botão de alternância usado como "chip" (aria-pressed: estado não depende só da cor). */
-function ToggleChip({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: React.ReactNode }) {
+function ToggleChip({ pressed, onClick, children, disabled, title }: { pressed: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean; title?: string }) {
   return (
     <button
       type="button"
       aria-pressed={pressed}
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
-        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
         pressed ? "border-brand bg-accent text-accent-foreground" : "bg-card text-muted-foreground hover:text-foreground",
       )}
     >
@@ -125,6 +131,11 @@ export function FiltersSheet({
   const categories = useCategories();
   const findCategoryOfSub = (subId: string) => categories.data?.find((c) => c.subcategories.some((s) => s.id === subId))?.id;
   const kind = filters.types?.length === 1 && (filters.types[0] === "EXPENSE" || filters.types[0] === "INCOME") ? (filters.types[0] as "EXPENSE" | "INCOME") : null;
+  // Recorte da barra do topo (mesmo estado): Pessoa física/Empresa só mostram receitas e despesas, sem repasses.
+  const pref = useReportScopePreference();
+  const natureScope = listNatureScope(filters, pref.scope);
+  const scopedOut = pref.scope === "PERSONAL" || pref.scope === "BUSINESS";
+  const scopeLabel = pref.scope ? REPORT_SCOPE_LABELS[pref.scope] : "";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -137,12 +148,29 @@ export function FiltersSheet({
           <fieldset className="grid gap-2">
             <legend className="mb-2 text-[13px] font-medium">Tipo</legend>
             <div className="flex flex-wrap gap-2">
-              {(["EXPENSE", "INCOME", "TRANSFER", "CARD_PAYMENT", "ADJUSTMENT"] as const).map((t) => (
-                <ToggleChip key={t} pressed={Boolean(filters.types?.includes(t))} onClick={() => onChange({ types: toggle(filters.types, t) })}>
-                  {TRANSACTION_TYPE_LABELS[t]}
-                </ToggleChip>
-              ))}
+              {(["EXPENSE", "INCOME", "TRANSFER", "CARD_PAYMENT", "ADJUSTMENT"] as const).map((t) => {
+                const off = Boolean(natureScope) && NON_NATURE_TYPES.includes(t);
+                return (
+                  <ToggleChip
+                    key={t}
+                    pressed={!off && Boolean(filters.types?.includes(t))}
+                    disabled={off}
+                    title={off ? `Não tem natureza: aparece só no recorte ${REPORT_SCOPE_LABELS.ALL}` : undefined}
+                    onClick={() => onChange({ types: toggle(filters.types, t) })}
+                  >
+                    {TRANSACTION_TYPE_LABELS[t]}
+                  </ToggleChip>
+                );
+              })}
             </div>
+            {natureScope && (
+              <p className="text-xs text-muted-foreground">
+                No recorte {scopeLabel} aparecem só receitas e despesas. Transferências, pagamentos de fatura e ajustes não têm natureza.{" "}
+                <button type="button" onClick={() => pref.setScope("ALL")} className="font-medium text-brand hover:underline">
+                  Ver em {REPORT_SCOPE_LABELS.ALL}
+                </button>
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="grid gap-2">
@@ -161,18 +189,23 @@ export function FiltersSheet({
           </fieldset>
 
           <fieldset className="grid gap-2">
-            <legend className="mb-2 text-[13px] font-medium">Natureza</legend>
-            <div className="flex flex-wrap gap-2">
-              <ToggleChip pressed={!filters.scope} onClick={() => onChange({ scope: undefined })}>
-                Todas
-              </ToggleChip>
-              <ToggleChip pressed={filters.scope === "PERSONAL"} onClick={() => onChange({ scope: "PERSONAL", excluded: filters.excluded === "only" ? undefined : filters.excluded })}>
-                Pessoal
-              </ToggleChip>
-              <ToggleChip pressed={filters.scope === "BUSINESS"} onClick={() => onChange({ scope: "BUSINESS", excluded: filters.excluded === "only" ? undefined : filters.excluded })}>
-                Empresa
-              </ToggleChip>
-            </div>
+            <legend className="mb-2 text-[13px] font-medium">Recorte</legend>
+            {pref.scope && (
+              <ReportScopeSwitch
+                value={pref.scope}
+                defaultScope={pref.familyDefault}
+                onChange={(s) => {
+                  pref.setScope(s);
+                  // Escolher um recorte volta a aplicá-lo (sai de "só desconsiderados").
+                  if (filters.excluded === "only") onChange({ excluded: undefined });
+                }}
+                className="w-fit"
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              É o mesmo recorte da barra no topo da página (fica lembrado e vale também no Painel, Relatórios e Gastos fixos).
+              {filters.excluded === "only" ? " Agora não se aplica: a lista mostra só os desconsiderados." : filters.natureReview ? " Agora não se aplica: a lista mostra os que pedem natureza." : ""}
+            </p>
             <label className="mt-1 flex items-center justify-between gap-3 text-sm">
               <span>
                 Só os que pedem natureza
@@ -180,24 +213,33 @@ export function FiltersSheet({
               </span>
               <Switch checked={Boolean(filters.natureReview)} onCheckedChange={(v) => onChange({ natureReview: v || undefined })} aria-label="Só os que pedem natureza" />
             </label>
-            <p className="text-xs text-muted-foreground">Pessoal e Empresa mostram só receitas e despesas, sem os repasses (veja “Desconsiderados” abaixo). A natureza só muda relatórios: saldo e fatura não mudam.</p>
+            <p className="text-xs text-muted-foreground">Pessoa física e Empresa mostram só receitas e despesas, sem os repasses (veja “Desconsiderados” abaixo). A natureza só muda relatórios: saldo e fatura não mudam.</p>
           </fieldset>
 
           <fieldset className="grid gap-2">
             <legend className="mb-2 text-[13px] font-medium">Desconsiderados nos relatórios (Repasse)</legend>
             <div className="flex flex-wrap gap-2">
-              {/* Com natureza Pessoal/Empresa os repasses já ficam ocultos: "Mostrar"/"Somente" tiram a natureza. */}
-              <ToggleChip pressed={!filters.excluded && !filters.scope} onClick={() => onChange({ excluded: undefined, scope: undefined })}>
+              {/* No recorte Pessoa física/Empresa os repasses já ficam de fora: "Mostrar" passa para Tudo; "Somente" ignora o recorte. */}
+              <ToggleChip
+                pressed={!filters.excluded && !scopedOut}
+                onClick={() => {
+                  onChange({ excluded: undefined });
+                  if (scopedOut) pref.setScope("ALL");
+                }}
+              >
                 Mostrar (padrão)
               </ToggleChip>
-              <ToggleChip pressed={filters.excluded === "hide" || Boolean(filters.scope)} onClick={() => onChange({ excluded: "hide" })}>
+              <ToggleChip pressed={filters.excluded === "hide" || (scopedOut && filters.excluded !== "only")} onClick={() => onChange({ excluded: "hide" })}>
                 Ocultar
               </ToggleChip>
-              <ToggleChip pressed={filters.excluded === "only" && !filters.scope} onClick={() => onChange({ excluded: "only", scope: undefined })}>
+              <ToggleChip pressed={filters.excluded === "only"} onClick={() => onChange({ excluded: "only" })}>
                 Somente
               </ToggleChip>
             </div>
-            <p className="text-xs text-muted-foreground">Repasses de clientes, reembolsos e outros valores que não são da família. Nunca entram nos totais de receitas e despesas, mas continuam no saldo e na fatura.</p>
+            <p className="text-xs text-muted-foreground">
+              Repasses de clientes, reembolsos e outros valores que não são da família. Nunca entram nos totais de receitas e despesas, mas continuam no saldo e na fatura.
+              {scopedOut ? ` No recorte ${scopeLabel} eles já ficam de fora; “Mostrar” passa o recorte para ${REPORT_SCOPE_LABELS.ALL}.` : ""}
+            </p>
           </fieldset>
 
           <div className="grid gap-2">
@@ -371,12 +413,15 @@ export function ActiveFilterChips({
   tokens,
   onRemoveToken,
   hidePeriod,
+  natureScope = null,
 }: {
   filters: TxFilters;
   onChange: (p: Partial<TxFilters>) => void;
   tokens: SmartToken[];
   onRemoveToken: (t: SmartToken) => void;
   hidePeriod?: boolean;
+  /** Natureza aplicada pelo recorte da barra (o próprio recorte aparece na barra, não aqui). */
+  natureScope?: TransactionScope | null;
 }) {
   const accounts = useAccounts({ includeArchived: true });
   const cards = useCards({ includeArchived: true });
@@ -387,7 +432,14 @@ export function ActiveFilterChips({
   if (!hidePeriod && filters.preset === "custom" && (filters.start || filters.end)) {
     chips.push({ key: "period", label: `${formatDateBR(filters.start)} a ${formatDateBR(filters.end)}`, clear: () => onChange({ preset: "thisMonth", start: undefined, end: undefined }) });
   }
-  if (filters.types?.length) chips.push({ key: "types", label: filters.types.map((t) => labelOf(TRANSACTION_TYPE_LABELS, t)).join(", "), clear: () => onChange({ types: undefined }) });
+  if (filters.types?.length) {
+    // No recorte Pessoa física/Empresa, tipos sem natureza (transferência, fatura, ajuste) não se aplicam.
+    const applied = natureScope ? filters.types.filter((t) => !NON_NATURE_TYPES.includes(t)) : filters.types;
+    const label = applied.length
+      ? applied.map((t) => labelOf(TRANSACTION_TYPE_LABELS, t)).join(", ")
+      : `${filters.types.map((t) => labelOf(TRANSACTION_TYPE_LABELS, t)).join(", ")} (só no recorte ${REPORT_SCOPE_LABELS.ALL})`;
+    chips.push({ key: "types", label, clear: () => onChange({ types: undefined }) });
+  }
   if (filters.status) chips.push({ key: "status", label: filters.status === "PENDING" ? "Pendentes" : "Confirmadas", clear: () => onChange({ status: undefined }) });
   if (filters.categoryIds?.length) {
     const names = filters.categoryIds.map((id) => categories.data?.find((c) => c.id === id)?.name ?? "Categoria");
@@ -399,9 +451,8 @@ export function ActiveFilterChips({
     chips.push({ key: "sub", label: `Categoria: ${cat ? `${cat.name} › ${sub?.name}` : "Subcategoria"}`, clear: () => onChange({ subcategoryId: undefined }) });
   }
   if (filters.uncategorized) chips.push({ key: "unc", label: "Sem categoria", clear: () => onChange({ uncategorized: undefined }) });
-  if (filters.scope) chips.push({ key: "scope", label: `Natureza: ${filters.scope === "BUSINESS" ? "Empresa" : "Pessoal"}`, clear: () => onChange({ scope: undefined }) });
   if (filters.natureReview) chips.push({ key: "natrev", label: "Pedem natureza", clear: () => onChange({ natureReview: undefined }) });
-  if (filters.excluded && !(filters.scope && filters.excluded === "hide"))
+  if (filters.excluded && !(natureScope && filters.excluded === "hide"))
     chips.push({ key: "excl", label: filters.excluded === "only" ? "Só desconsiderados" : "Sem os desconsiderados", clear: () => onChange({ excluded: undefined }) });
   if (filters.accountId) chips.push({ key: "acc", label: `Conta: ${accounts.data?.find((a) => a.id === filters.accountId)?.name ?? "…"}`, clear: () => onChange({ accountId: undefined }) });
   if (filters.creditCardId) chips.push({ key: "card", label: `Cartão: ${cards.data?.find((c) => c.id === filters.creditCardId)?.name ?? "…"}`, clear: () => onChange({ creditCardId: undefined }) });

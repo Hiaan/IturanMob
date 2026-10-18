@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isISODate, resolvePeriod, type PeriodPreset } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
+import type { ReportScope, TransactionScope } from "@/features/finance/types";
 import type { SmartPatch } from "./smart-search";
 
 /** Formas de pagamento aceitas em ?paymentMethod= (ex.: CREDIT_CARD vindo do painel). */
@@ -32,8 +33,6 @@ export interface TxFilters {
   maxAmountCents?: number;
   /** Desconsiderados nos relatórios: ocultar ou só eles (ausente = mostrar junto, o padrão). */
   excluded?: "hide" | "only";
-  /** Natureza Pessoal ou Empresa (os repasses ficam de fora: são a natureza Repasse). */
-  scope?: "PERSONAL" | "BUSINESS";
   /** Só os que uma regra pediu para escolher a natureza. */
   natureReview?: boolean;
   sort: TxSort;
@@ -66,7 +65,6 @@ export function countAdvanced(f: TxFilters): number {
     f.sources?.length,
     f.minAmountCents != null || f.maxAmountCents != null,
     f.excluded,
-    f.scope,
     f.natureReview,
   ].filter(Boolean).length;
 }
@@ -97,9 +95,8 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   // Desconsiderados nos relatórios (?excluded=hide|only) e período (?start=&end= ou ?period=all).
   const excluded = sp.get("excluded");
   if (excluded === "hide" || excluded === "only") patch.excluded = excluded;
-  // Natureza (?scope=PERSONAL|BUSINESS) e "pedem natureza" (?natureReview=1).
-  const scope = sp.get("scope");
-  if ((scope === "PERSONAL" || scope === "BUSINESS") && patch.excluded !== "only") patch.scope = scope;
+  // O recorte (?scope=) não é filtro da lista: vai para a barra do topo (veja scopeFromUrl).
+  // "Pedem natureza" (?natureReview=1).
   if (sp.get("natureReview") === "1" || sp.get("natureReview") === "true") patch.natureReview = true;
   const start = sp.get("start");
   const end = sp.get("end");
@@ -107,6 +104,26 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   else if (sp.get("period") === "all") Object.assign(patch, { preset: "all", start: undefined, end: undefined });
   return patch;
 }
+
+/** Recorte vindo de um link (?scope=PERSONAL|BUSINESS|ALL); com ?excluded=only o recorte não se aplica. */
+export function scopeFromUrl(sp: URLSearchParams): ReportScope | null {
+  const scope = sp.get("scope");
+  if (sp.get("excluded") === "only") return null;
+  return scope === "PERSONAL" || scope === "BUSINESS" || scope === "ALL" ? scope : null;
+}
+
+/**
+ * Natureza aplicada na lista a partir do recorte da barra: Pessoa física/Empresa filtram; Tudo não.
+ * "Só desconsiderados" e "pedem natureza" ignoram o recorte (repasses ficam fora de qualquer recorte;
+ * quem pede natureza ainda não tem uma).
+ */
+export function listNatureScope(f: Pick<TxFilters, "excluded" | "natureReview">, scope: ReportScope | null): TransactionScope | null {
+  if (f.excluded === "only" || f.natureReview) return null;
+  return scope === "PERSONAL" || scope === "BUSINESS" ? scope : null;
+}
+
+/** Tipos sem natureza (só aparecem no recorte Tudo). */
+export const NON_NATURE_TYPES = ["TRANSFER", "CARD_PAYMENT", "ADJUSTMENT"];
 
 export function usePersistentTxFilters() {
   const [filters, setFilters] = useState<TxFilters>(TX_DEFAULT_FILTERS);
@@ -127,7 +144,12 @@ export function usePersistentTxFilters() {
     let stored: TxFilters = TX_DEFAULT_FILTERS;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) stored = { ...TX_DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<TxFilters>) };
+      if (raw) {
+        // "scope" de versões anteriores: o recorte agora fica na barra do topo.
+        const parsed = JSON.parse(raw) as Partial<TxFilters> & { scope?: unknown };
+        delete parsed.scope;
+        stored = { ...TX_DEFAULT_FILTERS, ...parsed };
+      }
     } catch {
       // ignore
     }
@@ -172,15 +194,18 @@ function natureTypes(types: string[] | undefined): string[] {
   return kept.length ? kept : ["EXPENSE", "INCOME"];
 }
 
-/** Monta os parâmetros da API de listagem a partir dos filtros + interpretação da busca. */
-export function buildListParams(f: TxFilters, today: string, smart: { search: string; patch: SmartPatch }, page: number, pageSize: number) {
+/**
+ * Monta os parâmetros da API de listagem a partir dos filtros + interpretação da busca.
+ * `natureScope` = natureza do recorte da barra (veja listNatureScope); null = sem filtro de natureza.
+ */
+export function buildListParams(f: TxFilters, today: string, smart: { search: string; patch: SmartPatch }, page: number, pageSize: number, natureScope: TransactionScope | null = null) {
   const period = effectivePeriod(f, today);
   const p = smart.patch;
   const params: Record<string, unknown> = {
     start: p.start ?? period?.start,
     end: p.end ?? period?.end,
-    // Só receitas e despesas têm natureza: com Pessoal/Empresa, transferências e pagamentos de fatura saem.
-    types: f.scope ? natureTypes(p.types ?? f.types) : (p.types ?? f.types),
+    // Só receitas e despesas têm natureza: com Pessoa física/Empresa, transferências e pagamentos de fatura saem.
+    types: natureScope ? natureTypes(p.types ?? f.types) : (p.types ?? f.types),
     status: p.status ?? f.status,
     categoryIds: p.subcategoryId ? undefined : p.categoryIds ?? f.categoryIds,
     subcategoryId: p.subcategoryId ?? f.subcategoryId,
@@ -194,9 +219,9 @@ export function buildListParams(f: TxFilters, today: string, smart: { search: st
     sources: p.sources ?? f.sources,
     minAmountCents: p.minAmountCents ?? f.minAmountCents,
     maxAmountCents: p.maxAmountCents ?? f.maxAmountCents,
-    // Natureza Pessoal/Empresa não inclui os repasses (desconsiderados): eles são a natureza Repasse.
-    excluded: f.scope ? "hide" : f.excluded,
-    scope: f.scope,
+    // Pessoa física/Empresa não incluem os repasses (desconsiderados): eles são a natureza Repasse.
+    excluded: natureScope ? "hide" : f.excluded,
+    scope: natureScope ?? undefined,
     natureReview: f.natureReview || undefined,
     search: smart.search || undefined,
     sort: f.sort,

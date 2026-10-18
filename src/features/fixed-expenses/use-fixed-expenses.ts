@@ -11,11 +11,12 @@ import type { FixedExpensesOverview } from "./types";
  * junto com lançamentos, cartões, contas a pagar, categorias e recorrências.
  * `scope` ausente = recorte padrão da família (o servidor devolve qual aplicou).
  */
-export function useFixedExpenses(scope: ReportScope | undefined, months = 12) {
+export function useFixedExpenses(scope: ReportScope | undefined, months = 12, enabled = true) {
   const params = { scope, months };
   return useQuery({
     queryKey: qk.analytics("fixed-expenses", params),
     queryFn: () => api.get<FixedExpensesOverview>("/api/v1/fixed-expenses", params),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }

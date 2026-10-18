@@ -127,9 +127,9 @@ export function ParticipantsPanel({ status, timezone }: { status: WaStatus; time
               <div className="space-y-2 text-sm">
                 {consentFor?.give ? (
                   <>
-                    <p>Ao consentir, as mensagens que você enviar no chat autorizado da família serão lidas pelo Finance AI para registrar gastos, receitas e responder consultas.</p>
+                    <p>Ao consentir, as mensagens que você enviar nos grupos autorizados da família serão lidas pelo Finance AI para registrar gastos, receitas e responder consultas.</p>
                     <ul className="list-disc space-y-1 pl-5">
-                      <li>Somente o grupo autorizado é processado; outras conversas não são lidas nem armazenadas.</li>
+                      <li>Somente os grupos autorizados são processados; outras conversas não são lidas nem armazenadas.</li>
                       <li>Áudios e comprovantes ficam guardados criptografados pelo período de retenção configurado.</li>
                       <li>Você pode revogar a qualquer momento.</li>
                     </ul>

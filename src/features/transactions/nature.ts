@@ -24,7 +24,7 @@ export const NATURE_LABELS: Record<TransactionNature, string> = {
 
 /** O que cada natureza faz nos relatórios (uma linha). */
 export const NATURE_HINTS: Record<TransactionNature, string> = {
-  PERSONAL: "Gasto ou receita da família: entra no recorte Pessoal.",
+  PERSONAL: "Gasto ou receita da família: entra no recorte Pessoa física.",
   BUSINESS: "Da empresa (equipe, anúncios próprios, receita de clientes): entra no recorte Empresa e no resultado da empresa.",
   PASSTHROUGH: "Repasse de cliente ou reembolso: fica fora de todos os relatórios.",
 };
@@ -34,12 +34,13 @@ export const NATURE_KEEPS_BALANCE = "A natureza só muda relatórios e análises
 
 export const REPORT_SCOPES: ReportScope[] = ["PERSONAL", "BUSINESS", "ALL"];
 
-export const REPORT_SCOPE_LABELS: Record<ReportScope, string> = { PERSONAL: "Pessoal", BUSINESS: "Empresa", ALL: "Tudo" };
+/** Rótulos do recorte (a barra "Pessoa física | Empresa | Tudo" no topo das páginas). */
+export const REPORT_SCOPE_LABELS: Record<ReportScope, string> = { PERSONAL: "Pessoa física", BUSINESS: "Empresa", ALL: "Tudo" };
 
 export const REPORT_SCOPE_HINTS: Record<ReportScope, string> = {
-  PERSONAL: "Só o que é da família (sem os lançamentos da empresa).",
+  PERSONAL: "Só o que é de pessoa física (sem a empresa).",
   BUSINESS: "Só o que é da empresa: equipe, anúncios próprios e receitas de clientes.",
-  ALL: "Pessoal e Empresa juntos.",
+  ALL: "Pessoa física e Empresa juntas.",
 };
 
 /** Repasses (desconsiderados) nunca entram, em nenhum recorte. */

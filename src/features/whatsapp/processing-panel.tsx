@@ -11,7 +11,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { formatDateTimeBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useReprocessMessage, useRetryFailed, useWhatsAppMessages } from "./hooks";
-import { AttachmentLink, TransactionChips, messageText } from "./message-bits";
+import { AttachmentLink, GroupBadge, TransactionChips, groupNames, messageText } from "./message-bits";
 import { RichText } from "@/components/shared/rich-text";
 import { MESSAGE_STATUS_META, MESSAGE_STATUS_ORDER, MESSAGE_TYPE_META, MessageStatusBadge, OutboundStatusBadge, TONE_SOFT_BG, intentLabel } from "./status-meta";
 import type { WaMessage, WaMessageStatus, WaStatus } from "./types";
@@ -54,7 +54,7 @@ function StatsGrid({ status, active, onSelect }: { status: WaStatus; active: WaM
   );
 }
 
-function MessageRow({ m, canManage, timezone }: { m: WaMessage; canManage: boolean; timezone?: string }) {
+function MessageRow({ m, canManage, timezone, showGroup }: { m: WaMessage; canManage: boolean; timezone?: string; showGroup: boolean }) {
   const reprocess = useReprocessMessage();
   const TypeIcon = m.isBot ? Bot : MESSAGE_TYPE_META[m.type].icon;
   const retrying = m.job && m.job.attempts > 0 && (m.status === "QUEUED" || m.status === "FAILED");
@@ -73,6 +73,7 @@ function MessageRow({ m, canManage, timezone }: { m: WaMessage; canManage: boole
             {MESSAGE_TYPE_META[m.type].label} · {formatDateTimeBR(m.sentAt, timezone)}
           </span>
           {m.isBot ? <OutboundStatusBadge status={m.status} /> : <MessageStatusBadge status={m.status} />}
+          {showGroup && <GroupBadge group={m.group} />}
         </div>
         {m.isBot && m.text ? (
           <RichText text={m.text} className="space-y-0.5 break-words text-sm text-foreground/90" />
@@ -112,6 +113,9 @@ export function ProcessingPanel({ status, canManage, timezone }: { status: WaSta
   const retry = useRetryFailed();
   const items = messages.data?.pages.flatMap((p) => p.items) ?? [];
   const scope = messages.data?.pages[0]?.scope ?? null;
+  // Vários grupos autorizados (ex.: família e empresa): cada mensagem mostra de qual grupo veio.
+  const authorizedNames = messages.data?.pages[0]?.groups?.map((g) => g.name) ?? status.groups.filter((g) => g.isAuthorized).map((g) => g.name);
+  const showGroup = authorizedNames.length > 1;
 
   return (
     <div className="space-y-4">
@@ -125,7 +129,7 @@ export function ProcessingPanel({ status, canManage, timezone }: { status: WaSta
           <div className="min-w-0">
             <CardTitle>Últimas mensagens</CardTitle>
             <CardDescription className="mt-1">
-              {scope ? `Grupo “${scope.groupName}”.` : "Chat autorizado."} Mensagens recebidas e respostas do bot, com os lançamentos gerados.
+              {showGroup ? `Grupos ${groupNames(authorizedNames)}.` : scope ? `Grupo “${scope.groupName}”.` : "Chat autorizado."} Mensagens recebidas e respostas do bot, com os lançamentos gerados.
             </CardDescription>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -175,7 +179,7 @@ export function ProcessingPanel({ status, canManage, timezone }: { status: WaSta
                   filter === "ALL"
                     ? status.provider === "SIMULATOR"
                       ? "Envie uma mensagem pela aba Simulador para ver o processamento aqui."
-                      : "Quando alguém autorizado escrever no chat autorizado, as mensagens aparecerão aqui."
+                      : "Quando alguém autorizado escrever em um grupo autorizado, as mensagens aparecerão aqui."
                     : "Tente outro filtro."
                 }
               />
@@ -184,7 +188,7 @@ export function ProcessingPanel({ status, canManage, timezone }: { status: WaSta
             <>
               <ul className="divide-y border-t">
                 {items.map((m) => (
-                  <MessageRow key={m.id} m={m} canManage={canManage} timezone={timezone} />
+                  <MessageRow key={m.id} m={m} canManage={canManage} timezone={timezone} showGroup={showGroup} />
                 ))}
               </ul>
               {messages.hasNextPage && (

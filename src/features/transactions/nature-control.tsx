@@ -133,7 +133,7 @@ export function NatureQuickMenu({
   );
 }
 
-/** Recorte Pessoal | Empresa | Tudo (painel, relatórios). Mostra qual é o padrão da família. */
+/** Recorte Pessoa física | Empresa | Tudo (painel de filtros). Mostra qual é o padrão da família. */
 export function ReportScopeSwitch({
   value,
   defaultScope,

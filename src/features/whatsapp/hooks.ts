@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { toast } from "sonner";
 import { api, ApiError, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import type { WaCommandResult, WaMessagesPage, WaMessageStatus, WaProvider, WaSimulateResult, WaStatus } from "./types";
+import type { WaCommandResult, WaGroupNature, WaMessagesPage, WaMessageStatus, WaProvider, WaSimulateResult, WaStatus } from "./types";
 
 export const WA_BASE = "/api/v1/integrations/whatsapp";
 
@@ -38,8 +38,8 @@ export function useWhatsAppQr(enabled: boolean) {
   });
 }
 
-export function useWhatsAppMessages(filters: { status?: WaMessageStatus | "ALL"; limit?: number }, opts: { refetchInterval?: number | false } = {}) {
-  const params = { limit: filters.limit ?? 30, status: filters.status && filters.status !== "ALL" ? filters.status : undefined };
+export function useWhatsAppMessages(filters: { status?: WaMessageStatus | "ALL"; limit?: number; groupId?: string | null }, opts: { refetchInterval?: number | false } = {}) {
+  const params = { limit: filters.limit ?? 30, status: filters.status && filters.status !== "ALL" ? filters.status : undefined, groupId: filters.groupId || undefined };
   return useInfiniteQuery({
     queryKey: qk.whatsapp({ view: "messages", ...params }),
     queryFn: ({ pageParam }) => api.get<WaMessagesPage>(`${WA_BASE}/messages`, { ...params, cursor: pageParam ?? undefined }),
@@ -89,7 +89,7 @@ export function useUpdateWhatsAppSettings() {
     mutationFn: (body: { provider?: WaProvider; processingEnabled?: boolean; phoneNumberId?: string | null }) =>
       api.patch<{ provider: WaProvider; processingEnabled: boolean; desiredConnected: boolean; requeued: number }>(`${WA_BASE}/settings`, body),
     onSuccess: (res, body) => {
-      if (body.provider) toast.success("Provedor atualizado", { description: "Conecte novamente e autorize o grupo da família." });
+      if (body.provider) toast.success("Provedor atualizado", { description: "Conecte novamente e autorize os grupos de finanças." });
       else if (body.processingEnabled === true)
         toast.success("Processamento reativado", { description: res.requeued ? `${res.requeued} mensagem(ns) guardada(s) voltaram para a fila.` : undefined });
       else if (body.processingEnabled === false) toast.success("Processamento pausado", { description: "As novas mensagens ficam guardadas e serão processadas ao reativar." });
@@ -112,13 +112,22 @@ export function useSyncGroups() {
   });
 }
 
-export function useAuthorizeGroup() {
+export const GROUP_NATURE_LABELS: Record<WaGroupNature | "NONE", string> = { PERSONAL: "Pessoa física", BUSINESS: "Empresa", NONE: "Não atribuído" };
+
+/** Autoriza/revoga um grupo e/ou define a natureza dele (vários grupos podem ser autorizados). */
+export function useUpdateGroup() {
   const invalidate = useInvalidateWhatsApp();
   return useMutation({
-    mutationFn: ({ id, authorized }: { id: string; authorized: boolean }) =>
-      api.patch<{ id: string; name: string; isAuthorized: boolean; revokedGroupId: string | null }>(`${WA_BASE}/groups/${id}`, { authorized }),
-    onSuccess: (res) => {
-      toast.success(res.isAuthorized ? `Grupo "${res.name}" autorizado` : `Autorização do grupo "${res.name}" revogada`);
+    mutationFn: ({ id, ...body }: { id: string; authorized?: boolean; defaultNature?: WaGroupNature | null }) =>
+      api.patch<{ id: string; name: string; isAuthorized: boolean; defaultNature: WaGroupNature | null; revokedGroupId: string | null }>(`${WA_BASE}/groups/${id}`, body),
+    onSuccess: (res, body) => {
+      const nature = GROUP_NATURE_LABELS[res.defaultNature ?? "NONE"];
+      if (body.authorized === true)
+        toast.success(`Grupo "${res.name}" autorizado`, {
+          description: res.defaultNature ? `Natureza do grupo: ${nature}.` : "Natureza do grupo: Não atribuído — escolha Pessoa física ou Empresa.",
+        });
+      else if (body.authorized === false) toast.success(`Autorização do grupo "${res.name}" revogada`);
+      else toast.success(`Natureza do grupo "${res.name}": ${nature}`, { description: "Vale para os próximos lançamentos; os já feitos não mudam." });
       invalidate();
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -162,6 +171,8 @@ export interface SimulateInput {
   documentBase64?: string;
   mimeType?: string;
   fileName?: string;
+  /** Grupo simulado de origem (padrão: o da família). */
+  groupId?: string;
 }
 
 export function useSimulate() {

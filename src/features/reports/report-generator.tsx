@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { Briefcase, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Layers, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -13,9 +13,8 @@ import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { MonthSwitcher } from "@/features/budgets/month-switcher";
 import { useCan } from "@/features/me/use-me";
 import { useHousehold } from "@/features/settings/use-household";
-import type { ReportScope as NatureScope } from "@/features/finance/types";
-import { ReportScopeSwitch } from "@/features/transactions/nature-control";
 import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
 import { useGenerateReport } from "./use-reports";
 import type { GenerateReportInput, ReportKind, ReportView } from "./types";
 
@@ -54,15 +53,15 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
   const household = useHousehold();
   const canManage = useCan("settings:manage");
   const defaultNature = household.data?.settings.defaultReportScope ?? null;
-  /** Recorte Pessoal | Empresa | Tudo escolhido aqui (ausente = padrão da família). */
-  const [nature, setNature] = useState<NatureScope | null>(null);
-  const natureScope = nature ?? defaultNature;
+  /** Recorte da barra do topo (Pessoa física | Empresa | Tudo): é o que será gerado. */
+  const { scope: natureScope } = useReportScopePreference();
+  const NatureIcon = natureScope === "BUSINESS" ? Briefcase : natureScope === "ALL" ? Layers : User;
 
   const submit = () => {
     const input: GenerateReportInput = type === "MONTHLY" ? { type, month } : { type, periodStart: weekStart };
     if (scope !== "AUTO") input.scope = scope;
     if (regime !== "DEFAULT") input.regime = regime;
-    if (nature) input.natureScope = nature;
+    if (natureScope) input.natureScope = natureScope;
     generate.mutate(input);
   };
 
@@ -126,18 +125,17 @@ export function ReportGenerator({ timezone, onGenerated }: { timezone?: string; 
           {regime === "DEFAULT" ? "Regime: o configurado para a família." : REGIME_DESCRIPTIONS[regime]}
         </p>
         {natureScope && (
-          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:gap-3">
-            <p className="text-[13px] font-medium" aria-hidden>
-              Recorte
-            </p>
-            <ReportScopeSwitch value={natureScope} defaultScope={defaultNature} onChange={setNature} className="w-fit" />
+          <div className="flex items-start gap-2.5 border-t pt-3">
+            <span className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg ${natureScope === "BUSINESS" ? "bg-series-7/12 text-series-7" : "bg-accent text-accent-foreground"}`} aria-hidden>
+              <NatureIcon className="size-3.5" />
+            </span>
             <p className="text-xs text-muted-foreground">
-              {REPORT_SCOPE_HINTS[natureScope]}
-              {defaultNature === natureScope ? " (padrão da família)" : ""}
+              <span className="text-[13px] font-medium text-foreground">Recorte: {REPORT_SCOPE_LABELS[natureScope]}</span>
+              {defaultNature === natureScope ? " (padrão da família)" : ""} — o da barra no topo da página; troque lá para gerar outro recorte. {REPORT_SCOPE_HINTS[natureScope]}
               {natureScope !== "BUSINESS" && " No relatório mensal, o resultado da empresa aparece à parte."} Repasses de clientes ficam sempre de fora.{" "}
               {canManage ? (
                 <Link href="/configuracoes?tab=familia" className="font-medium text-brand hover:underline">
-                  Alterar o padrão{defaultNature ? ` (${REPORT_SCOPE_LABELS[defaultNature]})` : ""}
+                  Alterar o padrão da família{defaultNature ? ` (${REPORT_SCOPE_LABELS[defaultNature]})` : ""}
                 </Link>
               ) : null}
             </p>

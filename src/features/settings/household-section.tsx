@@ -130,7 +130,7 @@ export function HouseholdSection() {
         <CardHeader>
           <CardTitle>Recorte padrão dos relatórios</CardTitle>
           <CardDescription>
-            O que o painel, os relatórios (inclusive os agendados), os orçamentos e o assistente consideram quando ninguém escolhe outro recorte. No painel dá para alternar a qualquer momento.
+            O que o painel, os relatórios (inclusive os agendados), os orçamentos e o assistente consideram quando ninguém escolhe outro recorte. No Painel, em Lançamentos, Relatórios e Gastos fixos, a barra “Pessoa física | Empresa | Tudo” no topo alterna a qualquer momento e lembra a última escolha de cada pessoa neste navegador.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">

@@ -3,21 +3,19 @@
 import { useState } from "react";
 import { Info } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState } from "@/components/shared/error-state";
 import { formatBRL } from "@/lib/money";
 import { formatMonthBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useCards } from "@/features/finance/hooks";
-import type { ReportScope } from "@/features/finance/types";
 import { useCan } from "@/features/me/use-me";
-import { useHousehold } from "@/features/settings/use-household";
 import { SummaryTile } from "@/features/budgets/summary-tile";
 import { RecurringFormDialog } from "@/features/recurring/recurring-form-dialog";
 import { QuickAddDialog } from "@/features/transactions/quick-add-dialog";
-import { ReportScopeSwitch } from "@/features/transactions/nature-control";
-import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS, REPORT_SCOPE_PASSTHROUGH_NOTE } from "@/features/transactions/nature";
+import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
+import { ScopeBar } from "@/features/transactions/scope-bar";
 import { InstallmentsSection } from "./installments-section";
 import { ProjectionSection, endingNote } from "./projection-section";
 import { RecurringSection } from "./recurring-section";
@@ -27,30 +25,6 @@ import type { FixedExpensesOverview } from "./types";
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 /** "novembro" */
 const monthName = (m: string) => formatMonthBR(m).split(" de ")[0]!;
-
-function ScopeControl({ value, defaultScope, onChange }: { value: ReportScope; defaultScope: ReportScope | null; onChange: (s: ReportScope) => void }) {
-  return (
-    <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
-      <ReportScopeSwitch value={value} defaultScope={defaultScope} onChange={onChange} className="bg-transparent p-0" />
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button type="button" className="px-1.5 text-muted-foreground" aria-label="Sobre o recorte Pessoal, Empresa ou Tudo">
-            <Info className="size-3.5" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-sm">
-          {(["PERSONAL", "BUSINESS", "ALL"] as const).map((s) => (
-            <p key={s} className="mb-1">
-              <strong>{REPORT_SCOPE_LABELS[s]}</strong>
-              {defaultScope === s ? " (padrão da família)" : ""}: {REPORT_SCOPE_HINTS[s]}
-            </p>
-          ))}
-          <p>{REPORT_SCOPE_PASSTHROUGH_NOTE}</p>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  );
-}
 
 function Tiles({ data }: { data: FixedExpensesOverview }) {
   const next = data.projection[1] ?? data.projection[0];
@@ -93,20 +67,20 @@ function LoadingState() {
 
 /** Gastos fixos: contas que se repetem, parcelas nos cartões e a projeção do que já está comprometido. */
 export function FixedExpensesView() {
-  const household = useHousehold();
-  const defaultScope = household.data?.settings.defaultReportScope ?? null;
-  const [scope, setScope] = useState<ReportScope | undefined>(undefined);
-  const q = useFixedExpenses(scope);
+  // Recorte da barra do topo (o mesmo do Painel, Lançamentos e Relatórios).
+  const pref = useReportScopePreference();
+  const defaultScope = pref.familyDefault;
+  const q = useFixedExpenses(pref.scope ?? undefined, 12, pref.ready);
   const cards = useCards({ includeArchived: true });
   const canEditBills = useCan("bills:write");
   const canWriteTx = useCan("transactions:write");
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const data = q.data;
-  const shownScope = scope ?? data?.scope ?? defaultScope;
 
   return (
     <div className="space-y-6">
+      <ScopeBar />
       <PageHeader
         title="Gastos fixos"
         description={
@@ -114,10 +88,9 @@ export function FixedExpensesView() {
             ? `Contas que se repetem, parcelas nos cartões e o que já está comprometido · recorte ${REPORT_SCOPE_LABELS[data.scope]}${defaultScope === data.scope ? " (padrão da família)" : ""}`
             : "Contas que se repetem, parcelas nos cartões e o que já está comprometido nos próximos meses"
         }
-        actions={shownScope && <ScopeControl value={shownScope} defaultScope={defaultScope} onChange={setScope} />}
       />
 
-      {q.isLoading ? (
+      {q.isLoading || !pref.ready ? (
         <LoadingState />
       ) : q.error || !data ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowRight, Briefcase, MessageSquareText } from "lucide-react";
@@ -15,8 +16,9 @@ import { NaturalLanguageEntry } from "@/features/transactions/quick-add-dialog";
 import { useMe } from "@/features/me/use-me";
 import { useAccounts } from "@/features/finance/hooks";
 import type { AccountDTO, ReportScope } from "@/features/finance/types";
-import { useHousehold } from "@/features/settings/use-household";
 import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
+import { ScopeBar } from "@/features/transactions/scope-bar";
 import { foreignSummary } from "@/features/accounts/currency";
 import { FiltersBar } from "./filters-bar";
 import { filtersToParams, usePersistentFilters } from "./use-filters";
@@ -54,12 +56,12 @@ function BusinessResultCard({ business, scope, period, onShowBusiness }: { busin
             <Briefcase className="size-4 text-series-7" aria-hidden /> Resultado da empresa
           </CardTitle>
           <CardDescription className="mt-1 text-xs">
-            Lançamentos com natureza Empresa no período · {scope === "ALL" ? "já incluídos nos totais acima (recorte Tudo)" : "fora dos totais acima (recorte Pessoal)"}. Saldo e faturas não mudam pela natureza.
+            Lançamentos com natureza Empresa no período · {scope === "ALL" ? `já incluídos nos totais acima (recorte ${REPORT_SCOPE_LABELS.ALL})` : `fora dos totais acima (recorte ${REPORT_SCOPE_LABELS[scope]})`}. Saldo e faturas não mudam pela natureza.
           </CardDescription>
         </div>
         <CardAction className="ml-0 flex flex-wrap gap-2 sm:ml-auto">
-          <Button size="sm" variant="outline" onClick={onShowBusiness}>
-            <Briefcase /> Ver o painel da empresa
+          <Button size="sm" variant="outline" onClick={onShowBusiness} title="Muda a barra do topo para Empresa">
+            <Briefcase /> Ver Empresa
           </Button>
           <Button size="sm" variant="ghost" asChild>
             <Link href={href}>
@@ -95,9 +97,10 @@ function greeting() {
 
 export function DashboardView() {
   const me = useMe();
-  const { filters, update, reset } = usePersistentFilters("dashboard");
-  const household = useHousehold();
-  const defaultScope = household.data?.settings.defaultReportScope ?? null;
+  const { filters: saved, update, reset } = usePersistentFilters("dashboard");
+  // O recorte vem da barra do topo (preferência compartilhada com Lançamentos, Relatórios e Gastos fixos).
+  const pref = useReportScopePreference();
+  const filters = useMemo(() => ({ ...saved, scope: pref.scope ?? undefined }), [saved, pref.scope]);
   const accounts = useAccounts();
   const included = (accounts.data ?? []).filter((a) => a.includeInTotals);
   const fx: KpiFxNotes = { available: fxNote(included.filter((a) => a.type !== "INVESTMENT")), all: fxNote(included) };
@@ -106,10 +109,16 @@ export function DashboardView() {
     queryKey: qk.analytics("summary", params),
     queryFn: () => api.get<DashboardSummary>("/api/v1/analytics/summary", params),
     placeholderData: keepPreviousData,
+    enabled: pref.ready,
   });
+  const showBusiness = () => {
+    pref.setScope("BUSINESS");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
     <div className="space-y-6">
+      <ScopeBar />
       <PageHeader
         title={me.data ? `${greeting()}, ${me.data.member.displayName.split(" ")[0]}` : "Dashboard"}
         description={
@@ -118,13 +127,13 @@ export function DashboardView() {
             : "Visão geral das finanças da família"
         }
       />
-      <FiltersBar filters={filters} onChange={update} onReset={reset} defaultScope={defaultScope} appliedScope={summary.data?.scope ?? null} />
+      <FiltersBar filters={filters} onChange={update} onReset={reset} />
       <OnboardingChecklist />
       <div className={summary.isFetching && !summary.isLoading ? "opacity-70 transition-opacity" : "transition-opacity"}>
         <KpiGrid data={summary.data} isLoading={summary.isLoading} fx={fx} />
       </div>
       {summary.data?.business && summary.data.scope && summary.data.scope !== "BUSINESS" && (
-        <BusinessResultCard business={summary.data.business} scope={summary.data.scope} period={summary.data.period} onShowBusiness={() => update({ scope: "BUSINESS" })} />
+        <BusinessResultCard business={summary.data.business} scope={summary.data.scope} period={summary.data.period} onShowBusiness={showBusiness} />
       )}
 
       <div className="grid gap-4 xl:grid-cols-3">

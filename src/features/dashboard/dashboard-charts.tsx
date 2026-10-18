@@ -240,7 +240,7 @@ function CategoryTransactionsSheet({
           <Link
             href={`/transacoes?${new URLSearchParams({
               ...(category?.id ? { categoryId: category.id } : { uncategorized: "1" }),
-              ...(scope && scope !== "ALL" ? { scope } : {}),
+              ...(scope ? { scope } : {}),
               ...(period ? { start: period.start, end: period.end } : {}),
               ...(creditCardId ? { creditCardId } : {}),
               ...(payment.paymentMethod ? { paymentMethod: payment.paymentMethod } : {}),
@@ -364,7 +364,7 @@ interface BudgetOverview {
 }
 
 export function BudgetVsActual({ filters }: { filters: DashboardFilters }) {
-  // O realizado do orçamento segue o recorte do painel (Pessoal | Empresa | Tudo; sem escolher, o padrão da família).
+  // O realizado do orçamento segue o recorte da barra do topo (Pessoa física | Empresa | Tudo).
   const params = { regime: filters.regime, scope: filters.scope };
   const q = useAnalytics<BudgetOverview>("budget", "/api/v1/analytics/budget", params);
   const items = q.data?.items ?? [];

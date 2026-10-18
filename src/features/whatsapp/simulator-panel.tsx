@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
+  Briefcase,
   CheckCheck,
   CheckCircle2,
   FileText,
@@ -30,13 +31,16 @@ import { ErrorState } from "@/components/shared/error-state";
 import { DEFAULT_TIMEZONE, formatDateBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useMembers } from "@/features/finance/hooks";
-import { useSimulate, useWhatsAppMessages, type SimulateInput } from "./hooks";
+import { GROUP_NATURE_LABELS, useSimulate, useWhatsAppMessages, type SimulateInput } from "./hooks";
 import { TransactionChips } from "./message-bits";
 import { MESSAGE_STATUS_META, MESSAGE_TYPE_META } from "./status-meta";
 import type { WaMessage, WaSimulateResult, WaStatus } from "./types";
 import { SIMULATOR_MAX_FILE_BYTES, formatBytes, readFileAsBase64 } from "./utils";
 
 const SUGGESTIONS = ["Gastei 45 reais na farmácia", "Quanto gastamos esse mês?", "Paguei 120 de luz no pix", "Recebi 3500 de salário", "Mercado 230,90 no cartão em 3x"];
+const BUSINESS_SUGGESTIONS = ["Paguei 800 de anúncios no cartão", "Recebi 5000 do cliente no pix", "Quanto a empresa gastou esse mês?", "Almoço 60 reais PF"];
+
+/** Nome do grupo simulado da família (o padrão do servidor quando não se escolhe o grupo). */
 
 type FileKind = "audio" | "image" | "document";
 
@@ -194,7 +198,17 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
 
   const selected = ready.find((m) => m.id === memberId)?.id ?? (ready.find((m) => m.id === me?.id) ?? ready[0])?.id ?? "";
 
-  const messages = useWhatsAppMessages({ limit: 50 }, { refetchInterval: 4000 });
+  // Grupo de origem: um dos grupos simulados autorizados (padrão: o da família).
+  const simGroups = status.groups.filter((g) => g.isSimulator && g.isAuthorized);
+  const unauthorizedSim = status.groups.filter((g) => g.isSimulator && !g.isAuthorized);
+  const familyGroup = simGroups.find((g) => g.simulatorKind === "FAMILY") ?? simGroups.find((g) => g.defaultNature === "PERSONAL") ?? simGroups[0] ?? null;
+  const [groupId, setGroupId] = useState<string>("");
+  const group = simGroups.find((g) => g.id === groupId) ?? familyGroup;
+  const manyGroups = simGroups.length > 1;
+  const suggestions = group?.defaultNature === "BUSINESS" ? BUSINESS_SUGGESTIONS : SUGGESTIONS;
+
+  // Com mais de um grupo, a conversa mostra só o grupo escolhido (filtrado no servidor).
+  const messages = useWhatsAppMessages({ limit: 50, groupId: manyGroups ? group?.id : null }, { refetchInterval: 4000 });
   const items = useMemo(() => [...(messages.data?.pages[0]?.items ?? [])].reverse(), [messages.data]);
   const inFlight = items.some((m) => m.status === "QUEUED" || m.status === "PROCESSING");
 
@@ -210,8 +224,8 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
     ? "Somente quem administra as integrações pode enviar mensagens simuladas."
     : status.simulator && !status.simulator.enabled
       ? "O simulador está desabilitado neste ambiente."
-      : !status.authorizedGroup
-        ? "Autorize o grupo simulado na aba Conexão para começar."
+      : !group
+        ? "Autorize um grupo simulado na aba Conexão para começar."
         : ready.length === 0
           ? "Nenhum participante pronto: cadastre o número, autorize e dê o consentimento em Configurações › Membros."
           : null;
@@ -235,6 +249,7 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
     if (blocked || simulate.isPending || !selected) return;
     if (!body && !file) return;
     const input: SimulateInput = { memberId: selected };
+    if (group) input.groupId = group.id;
     if (body) input.text = body;
     if (file) {
       try {
@@ -274,20 +289,56 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
       <div role="note" className="flex items-start gap-3 rounded-xl border border-info/30 bg-info/8 p-4 text-sm">
         <FlaskConical className="mt-0.5 size-5 shrink-0 text-info" aria-hidden />
         <p className="text-foreground/85">
-          <strong className="text-info">Simulação — nenhuma mensagem é enviada a um WhatsApp real.</strong> Escolha um participante e escreva como se fosse no grupo da família: a
-          mensagem passa pelo mesmo processamento (lançamentos, consultas, pendências) e a resposta do bot aparece abaixo.
+          <strong className="text-info">Simulação — nenhuma mensagem é enviada a um WhatsApp real.</strong> Escolha o grupo e o participante e escreva como se fosse no WhatsApp: a
+          mensagem passa pelo mesmo processamento (lançamentos, consultas, pendências) e a resposta do bot aparece abaixo. A natureza do grupo vale para os lançamentos dele, mas a mensagem
+          sempre vence (“empresa”, “PJ”, “PF”, “pessoa física”).
         </p>
       </div>
+
+      {(manyGroups || (group && unauthorizedSim.length > 0)) && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {manyGroups && (
+            <>
+              <label htmlFor="sim-group" className="text-sm font-medium">
+                Grupo de origem
+              </label>
+              <Select value={group?.id ?? ""} onValueChange={setGroupId}>
+                <SelectTrigger id="sim-group" className="w-full sm:w-auto sm:min-w-80">
+                  <SelectValue placeholder="Escolha o grupo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {simGroups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name} · {GROUP_NATURE_LABELS[g.defaultNature ?? "NONE"]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
+          {unauthorizedSim.length > 0 && canManage && (
+            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              {unauthorizedSim.length === 1 ? "Grupo simulado ainda não autorizado:" : "Grupos simulados ainda não autorizados:"} {unauthorizedSim.map((g) => `“${g.name}”`).join(", ")} (ex.: para testar um grupo de pessoa física e outro da empresa).
+              <button type="button" onClick={onGoToConnection} className="font-medium text-brand hover:underline">
+                Ir para Conexão
+              </button>
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card className="flex min-w-0 flex-col overflow-hidden">
           <div className="flex items-center gap-3 bg-primary px-4 py-3 text-primary-foreground">
             <span className="flex size-9 items-center justify-center rounded-full bg-white/15" aria-hidden>
-              <Users className="size-4" />
+              {group?.defaultNature === "BUSINESS" ? <Briefcase className="size-4" /> : <Users className="size-4" />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{status.authorizedGroup?.name ?? "Grupo simulado"}</p>
-              <p className="truncate text-xs opacity-80">{ready.map((m) => m.displayName).join(", ") || "Sem participantes prontos"} · Finance AI</p>
+              <p className="truncate text-sm font-semibold">{group?.name ?? "Grupo simulado"}</p>
+              <p className="truncate text-xs opacity-80">
+                {group ? `${GROUP_NATURE_LABELS[group.defaultNature ?? "NONE"]} · ` : ""}
+                {ready.map((m) => m.displayName).join(", ") || "Sem participantes prontos"} · Finance AI
+              </p>
             </div>
             <Badge className="border-white/20 bg-white/15 text-primary-foreground">
               <FlaskConical aria-hidden /> Simulação
@@ -355,7 +406,7 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
                 <span className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden /> {blocked}
                 </span>
-                {canManage && !status.authorizedGroup && (
+                {canManage && !group && (
                   <Button size="sm" variant="outline" onClick={onGoToConnection}>
                     Ir para Conexão
                   </Button>
@@ -364,7 +415,7 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
             ) : (
               <>
                 <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" aria-label="Sugestões de mensagens">
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <button
                       key={s}
                       type="button"
@@ -456,6 +507,7 @@ export function SimulatorPanel({ status, canManage, timezone, onGoToConnection }
                 <strong className="text-foreground">Worker parado:</strong> a própria API processa a mensagem na hora e registra a resposta do bot.
               </p>
               <p>Somente participantes autorizados e com consentimento aparecem em “Enviar como”. Lançamentos criados aparecem em Transações com a origem “WhatsApp”.</p>
+              <p>Com os dois grupos simulados autorizados (família e empresa), escolha o grupo de origem: a conversa mostra só ele e os lançamentos seguem a natureza do grupo.</p>
             </CardContent>
           </Card>
         </div>

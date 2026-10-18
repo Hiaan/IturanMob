@@ -166,7 +166,7 @@ const RULE_NATURES: Array<{ value: RuleNature; label: string; icon: LucideIcon |
 const RULE_NATURE_HINTS: Record<RuleNature, string> = {
   KEEP: "A natureza fica como estiver (Pessoal, se nada a definir).",
   PERSONAL: "Os lançamentos que atenderem à regra entram como Pessoal (da família).",
-  BUSINESS: "Os lançamentos que atenderem à regra entram como Empresa: saem do recorte Pessoal e entram no resultado da empresa. Ex.: Pix para alguém da equipe.",
+  BUSINESS: "Os lançamentos que atenderem à regra entram como Empresa: saem do recorte Pessoa física e entram no resultado da empresa. Ex.: Pix para alguém da equipe.",
   PASSTHROUGH: "Repasse de cliente ou reembolso: fica fora de todos os relatórios.",
   ASK: "O lançamento entra como Pessoal e fica marcado “Escolher natureza” (com uma pendência) para você decidir entre Pessoal, Empresa ou Repasse.",
 };

@@ -98,7 +98,9 @@ function WhatsAppCard() {
             <Badge variant={d.provider === "SIMULATOR" ? "info" : d.official ? "positive" : "warning"}>{PROVIDER_SHORT[d.provider]}</Badge>
           </div>
           <Row label="Número">{d.provider === "SIMULATOR" ? "Simulação" : d.phoneNumber ? formatPhone(d.phoneNumber) : "—"}</Row>
-          <Row label="Chat autorizado">{d.authorizedGroup?.name ?? (d.provider === "CLOUD_API" ? "Conversas diretas" : "Nenhum")}</Row>
+          <Row label={d.groups.filter((g) => g.isAuthorized).length > 1 ? "Grupos autorizados" : "Chat autorizado"}>
+            {d.groups.filter((g) => g.isAuthorized).map((g) => g.name).join(", ") || (d.provider === "CLOUD_API" ? "Conversas diretas" : "Nenhum")}
+          </Row>
           <Row label="Mensagens (7 dias)">
             {d.stats7d.total}
             {d.stats7d.byStatus.FAILED > 0 && <span className="ml-1 text-negative">· {d.stats7d.byStatus.FAILED} com falha</span>}

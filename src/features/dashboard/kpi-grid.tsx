@@ -100,9 +100,9 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
     );
   }
   const budgetPct = data.budget.limitCents ? Math.round((data.budget.spentCents / data.budget.limitCents) * 100) : null;
-  // Links para Lançamentos no mesmo recorte (Pessoal/Empresa; "Tudo" não filtra).
-  const scopeQs = data.scope && data.scope !== "ALL" ? `&scope=${data.scope}` : "";
-  const scopeText = data.scope === "BUSINESS" ? " Recorte Empresa." : data.scope === "ALL" ? " Recorte Tudo (Pessoal e Empresa)." : data.scope === "PERSONAL" ? " Recorte Pessoal (sem a empresa)." : "";
+  // Links para Lançamentos no mesmo recorte da barra do topo (Pessoa física | Empresa | Tudo).
+  const scopeQs = data.scope ? `&scope=${data.scope}` : "";
+  const scopeText = data.scope === "BUSINESS" ? " Recorte Empresa." : data.scope === "ALL" ? " Recorte Tudo (Pessoa física e Empresa)." : data.scope === "PERSONAL" ? " Recorte Pessoa física (sem a empresa)." : "";
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Kpi

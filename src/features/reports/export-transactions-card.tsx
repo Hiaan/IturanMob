@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resolvePeriod, todayISO, type PeriodPreset } from "@/lib/dates";
 import { useCan } from "@/features/me/use-me";
+import type { ReportScope } from "@/features/finance/types";
+import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
 import { cn } from "@/lib/utils";
 import { downloadWithToast } from "./use-reports";
 
@@ -18,7 +20,7 @@ type ExportNature = "ALL" | "PERSONAL" | "BUSINESS" | "PASSTHROUGH";
 const NATURE_TYPES = ["EXPENSE", "INCOME"];
 const EXPORT_NATURES: Array<{ id: ExportNature; label: string; params: Record<string, unknown> }> = [
   { id: "ALL", label: "Todas", params: {} },
-  { id: "PERSONAL", label: "Pessoal", params: { scope: "PERSONAL", excluded: "hide", types: NATURE_TYPES } },
+  { id: "PERSONAL", label: "Pessoa física", params: { scope: "PERSONAL", excluded: "hide", types: NATURE_TYPES } },
   { id: "BUSINESS", label: "Empresa", params: { scope: "BUSINESS", excluded: "hide", types: NATURE_TYPES } },
   { id: "PASSTHROUGH", label: "Repasses", params: { excluded: "only" } },
 ];
@@ -37,7 +39,12 @@ export function ExportTransactionsCard({ timezone }: { timezone?: string }) {
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [nature, setNature] = useState<ExportNature>("ALL");
+  // Começa no recorte da barra do topo; uma escolha aqui vale enquanto a barra não mudar.
+  const pref = useReportScopePreference();
+  const [picked, setPicked] = useState<{ value: ExportNature; forScope: ReportScope | null } | null>(null);
+  const followsBar = !picked || picked.forScope !== pref.scope;
+  const nature: ExportNature = followsBar ? (pref.scope ?? "ALL") : picked.value;
+  const setNature = (value: ExportNature) => setPicked({ value, forScope: pref.scope });
   const [busy, setBusy] = useState<"csv" | "xlsx" | null>(null);
   const canExport = useCan("data:export");
   const invalid = !start || !end || start > end;
@@ -110,10 +117,11 @@ export function ExportTransactionsCard({ timezone }: { timezone?: string }) {
           {nature === "BUSINESS"
             ? "Só receitas e despesas da empresa (ex.: para o contador). Transferências e pagamentos de fatura não têm natureza e ficam de fora."
             : nature === "PERSONAL"
-              ? "Só receitas e despesas pessoais (sem empresa e sem repasses). Transferências e pagamentos de fatura ficam de fora."
+              ? "Só receitas e despesas de pessoa física (sem empresa e sem repasses). Transferências e pagamentos de fatura ficam de fora."
               : nature === "PASSTHROUGH"
                 ? "Só os repasses de clientes e reembolsos (desconsiderados nos relatórios)."
                 : "Todas as transações do período, com a coluna “Natureza”."}
+          {followsBar && pref.scope ? " Segue o recorte da barra no topo." : ""}
         </p>
       </div>
       <div className="mt-3 flex items-center gap-2">

@@ -53,7 +53,7 @@ export function WhatsAppView() {
     <div className="space-y-6">
       <PageHeader
         title="WhatsApp"
-        description="Conexão, grupo autorizado, participantes e processamento das mensagens da família."
+        description="Conexão, grupos autorizados (pessoa física e empresa), participantes e processamento das mensagens da família."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link href="/integracoes">

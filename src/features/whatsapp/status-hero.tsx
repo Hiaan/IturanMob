@@ -60,6 +60,7 @@ export function ProviderBadge({ status }: { status: Pick<WaStatus, "provider" | 
 export function StatusHero({ status, canManage, timezone }: { status: WaStatus; canManage: boolean; timezone?: string }) {
   const meta = CONNECTION_META[status.status];
   const Icon = meta.icon;
+  const authorizedGroups = status.groups.filter((g) => g.isAuthorized);
   const action = useConnectionAction();
   const settings = useUpdateWhatsAppSettings();
   const run = (a: ConnectionAction) => action.mutate(a);
@@ -86,9 +87,13 @@ export function StatusHero({ status, canManage, timezone }: { status: WaStatus; 
                 : meta.hint}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <ProviderBadge status={status} />
-              {status.authorizedGroup ? (
+              {authorizedGroups.length > 1 ? (
+                <Badge variant="muted" className="max-w-full" title={authorizedGroups.map((g) => g.name).join(", ")}>
+                  <span className="truncate">{authorizedGroups.length} grupos autorizados</span>
+                </Badge>
+              ) : authorizedGroups[0] ? (
                 <Badge variant="muted" className="max-w-full">
-                  <span className="truncate">Grupo: {status.authorizedGroup.name}</span>
+                  <span className="truncate">Grupo: {authorizedGroups[0].name}</span>
                 </Badge>
               ) : status.provider !== "CLOUD_API" ? (
                 <Badge variant="warning">Nenhum grupo autorizado</Badge>

@@ -9,9 +9,6 @@ import { PERIOD_PRESET_LABELS, type PeriodPreset } from "@/lib/dates";
 import { REGIME_DESCRIPTIONS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
-import type { ReportScope } from "@/features/finance/types";
-import { ReportScopeSwitch } from "@/features/transactions/nature-control";
-import { REPORT_SCOPE_HINTS, REPORT_SCOPE_LABELS, REPORT_SCOPE_PASSTHROUGH_NOTE } from "@/features/transactions/nature";
 import type { DashboardFilters } from "./use-filters";
 
 const ALL = "__all__";
@@ -22,28 +19,20 @@ export function FiltersBar({
   onChange,
   onReset,
   showRegime = true,
-  defaultScope,
-  appliedScope,
   className,
 }: {
   filters: DashboardFilters;
   onChange: (patch: Partial<DashboardFilters>) => void;
   onReset?: () => void;
   showRegime?: boolean;
-  /** Recorte padrão da família; com ele (ou `appliedScope`) aparece o seletor Pessoal | Empresa | Tudo. */
-  defaultScope?: ReportScope | null;
-  /** Recorte que o servidor aplicou (resposta do resumo). */
-  appliedScope?: ReportScope | null;
   className?: string;
 }) {
   const members = useMembers();
   const accounts = useAccounts();
   const cards = useCards();
   const categories = useCategories();
-  const scope = filters.scope ?? appliedScope ?? defaultScope ?? null;
-  const hasExtra = Boolean(
-    filters.memberId || filters.accountId || filters.creditCardId || filters.categoryIds?.length || filters.preset !== "thisMonth" || (filters.scope && defaultScope && filters.scope !== defaultScope),
-  );
+  // O recorte Pessoa física | Empresa | Tudo fica na barra do topo da página (não é limpo aqui).
+  const hasExtra = Boolean(filters.memberId || filters.accountId || filters.creditCardId || filters.categoryIds?.length || filters.preset !== "thisMonth");
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} role="group" aria-label="Filtros">
@@ -91,27 +80,6 @@ export function FiltersBar({
             <TooltipContent className="max-w-sm">
               <p className="mb-1">{REGIME_DESCRIPTIONS.ACCRUAL}</p>
               <p>{REGIME_DESCRIPTIONS.CASH}</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      )}
-      {scope && (
-        <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
-          <ReportScopeSwitch value={scope} defaultScope={defaultScope} onChange={(s) => onChange({ scope: s })} className="bg-transparent p-0" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button type="button" className="px-1.5 text-muted-foreground" aria-label="Sobre o recorte Pessoal, Empresa ou Tudo">
-                <Info className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-sm">
-              {(["PERSONAL", "BUSINESS", "ALL"] as const).map((s) => (
-                <p key={s} className="mb-1">
-                  <strong>{REPORT_SCOPE_LABELS[s]}</strong>
-                  {defaultScope === s ? " (padrão da família)" : ""}: {REPORT_SCOPE_HINTS[s]}
-                </p>
-              ))}
-              <p>{REPORT_SCOPE_PASSTHROUGH_NOTE} Saldo, faturas e contas a pagar não mudam com o recorte.</p>
             </TooltipContent>
           </Tooltip>
         </div>

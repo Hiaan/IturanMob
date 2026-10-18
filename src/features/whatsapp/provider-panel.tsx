@@ -186,14 +186,14 @@ function CloudApiSetup({ status, canManage }: { status: WaStatus; canManage: boo
 const STEPS: Record<WaProvider, string[]> = {
   SIMULATOR: [
     "Clique em Conectar (opcional: com o worker parado, a simulação é processada direto pela API).",
-    "Em “Grupo autorizado”, sincronize e autorize o grupo simulado.",
+    "Em “Grupos autorizados”, sincronize e autorize o grupo simulado da família (e, se quiser, o da empresa).",
     "Cada participante cadastra o número em Configurações › Membros e dá o consentimento.",
     "Use a aba Simulador para enviar mensagens como um membro.",
   ],
   BAILEYS: [
     "Clique em Conectar e aguarde o QR Code.",
     "No celular do número dedicado: WhatsApp › Aparelhos conectados › Conectar aparelho.",
-    "Depois de conectado, sincronize e autorize somente o grupo da família.",
+    "Depois de conectado, sincronize e autorize só os grupos de finanças (ex.: o da família e o da empresa).",
     "Cada participante dá o consentimento em Configurações › Membros.",
   ],
   CLOUD_API: [
@@ -277,7 +277,7 @@ export function ProviderCard({ status, canManage }: { status: WaStatus; canManag
           <AlertDialogHeader>
             <AlertDialogTitle>Trocar para {target ? PROVIDER_SHORT[target] : ""}?</AlertDialogTitle>
             <AlertDialogDescription>
-              A conexão atual será desconectada e a autorização do grupo será removida — depois de conectar, autorize novamente o grupo da família. As mensagens e os lançamentos
+              A conexão atual será desconectada e a autorização do grupo será removida — depois de conectar, autorize novamente os grupos de finanças. As mensagens e os lançamentos
               já registrados continuam disponíveis.
               {target === "BAILEYS" && " Atenção: o Baileys não é oficial e pode levar ao bloqueio do número."}
             </AlertDialogDescription>

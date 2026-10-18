@@ -22,6 +22,8 @@ export interface ReportListItem {
   createdAt: string;
   scheduled: boolean;
   scope: "FAMILY" | "PERSONAL";
+  /** Recorte da natureza usado (null em relatórios antigos, antes do recorte). */
+  natureScope: "PERSONAL" | "BUSINESS" | "ALL" | null;
   regime: Regime;
   isPartial: boolean;
   totals: { incomeCents: number; expenseCents: number; resultCents: number };

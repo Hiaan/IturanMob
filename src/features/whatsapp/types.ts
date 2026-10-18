@@ -12,14 +12,21 @@ export interface WaEvent {
   createdAt: string;
 }
 
+/** Natureza padrão do grupo: PERSONAL (pessoa física), BUSINESS (empresa) ou null (não atribuído). */
+export type WaGroupNature = "PERSONAL" | "BUSINESS";
+
 export interface WaGroup {
   id: string;
   name: string;
   participantsCount: number;
   isAuthorized: boolean;
+  /** Vale para os lançamentos que chegam pelo grupo (a mensagem e as regras vencem). */
+  defaultNature: WaGroupNature | null;
   authorizedAt: string | null;
   lastSyncedAt: string;
   isSimulator: boolean;
+  /** Grupo simulado da família ou da empresa (null fora do simulador). */
+  simulatorKind: "FAMILY" | "BUSINESS" | null;
 }
 
 export interface WaMember {
@@ -59,6 +66,7 @@ export interface WaStatus {
   recentErrors: WaEvent[];
   recentEvents: WaEvent[];
   groups: WaGroup[];
+  /** Primeiro grupo autorizado (pode haver vários: veja `groups`). */
   authorizedGroup: WaGroup | null;
   members: WaMember[];
   canSend: boolean;
@@ -107,12 +115,17 @@ export interface WaMessage {
   attachment: { id: string; kind: string; mimeType: string; sizeBytes: number; contentDeleted: boolean } | null;
   job: { status: string; attempts: number; maxAttempts: number; lastError: string | null; runAfter: string; finishedAt: string | null } | null;
   transactions: WaMessageTransaction[];
+  /** Grupo da mensagem (há famílias com um grupo de pessoa física e outro da empresa). */
+  group: { id: string; name: string; defaultNature: WaGroupNature | null } | null;
 }
 
 export interface WaMessagesPage {
   items: WaMessage[];
   nextCursor: string | null;
+  /** Primeiro grupo autorizado. */
   scope: { groupId: string; groupName: string } | null;
+  /** Todos os grupos autorizados. */
+  groups?: Array<{ id: string; name: string }>;
 }
 
 export interface WaSimulateResult {

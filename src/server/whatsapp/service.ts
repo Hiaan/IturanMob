@@ -78,6 +78,8 @@ export async function getWhatsAppStatus(ctx: ServiceContext) {
     authorizedAt: g.authorizedAt,
     lastSyncedAt: g.lastSyncedAt,
     isSimulator: SIMULATOR_GROUP_IDS.includes(g.externalId),
+    /** Grupo simulado: o da família ou o da empresa (null fora do simulador). */
+    simulatorKind: g.externalId === SIMULATOR_GROUP_ID ? ("FAMILY" as const) : g.externalId === SIMULATOR_BUSINESS_GROUP_ID ? ("BUSINESS" as const) : null,
   });
   return {
     provider: conn.provider,
@@ -409,6 +411,8 @@ export const messagesQuerySchema = z.object({
   cursor: z.string().max(40).optional(),
   status: z.enum(["RECEIVED", "QUEUED", "PROCESSING", "PROCESSED", "IGNORED", "NEEDS_CLARIFICATION", "FAILED"]).optional(),
   direction: z.enum(["INBOUND", "OUTBOUND"]).optional(),
+  /** Só as mensagens de um grupo autorizado. */
+  groupId: z.string().max(40).optional(),
 });
 
 /** Últimas mensagens do chat autorizado (com status, remetente, texto e transações geradas). */
@@ -423,6 +427,7 @@ export async function listWhatsAppMessages(ctx: ServiceContext, input: z.input<t
     householdId: ctx.householdId,
     connectionId: conn.id,
     ...(conn.provider !== "CLOUD_API" && groups.length ? { OR: [{ groupId: { in: groups.map((g) => g.id) } }, { chatId: { in: groups.map((g) => g.externalId) } }] } : {}),
+    ...(q.groupId ? { groupId: q.groupId } : {}),
     ...(q.status ? { status: q.status } : {}),
     ...(q.direction ? { direction: q.direction } : {}),
   };

@@ -21,6 +21,11 @@ export interface HouseholdSettingsDTO {
   whatsappAnswerQueries: boolean;
   /** Recorte padrão do painel, relatórios, orçamentos e assistente (Repasse fica sempre de fora). */
   defaultReportScope: "PERSONAL" | "BUSINESS" | "ALL";
+  /**
+   * WhatsApp: grupo sem natureza ("Não atribuído") e mensagem sem indicação de PF/empresa.
+   * ASK = pergunta no grupo "1 PF / 2 Empresa"; FAMILY_DEFAULT = usa o padrão da família.
+   */
+  whatsappUnassignedNature: "ASK" | "FAMILY_DEFAULT";
 }
 
 export interface HouseholdDTO {

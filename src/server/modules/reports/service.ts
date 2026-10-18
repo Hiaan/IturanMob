@@ -587,6 +587,8 @@ export async function listReports(ctx: ServiceContext, filters: z.input<typeof l
       createdAt: view.createdAt,
       scheduled: view.scheduled,
       scope: view.data.scope,
+      /** Recorte da natureza (Pessoa física / Empresa / Tudo); null em relatórios antigos. */
+      natureScope: view.data.natureScope ?? null,
       regime: view.data.regime,
       isPartial: view.data.isPartial,
       totals: view.data.totals,

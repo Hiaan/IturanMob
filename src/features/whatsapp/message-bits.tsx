@@ -1,13 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Paperclip } from "lucide-react";
+import { ArrowUpRight, Briefcase, Paperclip, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/money";
 import { formatDateBR } from "@/lib/dates";
 import { TRANSACTION_TYPE_LABELS, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { WaMessage } from "./types";
 import { MESSAGE_TYPE_META } from "./status-meta";
+import { GROUP_NATURE_LABELS } from "./hooks";
+
+/** Selo pequeno com o grupo de origem (quando a família tem mais de um grupo autorizado). */
+export function GroupBadge({ group, className }: { group: WaMessage["group"]; className?: string }) {
+  if (!group) return null;
+  const business = group.defaultNature === "BUSINESS";
+  return (
+    <Badge variant="muted" className={cn("max-w-full", business && "bg-series-7/12 text-series-7", className)} title={`Grupo “${group.name}” · natureza ${GROUP_NATURE_LABELS[group.defaultNature ?? "NONE"]}`}>
+      {business ? <Briefcase aria-hidden /> : <Users aria-hidden />}
+      <span className="truncate">{group.name}</span>
+    </Badge>
+  );
+}
+
+/** Lista "“A”, “B” e “C”". */
+export function groupNames(names: string[]): string {
+  const q = names.map((n) => `“${n}”`);
+  return q.length <= 1 ? (q[0] ?? "") : `${q.slice(0, -1).join(", ")} e ${q[q.length - 1]}`;
+}
 
 /** Lançamentos gerados pela mensagem, com link para o detalhe em Transações. */
 export function TransactionChips({ message, className }: { message: WaMessage; className?: string }) {

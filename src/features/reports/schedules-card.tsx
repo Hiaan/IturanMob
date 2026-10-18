@@ -12,6 +12,8 @@ import { ErrorState } from "@/components/shared/error-state";
 import { WEEKDAY_NAMES, formatDateTimeBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useCan } from "@/features/me/use-me";
+import { useHousehold } from "@/features/settings/use-household";
+import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { useReportSchedules, useUpdateSchedule } from "./use-reports";
 import type { ReportScheduleDTO } from "./types";
 
@@ -138,6 +140,7 @@ function ScheduleItem({ s, canEdit, timezone }: { s: ReportScheduleDTO; canEdit:
 export function SchedulesCard({ timezone }: { timezone?: string }) {
   const q = useReportSchedules();
   const canEdit = useCan("settings:manage");
+  const familyScope = useHousehold().data?.settings.defaultReportScope;
   return (
     <div className="space-y-4">
       {!canEdit && (
@@ -161,6 +164,7 @@ export function SchedulesCard({ timezone }: { timezone?: string }) {
       )}
       <p className="text-xs text-muted-foreground">
         Os relatórios programados usam o fuso horário da família, consideram apenas dados compartilhados (sem contas privadas) e nunca são gerados em duplicidade para o mesmo período.
+        {familyScope ? ` Eles saem no recorte padrão da família (${REPORT_SCOPE_LABELS[familyScope]}), não no da barra do topo.` : ""}
       </p>
     </div>
   );

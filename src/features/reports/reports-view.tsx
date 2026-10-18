@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/features/me/use-me";
 import { PassthroughCard } from "@/features/transactions/passthrough-card";
+import { ScopeBar } from "@/features/transactions/scope-bar";
 import { ReportGenerator } from "./report-generator";
 import { ReportHistory } from "./report-history";
 import { ReportViewer } from "./report-viewer";
@@ -72,6 +73,7 @@ export function ReportsView() {
 
   return (
     <div>
+      <ScopeBar />
       <PageHeader title="Relatórios" description="Resumos semanais e mensais com comparativos, projeções e exportação em PDF, Excel e CSV." />
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto">
@@ -111,7 +113,7 @@ export function ReportsView() {
                 />
               )}
             </div>
-            <div className="min-w-0 xl:sticky xl:top-20 xl:self-start">
+            <div className="min-w-0 xl:sticky xl:top-[calc(4rem+var(--safe-top)+5rem)] xl:self-start">
               <ReportHistory items={list.data} isLoading={list.isLoading} error={list.error} onRetry={() => list.refetch()} selectedId={selectedId} onSelect={select} timezone={timezone} />
             </div>
           </div>

@@ -23,7 +23,7 @@ import { useCan, useMe } from "@/features/me/use-me";
 import type { TransactionDTO, TransactionList as TxListResponse } from "@/features/finance/types";
 import { QuickAddDialog } from "./quick-add-dialog";
 import { parseSmartSearch, removeToken, type SmartToken } from "./smart-search";
-import { URL_FILTER_KEYS, buildListParams, countAdvanced, effectivePeriod, filtersFromUrl, useDebounced, usePersistentTxFilters } from "./use-transaction-filters";
+import { NON_NATURE_TYPES, URL_FILTER_KEYS, buildListParams, countAdvanced, effectivePeriod, filtersFromUrl, listNatureScope, scopeFromUrl, useDebounced, usePersistentTxFilters } from "./use-transaction-filters";
 import { ActiveFilterChips, FiltersButton, FiltersSheet, PeriodControl, SortControl, presetLabel } from "./transaction-filters";
 import { TransactionList, type RowAction } from "./transaction-list";
 import { TransactionDetailSheet } from "./transaction-detail-sheet";
@@ -34,7 +34,9 @@ import { useTransactionActions } from "./use-transaction-actions";
 import { ReportExclusionDialog } from "./report-exclusion-dialog";
 import { EXCLUSION_KEEPS_BALANCE, useReportExclusion } from "./report-exclusion";
 import { PassthroughCard } from "./passthrough-card";
-import { hasNature, natureOf, useSetNature } from "./nature";
+import { REPORT_SCOPE_LABELS, hasNature, natureOf, useSetNature } from "./nature";
+import { useReportScopePreference } from "./report-scope-preference";
+import { ScopeBar, type ScopeBarSuspension } from "./scope-bar";
 
 const PAGE_SIZE = 50;
 
@@ -86,6 +88,8 @@ export function TransactionsView() {
   const setNature = useSetNature();
 
   const { filters, update, reset, loaded, init } = usePersistentTxFilters();
+  // Recorte da barra do topo: Pessoa física → scope=PERSONAL, Empresa → scope=BUSINESS, Tudo → sem natureza.
+  const pref = useReportScopePreference();
   const [view, setView] = useState<"list" | "trash">("list");
   const [searchText, setSearchText] = useState("");
   const debounced = useDebounced(searchText.trim(), 300);
@@ -121,6 +125,9 @@ export function TransactionsView() {
   useEffect(() => {
     const sp = new URLSearchParams(spKey);
     const patch = filtersFromUrl(sp);
+    // ?scope= de um link vence e passa a ser o recorte lembrado (a barra mostra o que a lista aplica).
+    const urlScope = scopeFromUrl(sp);
+    if (urlScope) pref.setScope(urlScope);
     if (!initialized.current || patch) {
       initialized.current = true;
       init(patch);
@@ -141,10 +148,11 @@ export function TransactionsView() {
     () => parseSmartSearch(debounced, today, { members: (members.data ?? []).filter((m) => m.isActive), categories: categories.data ?? [] }),
     [debounced, today, members.data, categories.data],
   );
+  const natureScope = view === "list" ? listNatureScope(filters, pref.scope) : null;
   const baseParams = useMemo(() => {
     if (view === "trash") return { ...buildListParams({ preset: "all", sort: filters.sort }, today, smart, 1, PAGE_SIZE), deleted: "only" };
-    return buildListParams(filters, today, smart, 1, PAGE_SIZE);
-  }, [view, filters, today, smart]);
+    return buildListParams(filters, today, smart, 1, PAGE_SIZE, natureScope);
+  }, [view, filters, today, smart, natureScope]);
   const baseKey = JSON.stringify(baseParams);
   useEffect(() => {
     setPage(1);
@@ -155,7 +163,7 @@ export function TransactionsView() {
   const list = useQuery({
     queryKey: qk.transactions(params),
     queryFn: () => api.get<TxListResponse>("/api/v1/transactions", params),
-    enabled: loaded,
+    enabled: loaded && pref.ready,
     placeholderData: keepPreviousData,
   });
   const trashCount = useQuery({
@@ -212,7 +220,17 @@ export function TransactionsView() {
   const grouped = filters.sort === "date_desc" || filters.sort === "date_asc";
   const busy = actions.bulk.isPending || actions.purge.isPending || exclusion.isPending || setNature.isPending;
   const pendingNature = reviewCount.data?.total ?? 0;
-  const scopeLabel = view === "list" && filters.scope ? (filters.scope === "BUSINESS" ? " · Empresa" : " · Pessoal") : "";
+  const scopeLabel = natureScope ? ` · ${REPORT_SCOPE_LABELS[natureScope]}` : "";
+  const hiddenTypes = Boolean(natureScope && filters.types?.length && filters.types.every((t) => NON_NATURE_TYPES.includes(t)));
+  // Quando o recorte não vale na lista, a barra diz por quê e como voltar.
+  const scopeSuspended: ScopeBarSuspension | null =
+    view === "trash"
+      ? { text: "A lixeira mostra todos os excluídos, sem recorte.", resumeLabel: "Voltar aos lançamentos", onResume: () => setView("list") }
+      : filters.excluded === "only"
+        ? { text: "Só os desconsiderados (Repasse): ficam fora de qualquer recorte.", resumeLabel: "Voltar ao recorte", onResume: () => update({ excluded: undefined }) }
+        : filters.natureReview
+          ? { text: "Os que pedem natureza aparecem sem recorte.", resumeLabel: "Voltar ao recorte", onResume: () => update({ natureReview: undefined }) }
+          : null;
   const onlyExcluded = view === "list" && filters.excluded === "only";
   const excludedIn = totals?.excludedIncomeCents ?? 0;
   const excludedOut = totals?.excludedExpenseCents ?? 0;
@@ -220,6 +238,7 @@ export function TransactionsView() {
 
   return (
     <div className="space-y-5">
+      <ScopeBar suspended={scopeSuspended} note={natureScope ? `Transferências e pagamentos de fatura só aparecem em ${REPORT_SCOPE_LABELS.ALL}.` : undefined} />
       <PageHeader
         title="Transações"
         description={
@@ -297,7 +316,7 @@ export function TransactionsView() {
           </div>
         </div>
         {view === "list" ? (
-          <ActiveFilterChips filters={filters} onChange={update} tokens={smart.tokens} onRemoveToken={onRemoveToken} />
+          <ActiveFilterChips filters={filters} onChange={update} tokens={smart.tokens} onRemoveToken={onRemoveToken} natureScope={natureScope} />
         ) : (
           <ActiveFilterChips filters={{ preset: "all", sort: filters.sort }} onChange={() => undefined} tokens={smart.tokens} onRemoveToken={onRemoveToken} />
         )}
@@ -363,7 +382,21 @@ export function TransactionsView() {
         </div>
       )}
 
-      {list.isLoading || !loaded ? (
+      {hiddenTypes && natureScope && (
+        <div role="note" className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex min-w-0 items-start gap-2 text-muted-foreground">
+            <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              O filtro de tipo escolhido (transferência, pagamento de fatura ou ajuste) não tem natureza e não vale no recorte {REPORT_SCOPE_LABELS[natureScope]}: a lista mostra receitas e despesas.
+            </span>
+          </p>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => pref.setScope("ALL")}>
+            Ver em {REPORT_SCOPE_LABELS.ALL}
+          </Button>
+        </div>
+      )}
+
+      {list.isLoading || !loaded || !pref.ready ? (
         <ListSkeleton />
       ) : list.error ? (
         <ErrorState error={list.error} onRetry={() => list.refetch()} />
@@ -396,17 +429,42 @@ export function TransactionsView() {
           <EmptyState
             icon={SearchX}
             title="Nenhum lançamento encontrado"
-            description="Ajuste a busca, o período ou os filtros para ver mais resultados."
+            description={`Ajuste a busca, o período ou os filtros para ver mais resultados.${natureScope ? ` O recorte ${REPORT_SCOPE_LABELS[natureScope]} está aplicado (barra do topo).` : ""}`}
             action={
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchText("");
-                  reset();
-                }}
-              >
-                Limpar busca e filtros
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchText("");
+                    reset();
+                  }}
+                >
+                  Limpar busca e filtros
+                </Button>
+                {natureScope && (
+                  <Button variant="outline" onClick={() => pref.setScope("ALL")}>
+                    Ver em {REPORT_SCOPE_LABELS.ALL}
+                  </Button>
+                )}
+              </div>
+            }
+          />
+        ) : natureScope ? (
+          <EmptyState
+            icon={ArrowLeftRight}
+            title={natureScope === "BUSINESS" ? "Nenhum lançamento da empresa no período" : "Nenhum lançamento de pessoa física no período"}
+            description={`O recorte ${REPORT_SCOPE_LABELS[natureScope]} está aplicado (barra do topo): ele mostra só receitas e despesas com essa natureza.`}
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={() => pref.setScope("ALL")}>
+                  Ver em {REPORT_SCOPE_LABELS.ALL}
+                </Button>
+                {canWrite && (
+                  <Button variant="brand" onClick={() => setNewOpen(true)}>
+                    <Plus /> Novo lançamento
+                  </Button>
+                )}
+              </div>
             }
           />
         ) : (

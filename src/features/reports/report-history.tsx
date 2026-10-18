@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { formatBRL } from "@/lib/money";
 import { formatDateBR, formatDateTimeBR, formatDayMonthBR } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import type { ReportListItem } from "./types";
 
 const PAGE = 12;
@@ -79,6 +80,11 @@ export function ReportHistory({
                         </span>
                         <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
                           <span>{r.type === "WEEKLY" ? "Semanal" : "Mensal"}</span>·<span>{r.regime === "CASH" ? "Caixa" : "Competência"}</span>
+                          {r.natureScope && (
+                            <>
+                              ·<span>{REPORT_SCOPE_LABELS[r.natureScope]}</span>
+                            </>
+                          )}
                           {r.scope === "PERSONAL" && (
                             <Badge variant="muted" className="px-1.5 py-0 text-[10px]">
                               <UserRound aria-hidden /> Pessoal
