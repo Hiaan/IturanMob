@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCategories } from "@/features/finance/hooks";
 import type { CategoryDTO } from "@/features/finance/types";
+import { NewCategoryOption, QuickCategoryDialog } from "./quick-category-dialog";
+import { useQuickCategoryOption } from "./use-quick-category";
 
 export interface CategoryChoice {
   categoryId: string;
@@ -26,7 +28,10 @@ export function decodeChoice(v: string): CategoryChoice | null {
   return null;
 }
 
-/** Seletor de categoria + subcategoria (agrupado por categoria, com cor). */
+/**
+ * Seletor de categoria + subcategoria (agrupado por categoria, com cor). Com `allowCreate` (padrão) e
+ * permissão de editar categorias, traz "+ Nova categoria" no fim da lista: cria na hora e seleciona.
+ */
 export function CategoryPicker({
   value,
   onChange,
@@ -39,6 +44,7 @@ export function CategoryPicker({
   categoriesOnly,
   invalid,
   className,
+  allowCreate = true,
 }: {
   value: CategoryChoice | null;
   onChange: (value: CategoryChoice | null) => void;
@@ -51,8 +57,11 @@ export function CategoryPicker({
   categoriesOnly?: boolean;
   invalid?: boolean;
   className?: string;
+  /** false em filtros e destinos em que criar uma categoria não faz sentido. */
+  allowCreate?: boolean;
 }) {
   const categories = useCategories();
+  const quick = useQuickCategoryOption((r) => onChange({ categoryId: r.categoryId, subcategoryId: categoriesOnly ? null : r.subcategoryId }), allowCreate);
   const options = useMemo(
     () => (categories.data ?? []).filter((c) => !c.archivedAt && (!kind || c.kind === kind) && c.id !== excludeCategoryId),
     [categories.data, kind, excludeCategoryId],
@@ -64,25 +73,34 @@ export function CategoryPicker({
         ["Receitas", options.filter((c) => c.kind === "INCOME")],
       ];
   return (
-    <Select value={value ? encodeChoice(value) : allowNone ? NONE : ""} onValueChange={(v) => onChange(decodeChoice(v))}>
-      <SelectTrigger id={id} aria-invalid={invalid || undefined} className={className}>
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {allowNone && <SelectItem value={NONE}>{noneLabel}</SelectItem>}
-        {groups.map(([label, list], gi) =>
-          list.length ? (
-            <SelectGroup key={label}>
-              {(gi > 0 || allowNone) && <SelectSeparator />}
-              {!kind && <SelectLabel>{label}</SelectLabel>}
-              {list.map((c) => (
-                <SelectGroupItems key={c.id} category={c} categoriesOnly={categoriesOnly} />
-              ))}
-            </SelectGroup>
-          ) : null,
-        )}
-      </SelectContent>
-    </Select>
+    <>
+      <Select
+        value={value ? encodeChoice(value) : allowNone ? NONE : ""}
+        onValueChange={(v) => {
+          if (!quick.intercept(v)) onChange(decodeChoice(v));
+        }}
+      >
+        <SelectTrigger ref={quick.triggerRef} id={id} aria-invalid={invalid || undefined} className={className}>
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {allowNone && <SelectItem value={NONE}>{noneLabel}</SelectItem>}
+          {groups.map(([label, list], gi) =>
+            list.length ? (
+              <SelectGroup key={label}>
+                {(gi > 0 || allowNone) && <SelectSeparator />}
+                {!kind && <SelectLabel>{label}</SelectLabel>}
+                {list.map((c) => (
+                  <SelectGroupItems key={c.id} category={c} categoriesOnly={categoriesOnly} />
+                ))}
+              </SelectGroup>
+            ) : null,
+          )}
+          {quick.canCreate && <NewCategoryOption />}
+        </SelectContent>
+      </Select>
+      {quick.canCreate && <QuickCategoryDialog {...quick.dialog} kind={kind} allowSubcategory={!categoriesOnly} />}
+    </>
   );
 }
 

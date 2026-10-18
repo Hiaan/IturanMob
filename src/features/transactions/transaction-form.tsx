@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,10 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MoneyInput } from "@/components/shared/money-input";
-import { useAccounts, useCards, useCategories, useMembers } from "@/features/finance/hooks";
+import { useAccounts, useCards, useMembers } from "@/features/finance/hooks";
+import { CategoryPicker } from "@/features/recurring/pickers";
 import { useMe } from "@/features/me/use-me";
 import type { AccountDTO, TransactionDTO } from "@/features/finance/types";
 import { describeExchange, formatRate, isForeignCurrency } from "@/features/accounts/currency";
@@ -138,7 +139,6 @@ export function TransactionForm({
   const me = useMe();
   const accounts = useAccounts();
   const cards = useCards();
-  const categories = useCategories();
   const members = useMembers();
   const editing = Boolean(transaction);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -177,7 +177,6 @@ export function TransactionForm({
   const money = (cents: number) => formatMoney(cents, currency);
   const foreignAccount = crossCurrency ? (isForeignCurrency(currency) ? sourceAccount : accountById(destinationAccountId)) : null;
   const kind = type === "INCOME" ? "INCOME" : "EXPENSE";
-  const categoryOptions = useMemo(() => (categories.data ?? []).filter((c) => c.kind === kind && !c.archivedAt), [categories.data, kind]);
   const activeMembers = (members.data ?? []).filter((m) => m.isActive);
 
   const mutation = useMutation({
@@ -316,36 +315,7 @@ export function TransactionForm({
       {type !== "TRANSFER" && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Categoria" htmlFor="category">
-            <Controller
-              control={control}
-              name="category"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="category">
-                    <SelectValue placeholder="Sem categoria" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>Sem categoria</SelectItem>
-                    {categoryOptions.map((c) => (
-                      <SelectGroup key={c.id}>
-                        <SelectLabel className="flex items-center gap-2">
-                          <span className="size-2 rounded-full" style={{ backgroundColor: c.color }} />
-                          {c.name}
-                        </SelectLabel>
-                        <SelectItem value={`cat:${c.id}`}>{c.name} (geral)</SelectItem>
-                        {c.subcategories
-                          .filter((s) => !s.archivedAt)
-                          .map((s) => (
-                            <SelectItem key={s.id} value={`sub:${s.id}`}>
-                              {c.name} › {s.name}
-                            </SelectItem>
-                          ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <Controller control={control} name="category" render={({ field }) => <CategoryPicker id="category" value={field.value ?? NONE} onChange={field.onChange} kind={kind} />} />
           </Field>
           <Field label="Estabelecimento" htmlFor="merchant" hint="Opcional">
             <Input id="merchant" placeholder="Ex.: Atacadão" {...register("merchantName")} />

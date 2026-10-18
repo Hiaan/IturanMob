@@ -5,6 +5,8 @@ import { CreditCard, Landmark } from "lucide-react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAccounts, useCards, useCategories } from "@/features/finance/hooks";
+import { NewCategoryOption, QuickCategoryDialog } from "@/features/categories/quick-category-dialog";
+import { useQuickCategoryOption } from "@/features/categories/use-quick-category";
 
 export const NONE = "__none__";
 
@@ -21,6 +23,10 @@ export function parseCategoryValue(v: string | undefined): { categoryId: string 
   return { categoryId: null, subcategoryId: null };
 }
 
+/**
+ * Seletor de categoria com valor em texto ("cat:<id>", "sub:<id>" ou NONE). Para quem pode editar
+ * categorias, traz "+ Nova categoria" no fim da lista: cria na hora e seleciona.
+ */
 export function CategoryPicker({
   id,
   value,
@@ -38,46 +44,56 @@ export function CategoryPicker({
   current?: { value: string; label: string } | null;
 }) {
   const categories = useCategories();
+  const quick = useQuickCategoryOption((r) => onChange(categoryValue(r.categoryId, withSubcategories ? r.subcategoryId : null)));
   const options = useMemo(() => (categories.data ?? []).filter((c) => c.kind === kind && !c.archivedAt), [categories.data, kind]);
   const known = useMemo(() => new Set(options.flatMap((c) => [`cat:${c.id}`, ...c.subcategories.filter((sc) => !sc.archivedAt).map((sc) => `sub:${sc.id}`)])), [options]);
   const showCurrent = Boolean(current && value !== NONE && current.value === value && !known.has(value));
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id}>
-        <SelectValue placeholder="Sem categoria" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NONE}>Sem categoria</SelectItem>
-        {showCurrent && current && (
-          <SelectItem value={current.value}>
-            {current.label}
-            {categories.data ? " (arquivada)" : ""}
-          </SelectItem>
-        )}
-        {withSubcategories
-          ? options.map((c) => (
-              <SelectGroup key={c.id}>
-                <SelectLabel className="flex items-center gap-2">
-                  <span className="size-2 rounded-full" style={{ backgroundColor: c.color }} aria-hidden />
+    <>
+      <Select
+        value={value}
+        onValueChange={(v) => {
+          if (!quick.intercept(v)) onChange(v);
+        }}
+      >
+        <SelectTrigger ref={quick.triggerRef} id={id}>
+          <SelectValue placeholder="Sem categoria" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>Sem categoria</SelectItem>
+          {showCurrent && current && (
+            <SelectItem value={current.value}>
+              {current.label}
+              {categories.data ? " (arquivada)" : ""}
+            </SelectItem>
+          )}
+          {withSubcategories
+            ? options.map((c) => (
+                <SelectGroup key={c.id}>
+                  <SelectLabel className="flex items-center gap-2">
+                    <span className="size-2 rounded-full" style={{ backgroundColor: c.color }} aria-hidden />
+                    {c.name}
+                  </SelectLabel>
+                  <SelectItem value={`cat:${c.id}`}>{c.name} (geral)</SelectItem>
+                  {c.subcategories
+                    .filter((s) => !s.archivedAt)
+                    .map((s) => (
+                      <SelectItem key={s.id} value={`sub:${s.id}`}>
+                        {c.name} › {s.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              ))
+            : options.map((c) => (
+                <SelectItem key={c.id} value={`cat:${c.id}`}>
                   {c.name}
-                </SelectLabel>
-                <SelectItem value={`cat:${c.id}`}>{c.name} (geral)</SelectItem>
-                {c.subcategories
-                  .filter((s) => !s.archivedAt)
-                  .map((s) => (
-                    <SelectItem key={s.id} value={`sub:${s.id}`}>
-                      {c.name} › {s.name}
-                    </SelectItem>
-                  ))}
-              </SelectGroup>
-            ))
-          : options.map((c) => (
-              <SelectItem key={c.id} value={`cat:${c.id}`}>
-                {c.name}
-              </SelectItem>
-            ))}
-      </SelectContent>
-    </Select>
+                </SelectItem>
+              ))}
+          {quick.canCreate && <NewCategoryOption />}
+        </SelectContent>
+      </Select>
+      {quick.canCreate && <QuickCategoryDialog {...quick.dialog} kind={kind} allowSubcategory={withSubcategories} />}
+    </>
   );
 }
 

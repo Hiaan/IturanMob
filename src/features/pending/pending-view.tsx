@@ -43,6 +43,8 @@ import { useCategories } from "@/features/finance/hooks";
 import type { TransactionDTO, TransactionNature } from "@/features/finance/types";
 import { TransactionForm } from "@/features/transactions/transaction-form";
 import { useCan } from "@/features/me/use-me";
+import { NewCategoryOption, QuickCategoryDialog } from "@/features/categories/quick-category-dialog";
+import { useQuickCategoryOption } from "@/features/categories/use-quick-category";
 import { NATURES, NATURE_KEEPS_BALANCE, NATURE_LABELS, useSetNature } from "@/features/transactions/nature";
 import { NATURE_ICONS } from "@/features/transactions/nature-control";
 import { ReportExclusionDialog } from "@/features/transactions/report-exclusion-dialog";
@@ -104,38 +106,58 @@ function useInvalidate() {
 function CategoryPicker({ tx, onDone }: { tx: PendingTx; onDone: () => void }) {
   const categories = useCategories();
   const invalidate = useInvalidate();
+  const [value, setValue] = useState("");
   const kind = tx.type === "INCOME" ? "INCOME" : "EXPENSE";
   const save = useMutation({
-    mutationFn: (value: string) =>
-      api.patch(`/api/v1/transactions/${tx.id}`, value.startsWith("sub:") ? { subcategoryId: value.slice(4) } : { categoryId: value.slice(4), subcategoryId: null }),
+    mutationFn: (v: string) => api.patch(`/api/v1/transactions/${tx.id}`, v.startsWith("sub:") ? { subcategoryId: v.slice(4) } : { categoryId: v.slice(4), subcategoryId: null }),
     onSuccess: () => {
       toast.success("Categoria definida");
       invalidate();
       onDone();
     },
-    onError: (e) => toast.error(errorMessage(e)),
+    onError: (e) => {
+      setValue("");
+      toast.error(errorMessage(e));
+    },
   });
+  const choose = (v: string) => {
+    setValue(v);
+    save.mutate(v);
+  };
+  const quick = useQuickCategoryOption((r) => choose(r.subcategoryId ? `sub:${r.subcategoryId}` : `cat:${r.categoryId}`));
   return (
-    <Select onValueChange={(v) => save.mutate(v)} disabled={save.isPending}>
-      <SelectTrigger className="h-9 w-full sm:w-64" aria-label="Escolher categoria">
-        <SelectValue placeholder="Escolher categoria…" />
-      </SelectTrigger>
-      <SelectContent>
-        {(categories.data ?? [])
-          .filter((c) => c.kind === kind && !c.archivedAt)
-          .map((c) => (
-            <SelectGroup key={c.id}>
-              <SelectLabel>{c.name}</SelectLabel>
-              <SelectItem value={`cat:${c.id}`}>{c.name} (geral)</SelectItem>
-              {c.subcategories.map((s) => (
-                <SelectItem key={s.id} value={`sub:${s.id}`}>
-                  {c.name} › {s.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          ))}
-      </SelectContent>
-    </Select>
+    <>
+      <Select
+        value={value}
+        onValueChange={(v) => {
+          if (!quick.intercept(v)) choose(v);
+        }}
+        disabled={save.isPending}
+      >
+        <SelectTrigger ref={quick.triggerRef} className="h-9 w-full sm:w-64" aria-label="Escolher categoria">
+          <SelectValue placeholder="Escolher categoria…" />
+        </SelectTrigger>
+        <SelectContent>
+          {(categories.data ?? [])
+            .filter((c) => c.kind === kind && !c.archivedAt)
+            .map((c) => (
+              <SelectGroup key={c.id}>
+                <SelectLabel>{c.name}</SelectLabel>
+                <SelectItem value={`cat:${c.id}`}>{c.name} (geral)</SelectItem>
+                {c.subcategories
+                  .filter((s) => !s.archivedAt)
+                  .map((s) => (
+                    <SelectItem key={s.id} value={`sub:${s.id}`}>
+                      {c.name} › {s.name}
+                    </SelectItem>
+                  ))}
+              </SelectGroup>
+            ))}
+          {quick.canCreate && <NewCategoryOption />}
+        </SelectContent>
+      </Select>
+      {quick.canCreate && <QuickCategoryDialog {...quick.dialog} kind={kind} />}
+    </>
   );
 }
 

@@ -249,6 +249,7 @@ export function FiltersSheet({
             <CategoryPicker
               id="flt-category"
               kind={kind}
+              allowCreate={false}
               allowNone
               noneLabel="Todas as categorias"
               value={

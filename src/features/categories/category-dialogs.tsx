@@ -276,7 +276,7 @@ export function DeleteCategoryDialog({ category, onOpenChange }: { category: Cat
         </AlertDialogHeader>
         {needsTarget && (
           <Field label="Mover transações para" htmlFor="del-target" required>
-            <CategoryPicker id="del-target" kind={category.kind} excludeCategoryId={category.id} categoriesOnly value={target} onChange={setTarget} placeholder="Escolha a categoria de destino" />
+            <CategoryPicker id="del-target" kind={category.kind} excludeCategoryId={category.id} categoriesOnly allowCreate={false} value={target} onChange={setTarget} placeholder="Escolha a categoria de destino" />
           </Field>
         )}
         {error && (
@@ -371,7 +371,7 @@ export function ReclassifyDialog({
           }}
         >
           <Field label="De (origem)" htmlFor="rc-from" hint={source?.subcategoryId ? "Somente as transações desta subcategoria" : "Todas as transações da categoria, com ou sem subcategoria"}>
-            <CategoryPicker id="rc-from" kind={kind} value={source} onChange={setSource} />
+            <CategoryPicker id="rc-from" kind={kind} allowCreate={false} value={source} onChange={setSource} />
           </Field>
           <div className="flex justify-center text-muted-foreground" aria-hidden>
             <ArrowRight className="size-4 rotate-90" />
