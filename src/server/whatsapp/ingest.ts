@@ -8,6 +8,7 @@ import { createPendingItem } from "../modules/pending/service";
 import { getSettings } from "../modules/households/service";
 import { hasBotPrefix, wasSentByBot } from "./bot-messages";
 import { enqueueInboundJob } from "./inbound-queue";
+import { enqueueOutboundMessage } from "./outbound";
 import { normalizeE164, normalizeJid, phoneFromJid, phonesMatch, isLidJid, isPnJid } from "./phone";
 import { MAX_MEDIA_BYTES, type NormalizedInboundMessage } from "./types";
 
@@ -313,6 +314,18 @@ export async function ingestMessage(connectionRef: IngestConnection, msg: Normal
       dedupeKey: `failed:${created.messageId}`,
     });
     await publishEvent(householdId, "pending.changed");
+    // Avisa no grupo (antes ficava em silêncio): quem enviou sabe que precisa reenviar.
+    if (settings.whatsappReplies) {
+      const what = msg.type === "AUDIO" ? "o áudio" : msg.type === "IMAGE" ? "a imagem" : "o arquivo";
+      const why = /16 MB/.test(media.error ?? "") ? " (acima do limite de 16 MB)" : "";
+      await enqueueOutboundMessage({
+        householdId,
+        text: `📎 Não consegui baixar ${what}${why}. Pode reenviar?`,
+        kind: "reply",
+        quotedExternalId: msg.externalId,
+        dedupeKey: `ingest-failed:${created.messageId}`,
+      }).catch((err) => logger.warn({ err: errorInfo(err).name }, "whatsapp: aviso de mídia não enviada falhou"));
+    }
   }
 
   let queued = false;

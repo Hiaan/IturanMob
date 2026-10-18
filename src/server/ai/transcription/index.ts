@@ -3,6 +3,7 @@ import OpenAI, { toFile } from "openai";
 import { prisma } from "../../db";
 import { env } from "../../env";
 import { logger } from "../../logger";
+import { decryptStringSafe } from "../../crypto";
 import { credentialsFor, logAI } from "../providers/registry";
 
 /**
@@ -15,7 +16,10 @@ export interface TranscriptionResult {
   text?: string;
   provider?: string;
   model?: string;
+  /** Motivo completo (pendência/registro). */
   reason?: string;
+  /** Motivo curto para a resposta no grupo ("transcrição desligada"). */
+  userReason?: string;
 }
 
 function isPrivateHost(url: string | null | undefined): boolean {
@@ -61,40 +65,83 @@ export function convertToMp3(input: Buffer, timeoutMs = 60_000): Promise<Buffer>
   });
 }
 
-async function transcriptionClient(householdId: string): Promise<{ client: OpenAI; model: string; provider: string; external: boolean } | { reason: string }> {
+type ClientSetup = { client: OpenAI; model: string; provider: string; external: boolean };
+type ClientOff = { reason: string; short: string };
+
+const off = (reason: string, short: string): ClientOff => ({ reason, short });
+
+/** Servidor de transcrição da própria instância (ex.: Whisper no Docker: http://whisper:8000/v1). */
+function instanceServer(): { baseURL: string; apiKey: string } | null {
+  const e = env();
+  if (e.TRANSCRIPTION_PROVIDER !== "openai_compatible" || !e.TRANSCRIPTION_BASE_URL) return null;
+  return { baseURL: e.TRANSCRIPTION_BASE_URL, apiKey: e.TRANSCRIPTION_API_KEY || "not-needed" };
+}
+
+/**
+ * Modelo para servidor compatível: o informado; "whisper-1" (nome da OpenAI) vira o modelo do
+ * Whisper próprio (`Systran/faster-whisper-<WHISPER_MODEL>`, padrão "small").
+ */
+export function compatibleModel(configured?: string | null): string {
+  const e = env();
+  const pick = configured && configured !== "whisper-1" ? configured : e.TRANSCRIPTION_MODEL && e.TRANSCRIPTION_MODEL !== "whisper-1" ? e.TRANSCRIPTION_MODEL : null;
+  return pick ?? `Systran/faster-whisper-${e.WHISPER_MODEL}`;
+}
+
+async function transcriptionClient(householdId: string): Promise<ClientSetup | ClientOff> {
   const e = env();
   const config = await prisma.aITaskConfig.findUnique({ where: { householdId_task: { householdId, task: "TRANSCRIPTION" } } });
-  if (config && (!config.enabled || config.provider === "LOCAL")) return { reason: "Transcrição de áudio desativada nas configurações de IA." };
-  if (config && (config.provider === "OPENAI" || config.provider === "OPENAI_COMPATIBLE")) {
-    const creds = await credentialsFor(householdId, config.provider);
-    if (!creds.apiKey) return { reason: "Chave de API para transcrição não configurada." };
-    return {
-      client: new OpenAI({ apiKey: creds.apiKey, baseURL: creds.baseUrl ?? undefined, timeout: e.AI_TIMEOUT_MS }),
-      model: config.model || e.TRANSCRIPTION_MODEL,
-      provider: config.provider,
-      external: !isPrivateHost(creds.baseUrl),
-    };
+  if (config && !config.enabled) return off("Transcrição de áudio desativada nas configurações de IA.", "transcrição desligada");
+  const provider =
+    config?.provider ?? (e.TRANSCRIPTION_PROVIDER === "openai" ? "OPENAI" : e.TRANSCRIPTION_PROVIDER === "openai_compatible" ? "OPENAI_COMPATIBLE" : "LOCAL");
+
+  if (provider === "OPENAI") {
+    const creds = await credentialsFor(householdId, "OPENAI");
+    const apiKey = creds.apiKey ?? (e.TRANSCRIPTION_PROVIDER === "openai" ? e.TRANSCRIPTION_API_KEY : undefined) ?? null;
+    if (!apiKey) return off("Chave da OpenAI para transcrição não configurada.", "transcrição sem chave configurada");
+    const model = config?.model && !config.model.includes("/") ? config.model : "whisper-1";
+    return { client: new OpenAI({ apiKey, baseURL: creds.baseUrl ?? undefined, timeout: e.AI_TIMEOUT_MS }), model, provider: "OPENAI", external: !isPrivateHost(creds.baseUrl) || !creds.baseUrl };
   }
-  if (e.TRANSCRIPTION_PROVIDER === "none") return { reason: "Transcrição de áudio não configurada (TRANSCRIPTION_PROVIDER)." };
-  const apiKey = e.TRANSCRIPTION_API_KEY ?? (e.TRANSCRIPTION_PROVIDER === "openai" ? e.OPENAI_API_KEY : undefined) ?? "not-needed";
-  if (e.TRANSCRIPTION_PROVIDER === "openai" && apiKey === "not-needed") return { reason: "Chave da OpenAI para transcrição não configurada." };
-  const baseURL = e.TRANSCRIPTION_PROVIDER === "openai_compatible" ? e.TRANSCRIPTION_BASE_URL : undefined;
-  if (e.TRANSCRIPTION_PROVIDER === "openai_compatible" && !baseURL) return { reason: "TRANSCRIPTION_BASE_URL não configurada." };
+
+  if (provider === "OPENAI_COMPATIBLE") {
+    // Credencial salva na família (endereço próprio) > servidor da instância > endereço compatível geral.
+    const stored = await prisma.aIProviderCredential.findUnique({ where: { householdId_provider: { householdId, provider: "OPENAI_COMPATIBLE" } } });
+    const storedKey = stored ? decryptStringSafe(stored.encryptedApiKey) : null;
+    const server = instanceServer();
+    const baseURL = stored?.baseUrl ?? server?.baseURL ?? e.OPENAI_COMPATIBLE_BASE_URL ?? null;
+    if (!baseURL) return off("Servidor de transcrição não configurado (TRANSCRIPTION_BASE_URL).", "servidor de transcrição não configurado");
+    const apiKey = storedKey || (stored?.baseUrl ? null : server?.apiKey) || e.TRANSCRIPTION_API_KEY || e.OPENAI_COMPATIBLE_API_KEY || "not-needed";
+    return { client: new OpenAI({ apiKey, baseURL, timeout: e.AI_TIMEOUT_MS }), model: compatibleModel(config?.model), provider: "OPENAI_COMPATIBLE", external: !isPrivateHost(baseURL) };
+  }
+
+  // "Local": o servidor de transcrição da própria instância, quando existir.
+  const server = instanceServer();
+  if (!server) return off("Transcrição de áudio não configurada (TRANSCRIPTION_PROVIDER=none e nenhum provedor nas configurações de IA).", "transcrição desligada");
   return {
-    client: new OpenAI({ apiKey, baseURL, timeout: e.AI_TIMEOUT_MS }),
-    model: e.TRANSCRIPTION_MODEL,
-    provider: e.TRANSCRIPTION_PROVIDER === "openai" ? "OPENAI" : "OPENAI_COMPATIBLE",
-    external: e.TRANSCRIPTION_PROVIDER === "openai" || !isPrivateHost(baseURL),
+    client: new OpenAI({ apiKey: server.apiKey, baseURL: server.baseURL, timeout: e.AI_TIMEOUT_MS }),
+    model: compatibleModel(null),
+    provider: "OPENAI_COMPATIBLE",
+    external: !isPrivateHost(server.baseURL),
   };
+}
+
+/** Se a instância/família tem transcrição ativa (para mensagens e telas). */
+export async function transcriptionStatus(householdId: string): Promise<{ enabled: boolean; reason: string | null; provider: string | null; model: string | null; external: boolean }> {
+  const setup = await transcriptionClient(householdId);
+  if ("reason" in setup) return { enabled: false, reason: setup.reason, provider: null, model: null, external: false };
+  return { enabled: true, reason: null, provider: setup.provider, model: setup.model, external: setup.external };
 }
 
 export async function transcribeAudio(householdId: string, audio: Buffer, mimeType: string, messageId?: string | null): Promise<TranscriptionResult> {
   const setup = await transcriptionClient(householdId);
-  if ("reason" in setup) return { ok: false, reason: setup.reason };
+  if ("reason" in setup) return { ok: false, reason: setup.reason, userReason: setup.short };
   if (setup.external) {
     const settings = await prisma.householdSettings.findUnique({ where: { householdId } });
     if (!settings?.aiExternalAllowed || !settings.aiAudioAllowed) {
-      return { ok: false, reason: "Envio de áudios para transcrição externa não autorizado pela família (Configurações → Privacidade)." };
+      return {
+        ok: false,
+        reason: "Envio de áudios para transcrição externa não autorizado pela família (Configurações → Privacidade).",
+        userReason: "o envio do áudio para transcrição externa não foi autorizado (Configurações → Privacidade)",
+      };
     }
   }
   const started = Date.now();
@@ -117,11 +164,11 @@ export async function transcribeAudio(householdId: string, audio: Buffer, mimeTy
     });
     const text = (res.text ?? "").trim();
     await logAI({ householdId, task: "TRANSCRIPTION", provider: setup.provider as "OPENAI", model: setup.model, status: "SUCCESS", latencyMs: Date.now() - started, messageId, output: { chars: text.length } });
-    if (!text) return { ok: false, reason: "Não foi possível entender o áudio." };
+    if (!text) return { ok: false, reason: "Não foi possível entender o áudio.", userReason: "não deu para entender o que foi dito" };
     return { ok: true, text, provider: setup.provider, model: setup.model };
   } catch (err) {
     const reason = (err as Error).message.slice(0, 200);
     await logAI({ householdId, task: "TRANSCRIPTION", provider: setup.provider as "OPENAI", model: setup.model, status: "ERROR", latencyMs: Date.now() - started, messageId, error: reason });
-    return { ok: false, reason: `Falha na transcrição: ${reason}` };
+    return { ok: false, reason: `Falha na transcrição: ${reason}`, userReason: "o serviço de transcrição não respondeu agora" };
   }
 }

@@ -44,6 +44,8 @@ const envSchema = z.object({
   TRANSCRIPTION_API_KEY: z.string().optional(),
   TRANSCRIPTION_BASE_URL: z.string().optional(),
   TRANSCRIPTION_MODEL: z.string().default("whisper-1"),
+  /** Modelo do Whisper próprio (serviço "whisper" do docker-compose): tiny, base, small, medium… */
+  WHISPER_MODEL: z.string().regex(/^[a-z0-9.-]+$/).default("small"),
   FFMPEG_PATH: z.string().default("ffmpeg"),
 
   // WhatsApp

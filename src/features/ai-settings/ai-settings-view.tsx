@@ -25,7 +25,7 @@ type ProviderType = "ANTHROPIC" | "OPENAI" | "OPENAI_COMPATIBLE" | "LOCAL";
 
 interface AIConfig {
   consent: { aiExternalAllowed: boolean; aiAudioAllowed: boolean; aiImageAllowed: boolean };
-  defaults: { provider: ProviderType; transcription: string };
+  defaults: { provider: ProviderType; transcription: string; transcriptionServer?: boolean };
   providers: Array<{ type: Exclude<ProviderType, "LOCAL">; configured: boolean; source: "database" | "env" | null; baseUrl: string | null; storedAt: string | null; defaultModel: string }>;
   tasks: Array<{ task: keyof typeof AI_TASK_LABELS; provider: ProviderType; model: string; enabled: boolean; customized: boolean; effective: { provider: string; model: string; reason: string | null } | null }>;
 }
@@ -123,7 +123,7 @@ function ProviderCard({ p, canManage }: { p: AIConfig["providers"][number]; canM
   );
 }
 
-function TaskRow({ t, providers, canManage }: { t: AIConfig["tasks"][number]; providers: AIConfig["providers"]; canManage: boolean }) {
+function TaskRow({ t, providers, canManage, transcriptionServer = false }: { t: AIConfig["tasks"][number]; providers: AIConfig["providers"]; canManage: boolean; transcriptionServer?: boolean }) {
   const qc = useQueryClient();
   const [provider, setProvider] = useState<ProviderType>(t.provider);
   const [model, setModel] = useState(t.model);
@@ -153,7 +153,10 @@ function TaskRow({ t, providers, canManage }: { t: AIConfig["tasks"][number]; pr
           <p className="mt-1.5 flex items-start gap-1 text-xs">
             <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
             <span>
-              Em uso: <strong>desativada</strong> <span className="text-muted-foreground">— áudios viram pendência para digitar o lançamento.</span>
+              Em uso: <strong>desativada</strong>{" "}
+              <span className="text-muted-foreground">
+                — o bot avisa no grupo e o áudio vira pendência.{effective?.reason ? ` ${effective.reason}` : ""}
+              </span>
             </span>
           </p>
         ) : t.task === "RECEIPT_EXTRACTION" && effective?.provider === "LOCAL" ? (
@@ -182,7 +185,7 @@ function TaskRow({ t, providers, canManage }: { t: AIConfig["tasks"][number]; pr
           <SelectContent>
             {options.map((o) => (
               <SelectItem key={o} value={o}>
-                {o === "LOCAL" ? (t.task === "TRANSCRIPTION" ? "Desativada" : "Motor local") : labelOf(AI_PROVIDER_LABELS, o)}
+                {o === "LOCAL" ? (t.task === "TRANSCRIPTION" ? (transcriptionServer ? "Servidor próprio (Whisper)" : "Desativada") : "Motor local") : labelOf(AI_PROVIDER_LABELS, o)}
                 {o !== "LOCAL" && !providers.find((p) => p.type === o)?.configured ? " (sem chave)" : ""}
               </SelectItem>
             ))}
@@ -255,7 +258,7 @@ export function AiSettingsView() {
         <h2 className="text-lg font-semibold">Tarefas</h2>
         <div className="grid gap-3">
           {c.tasks.map((t) => (
-            <TaskRow key={t.task} t={t} providers={c.providers} canManage={canManage} />
+            <TaskRow key={t.task} t={t} providers={c.providers} canManage={canManage} transcriptionServer={Boolean(c.defaults.transcriptionServer)} />
           ))}
         </div>
         <p className="text-xs text-muted-foreground">

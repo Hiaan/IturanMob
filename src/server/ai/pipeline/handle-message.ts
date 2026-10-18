@@ -127,7 +127,14 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
     const audio = await readStoredFile(att.storageKey);
     const res = await transcribeAudio(ctx.householdId, audio, att.mimeType, message.id);
     if (!res.ok) {
-      return failWithPending(ctx, message, "CLARIFICATION", "Áudio não transcrito", res.reason ?? "Transcrição indisponível.", `🎙️ Recebi o áudio, mas não consegui transcrevê-lo (${res.reason}). Pode enviar por texto?`);
+      return failWithPending(
+        ctx,
+        message,
+        "CLARIFICATION",
+        "Áudio não transcrito",
+        res.reason ?? "Transcrição indisponível.",
+        `🎙️ Não consegui ouvir o áudio: ${res.userReason ?? res.reason ?? "transcrição indisponível"}. Pode enviar por texto?`,
+      );
     }
     transcript = res.text!;
     await prisma.attachment.update({

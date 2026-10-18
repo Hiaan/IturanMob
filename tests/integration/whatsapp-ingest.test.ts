@@ -285,6 +285,9 @@ describe("WhatsApp: ingestão", () => {
     const pendings = await prisma.pendingItem.findMany({ where: { householdId: fam.householdId, type: "PROCESSING_FAILED" } });
     expect(pendings.map((p) => p.dedupeKey).sort()).toEqual([`failed:${big.messageId}`, `failed:${broken.messageId}`].sort());
     expect(await prisma.messageProcessingJob.count({ where: { householdId: fam.householdId } })).toBe(1);
+    // Não fica em silêncio: o bot avisa no grupo, citando a mensagem.
+    const outbound = (await getQueue<{ text: string; quotedExternalId: string | null }>(QUEUE_NAMES.outbound).getJobs(["waiting", "delayed", "active", "completed", "failed"])).map((j) => j.data);
+    expect(outbound.map((o) => o.text)).toEqual(expect.arrayContaining(["📎 Não consegui baixar a imagem (acima do limite de 16 MB). Pode reenviar?", "📎 Não consegui baixar o áudio. Pode reenviar?"]));
   });
 
   it("processamento desligado guarda como RECEIVED e processa ao religar", async () => {

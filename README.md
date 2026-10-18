@@ -102,6 +102,28 @@ PostgreSQL 16 · Redis 7 + BullMQ · pino · Vitest · Playwright · Docker Comp
 O uso de qualquer provedor externo depende de autorização explícita da família em
 **Configurações → Privacidade e IA**.
 
+### Transcrição própria (Whisper no Docker)
+
+Para os áudios do WhatsApp sem enviar nada a terceiros: `docker compose --profile whisper up -d` e,
+no `.env`, `TRANSCRIPTION_PROVIDER=openai_compatible`, `TRANSCRIPTION_BASE_URL=http://whisper:8000/v1`
+e `WHISPER_MODEL` (padrão `small`). O serviço fica só na rede interna (sem porta publicada) e, por ser
+host privado, não exige o consentimento de envio externo. Em Configurações → IA, a transcrição em
+"Local" usa esse servidor; o texto transcrito segue exatamente o mesmo fluxo de uma mensagem de texto.
+Sem transcrição (ou se ela falhar), o bot responde no grupo com o motivo curto.
+
+Memória aproximada do serviço (faster-whisper em CPU, int8, já com o servidor; varia com a duração do
+áudio — confira com `docker stats` no seu servidor):
+
+| `WHISPER_MODEL` | RAM em uso | `WHISPER_MEM_LIMIT` sugerido | Download (cache) | Observação |
+|---|---|---|---|---|
+| `tiny` | ~350–450 MB | `1g` | ~75 MB | rápido, erra mais em português |
+| `base` | ~450–650 MB | `1g` | ~145 MB | servidor com pouca memória |
+| `small` (padrão) | ~0,9–1,3 GB | `2g` | ~480 MB | bom equilíbrio para áudios curtos |
+| `medium` | ~2–2,7 GB | `3g` | ~1,5 GB | mais preciso e bem mais lento em CPU |
+
+Áudios curtos (10–30 s) costumam levar alguns segundos com `small` em 2 vCPUs. A primeira partida
+baixa o modelo; os seguintes reiniciam rápido (volume `whisper-cache`).
+
 ## Licença
 
 Uso privado.

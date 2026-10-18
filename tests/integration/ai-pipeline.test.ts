@@ -58,6 +58,7 @@ vi.mock("@/server/modules/transactions/service", async (importOriginal) => {
 
 import { prisma } from "@/server/db";
 import { decryptStringSafe } from "@/server/crypto";
+import { resetEnvCache } from "@/server/env";
 import { addDays, dateToISO, todayISO } from "@/lib/dates";
 import { formatBRL } from "@/lib/money";
 import { handleInboundMessage } from "@/server/ai/pipeline/handle-message";
@@ -217,8 +218,8 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
     const denied = await sendMessage(fam, { type: "AUDIO", media: audio() });
     expect(fake.transcribe).not.toHaveBeenCalled();
     expect(denied.message).toMatchObject({ status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION" });
-    expect(denied.reply).toContain("não consegui transcrevê-lo");
-    expect(denied.reply).toContain("não autorizado");
+    expect(denied.reply).toContain("Não consegui ouvir o áudio");
+    expect(denied.reply).toContain("não foi autorizado");
     expect(await prisma.transaction.count({ where: { householdId: fam.householdId } })).toBe(0);
     const pending = await prisma.pendingItem.findFirstOrThrow({ where: { householdId: fam.householdId, messageId: denied.messageId } });
     expect(pending).toMatchObject({ type: "CLARIFICATION", title: "Áudio não transcrito", status: "OPEN", dedupeKey: `msg:CLARIFICATION:${denied.messageId}` });
@@ -262,6 +263,46 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
     expect(state.message.status).toBe("PROCESSED");
     expect(state.replies.at(-1)).toContain("🎙️");
     expect(state.replies.at(-1)).toContain("paguei 120 de internet no débito do itaú");
+  });
+
+  it("áudio: sem transcrição configurada o bot responde no grupo o motivo curto (não fica em silêncio)", async () => {
+    const { fam } = await familyWithAccounts();
+    const sent = await sendMessage(fam, { type: "AUDIO", media: audio() });
+    expect(fake.transcribe).not.toHaveBeenCalled();
+    expect(sent.reply).toContain("🎙️ Não consegui ouvir o áudio: transcrição desligada. Pode enviar por texto?");
+  });
+
+  it("áudio: Whisper próprio da instância (TRANSCRIPTION_BASE_URL) vale mesmo com a transcrição 'Local' salva; o texto segue o fluxo normal", async () => {
+    const { fam } = await familyWithAccounts();
+    const saved = { p: process.env.TRANSCRIPTION_PROVIDER, u: process.env.TRANSCRIPTION_BASE_URL, m: process.env.WHISPER_MODEL };
+    process.env.TRANSCRIPTION_PROVIDER = "openai_compatible";
+    process.env.TRANSCRIPTION_BASE_URL = "http://whisper:8000/v1";
+    process.env.WHISPER_MODEL = "base";
+    resetEnvCache();
+    try {
+      // A família tinha salvo a tela de IA com a transcrição "Local" (antes não havia servidor).
+      await updateTaskConfigs(fam.ctx, { items: [{ task: "TRANSCRIPTION", provider: "LOCAL", model: "", enabled: true }] });
+      fake.transcribe.mockResolvedValue({ text: "paguei 750 pro Ícaro, empresa" });
+      const sent = await sendMessage(fam, { type: "AUDIO", media: audio() });
+      expect(sent.message.status).toBe("PROCESSED");
+      expect(fake.transcribe).toHaveBeenCalledTimes(1);
+      expect(fake.transcribe.mock.calls[0]![0]).toMatchObject({ model: "Systran/faster-whisper-base", language: "pt" });
+      expect(fake.openaiClients.at(-1)).toMatchObject({ baseURL: "http://whisper:8000/v1" });
+      // Mesmo fluxo do texto: natureza pela mensagem ("empresa").
+      const [tx] = await txsOf(fam.householdId);
+      expect(tx).toMatchObject({ amountCents: 75_000, source: "WHATSAPP_AUDIO", scope: "BUSINESS" });
+      expect(sent.reply).toContain("Marcado como *Empresa*");
+      // Desligar a tarefa vale mais que o servidor.
+      await updateTaskConfigs(fam.ctx, { items: [{ task: "TRANSCRIPTION", provider: "LOCAL", model: "", enabled: false }] });
+      const off = await sendMessage(fam, { type: "AUDIO", media: audio() });
+      expect(off.reply).toContain("Não consegui ouvir o áudio: transcrição desligada");
+    } finally {
+      for (const [k, v] of [["TRANSCRIPTION_PROVIDER", saved.p], ["TRANSCRIPTION_BASE_URL", saved.u], ["WHISPER_MODEL", saved.m]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      resetEnvCache();
+    }
   });
 
   it("áudio: servidor de transcrição na rede local não depende do consentimento de envio externo", async () => {

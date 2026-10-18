@@ -12,6 +12,7 @@ import { interpretText } from "./engine/interpret";
 import { executeInterpretation } from "./engine/actions";
 import { answerQuestion } from "./assistant/service";
 import { buildProvider, credentialsFor, defaultModelFor, resolveProvider } from "./providers/registry";
+import { transcriptionStatus } from "./transcription";
 
 export const textSchema = z.object({ text: z.string().trim().min(1, "Escreva o lançamento").max(1000) });
 
@@ -90,18 +91,31 @@ export async function getAIConfig(ctx: ServiceContext) {
   for (const t of TASKS) {
     const c = configs.find((x) => x.task === t);
     const resolution = t === "TRANSCRIPTION" ? null : await resolveProvider(ctx.householdId, t);
+    // Transcrição: o que vale de fato (servidor da instância, OpenAI, compatível ou desligada).
+    const tStatus = t === "TRANSCRIPTION" ? await transcriptionStatus(ctx.householdId) : null;
+    const transcriptionEffective = tStatus
+      ? tStatus.enabled
+        ? {
+            provider: tStatus.provider as "OPENAI" | "OPENAI_COMPATIBLE",
+            model: tStatus.model ?? "",
+            reason: tStatus.external && !(settings.aiExternalAllowed && settings.aiAudioAllowed) ? "o envio de áudios para fora não foi autorizado (Privacidade)" : null,
+          }
+        : { provider: "LOCAL" as const, model: "", reason: tStatus.reason }
+      : null;
     tasks.push({
       task: t,
       provider: c?.provider ?? (t === "TRANSCRIPTION" ? (env().TRANSCRIPTION_PROVIDER === "none" ? "LOCAL" : env().TRANSCRIPTION_PROVIDER === "openai" ? "OPENAI" : "OPENAI_COMPATIBLE") : env().AI_DEFAULT_PROVIDER),
       model: c?.model ?? (t === "TRANSCRIPTION" ? env().TRANSCRIPTION_MODEL : defaultModelFor(env().AI_DEFAULT_PROVIDER)),
       enabled: c?.enabled ?? true,
       customized: Boolean(c),
-      effective: resolution ? { provider: resolution.provider ? resolution.type : "LOCAL", model: resolution.provider ? resolution.model : "heuristico-ptbr", reason: resolution.reason } : null,
+      effective: resolution
+        ? { provider: resolution.provider ? resolution.type : "LOCAL", model: resolution.provider ? resolution.model : "heuristico-ptbr", reason: resolution.reason }
+        : transcriptionEffective,
     });
   }
   return {
     consent: { aiExternalAllowed: settings.aiExternalAllowed, aiAudioAllowed: settings.aiAudioAllowed, aiImageAllowed: settings.aiImageAllowed },
-    defaults: { provider: env().AI_DEFAULT_PROVIDER, transcription: env().TRANSCRIPTION_PROVIDER },
+    defaults: { provider: env().AI_DEFAULT_PROVIDER, transcription: env().TRANSCRIPTION_PROVIDER, transcriptionServer: Boolean(env().TRANSCRIPTION_PROVIDER === "openai_compatible" && env().TRANSCRIPTION_BASE_URL) },
     providers,
     tasks,
   };

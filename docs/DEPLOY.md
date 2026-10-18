@@ -90,6 +90,15 @@ Para o webhook da **WhatsApp Cloud API**, cadastre no painel da Meta:
 - URL: `https://financas.seudominio.com.br/api/webhooks/whatsapp`
 - Token de verificação: o valor de `WHATSAPP_CLOUD_VERIFY_TOKEN`
 
+### Áudios do WhatsApp (transcrição)
+
+Sem transcrição configurada, o bot responde no grupo "Não consegui ouvir o áudio: transcrição
+desligada". Para ligar o Whisper próprio: `docker compose --profile whisper up -d` e, no `.env`,
+`TRANSCRIPTION_PROVIDER=openai_compatible`, `TRANSCRIPTION_BASE_URL=http://whisper:8000/v1`,
+`WHISPER_MODEL=small` (ou `base`) e `WHISPER_MEM_LIMIT`; recrie web e worker. Tabela de memória no
+README. Se a família tiver escolhido "Desativada" em Configurações → IA, a transcrição em "Local" já
+passa a usar esse servidor; para desligar de vez, desmarque a tarefa ali.
+
 ### App no celular (PWA) e notificações push
 
 O sistema é instalável como app (iPhone: Safari → Compartilhar → **Adicionar à Tela de Início**;
