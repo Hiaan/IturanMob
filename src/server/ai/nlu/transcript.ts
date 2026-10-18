@@ -6,7 +6,8 @@ import { normalizeText } from "@/lib/utils";
  * - natureza: "em presa" → "empresa"; "personal" no fim/"é personal" → "pessoal";
  * - contas e cartões da família por som parecido: "no bank", "no banque" → "Nubank";
  * - nomes conhecidos (membros, clientes, pessoas das regras): "proí caro" → "pro Ícaro";
- * - centavos: "D87-50", "D87,50" e "87 e 50" → "87,50".
+ * - centavos: "D87-50", "D87,50" e "87 e 50" → "87,50";
+ * - correções aprendidas da família ("revirante" → "refrigerante"), palavra inteira, sem acento/caixa.
  * Nada é inventado: quando um trecho casa com mais de um nome, fica como está (o fluxo normal
  * pergunta o que faltar). Valores só mudam de forma ("D87-50" → "de 87,50"), nunca de número.
  */
@@ -16,6 +17,8 @@ export interface TranscriptVocabulary {
   accounts: string[];
   /** Nomes de pessoas/clientes/estabelecimentos conhecidos ("Ícaro", "Daniel", "Queren"). */
   names: string[];
+  /** Correções aprendidas da família: forma errada (normalizada) → certa ("revirante" → "Refrigerante"). */
+  fixes?: Array<{ wrong: string; right: string }>;
 }
 
 /** Palavras comuns: um trecho só com elas nunca é trocado ("no banco" continua "no banco"). */
@@ -108,8 +111,39 @@ function fixMoney(text: string): string {
     .replace(/(^|[\s(])(\d{1,6}) (?:reais )?e (\d{2})(?: centavos)?(?!\d|[,.]\d)(?!\s+(?:de|do|da|dos|das)\s)/gu, "$1$2,$3");
 }
 
+/** Aplica o dicionário da família: palavra (ou expressão) inteira, sem diferenciar acento e caixa. */
+function applyFixes(text: string, fixes: Array<{ wrong: string; right: string }>): string {
+  if (!fixes.length) return text;
+  const words = [...text.matchAll(WORD)].map((m) => ({ norm: normalizeText(m[0]), start: m.index!, end: m.index! + m[0].length }));
+  const byFirst = new Map<string, Array<{ parts: string[]; right: string }>>();
+  for (const f of fixes) {
+    const parts = f.wrong.split(/\s+/).filter(Boolean);
+    if (!parts.length) continue;
+    byFirst.set(parts[0]!, [...(byFirst.get(parts[0]!) ?? []), { parts, right: f.right }]);
+  }
+  const replacements: Array<{ start: number; end: number; text: string }> = [];
+  for (let i = 0; i < words.length; ) {
+    const options = (byFirst.get(words[i]!.norm) ?? []).sort((a, b) => b.parts.length - a.parts.length);
+    const hit = options.find((o) => o.parts.every((p, k) => words[i + k]?.norm === p));
+    if (!hit) {
+      i++;
+      continue;
+    }
+    const first = words[i]!;
+    const last = words[i + hit.parts.length - 1]!;
+    // Mantém a maiúscula do começo quando a palavra errada começava com maiúscula.
+    const original = text.slice(first.start, last.end);
+    const right = /^\p{Lu}/u.test(original) ? hit.right.charAt(0).toLocaleUpperCase("pt-BR") + hit.right.slice(1) : hit.right.charAt(0).toLocaleLowerCase("pt-BR") + hit.right.slice(1);
+    replacements.push({ start: first.start, end: last.end, text: right });
+    i += hit.parts.length;
+  }
+  let out = text;
+  for (const r of replacements.reverse()) out = out.slice(0, r.start) + r.text + out.slice(r.end);
+  return out;
+}
+
 export function normalizeTranscript(text: string, vocab: TranscriptVocabulary): string {
-  let out = fixMoney(fixNature(text));
+  let out = fixMoney(fixNature(applyFixes(text, vocab.fixes ?? [])));
   const cands = candidates(vocab);
   if (!cands.length) return out;
 

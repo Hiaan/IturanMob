@@ -533,21 +533,16 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
     expect(actions).toEqual(["CREATE", "CONFIRM"]);
   });
 
-  it("correção ambígua: pergunta qual lançamento e a resposta com o número aplica só nele", async () => {
+  it("correção logo depois de dois lançamentos vale para o último de quem escreveu (janela de 15 min)", async () => {
     const { fam } = await familyWithAccounts();
     await sendMessage(fam, { text: "gastei 30 na farmácia" });
     await sendMessage(fam, { text: "gastei 80 no mercado" });
-    const question = await sendMessage(fam, { text: "na verdade foi 50" });
-    expect(question.message.status).toBe("NEEDS_CLARIFICATION");
-    expect(question.reply).toContain("Qual você quer corrigir?");
-    let [pharmacy, market] = await txsOf(fam.householdId);
-    expect([pharmacy!.amountCents, market!.amountCents]).toEqual([3000, 8000]);
-
-    // Lista em ordem do mais recente: 1 = mercado, 2 = farmácia.
-    await sendMessage(fam, { text: "2" });
-    [pharmacy, market] = await txsOf(fam.householdId);
-    expect(pharmacy).toMatchObject({ amountCents: 5000, version: 2 });
-    expect(market).toMatchObject({ amountCents: 8000, version: 1 });
+    const fix = await sendMessage(fam, { text: "na verdade foi 50" });
+    expect(fix.message.intent).toBe("CORRECTION");
+    const [pharmacy, market] = await txsOf(fam.householdId);
+    expect(pharmacy).toMatchObject({ amountCents: 3000, version: 1 });
+    expect(market).toMatchObject({ amountCents: 5000, version: 2 });
+    // (fora da janela, a pergunta "qual?" com os 3 últimos: whatsapp-last-transaction.test.ts)
   });
 
   // ---------------------------------------------------------------- 8: duplicidade
@@ -649,7 +644,8 @@ describe("Pipeline de IA: mensagens → lançamentos", () => {
     expect(await balanceOf(fam, itau.id)).toBe(497_000);
 
     const del = await sendMessage(fam, { text: "apaga o último gasto" });
-    expect(del.reply).toContain("Excluí *Farmácia*");
+    expect(del.reply).toContain("Apaguei: *Farmácia*");
+    expect(del.reply).toContain("Se foi engano, responda *volta*.");
     let row = await prisma.transaction.findUniqueOrThrow({ where: { id: tx!.id }, include: { ledgerEntries: true } });
     expect(row.deletedAt).not.toBeNull();
     expect(row.deletedByMemberId).toBe(fam.husbandId);

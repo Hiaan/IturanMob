@@ -90,6 +90,10 @@ Outras coberturas além dos 22 cenários:
   ociosidade, erro claro sem o modelo — instruções no topo do arquivo); `transcript-normalize.test.ts`
   (frases reais do Whisper: "proí caro em presa", "no banque, pessoal", "R$ 750", sem trocar "no
   banco", "ficou caro" ou "personal trainer");
+- corrigir/cancelar o último lançamento: `whatsapp-last-transaction.test.ts` (áudio "revirante" → "é
+  refrigerante" → par aprendido → próximo áudio certo; cancela/volta/desfaz com saldo, ledger e fatura
+  iguais antes e depois; valor/forma/categoria na janela; fora da janela pergunta qual; citação; pergunta
+  de categoria aberta) e `last-tx-commands.test.ts` (frases);
 - gastos fixos: `fixed-expenses.test.ts` (recorrências, parcelas em andamento conferidas com as parcelas
   do banco, projeção, recortes Pessoal/Empresa/Tudo sem Repasse, fatura por categoria e por natureza,
   cartões atual/anterior, filtro por forma de pagamento/cartão).

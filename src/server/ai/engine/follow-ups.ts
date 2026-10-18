@@ -14,6 +14,8 @@ import { closeClarification, openClarification } from "./clarifications";
 import { parseExclusionCommand } from "./report-exclusion";
 import { setTransactionNature } from "../../modules/transactions/nature";
 import { findCategoryByName, parseCategoryCommand } from "./category-commands";
+import { parseLastTxCommand, type LastTxCommand } from "../nlu/last-tx";
+import { soundsAlike } from "../transcription/fixes";
 import type { HouseholdContext } from "./context";
 
 /**
@@ -382,6 +384,12 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
     }
     // Outra resposta: vale como nova tentativa de categoria (abaixo).
   }
+  // "cancela", "não é X, é Y", "foram 15", "muda pra lazer": comando sobre o lançamento, não resposta.
+  const lastCommand = parseLastTxCommand(opts.text, hc);
+  if (lastCommand && leavesFollowUp(lastCommand, current.field, tx!.description, hc)) {
+    await closeClarification(open.id, "CANCELLED");
+    return null;
+  }
   if (SKIP.test(norm) && norm.split(" ").length <= 4) {
     await closeClarification(open.id);
     if (current.field === "nature") return next([`Ok, a natureza de *${tx!.description}* fica para depois (em Pendências, no painel).`]);
@@ -467,6 +475,30 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
   await updateTransaction(ctx, tx!.id, { accountId: account.id, creditCardId: null });
   await closeClarification(open.id);
   return next([`✅ ${label} ${tx!.type === "INCOME" ? "entrou em" : "saiu de"} *${account.name}*.`]);
+}
+
+/** O comando sai da pergunta aberta (e segue para o tratamento do último lançamento)? */
+function leavesFollowUp(cmd: LastTxCommand, field: FollowUpField, description: string, hc: HouseholdContext): boolean {
+  switch (cmd.action) {
+    case "CANCEL":
+    case "UNDO":
+    case "RESTORE":
+    case "AMOUNT":
+    case "CATEGORY":
+      return true;
+    case "PAYMENT":
+      // "no crédito" respondendo "de onde saiu?" é resposta.
+      return field !== "account";
+    case "DESCRIBE": {
+      if (cmd.explicit) return true;
+      // "é alimentação" respondendo a categoria é resposta; "é refrigerante" para "Revirante" é correção.
+      if (field === "category") {
+        const answer = resolveCategoryAnswer(hc, cmd.right, "EXPENSE") ?? resolveCategoryAnswer(hc, cmd.right, "INCOME");
+        if (answer && !("proposal" in answer)) return false;
+      }
+      return soundsAlike(description, cmd.right);
+    }
+  }
 }
 
 /** "1"/"pf"/"pessoal" · "2"/"pj"/"empresa" · "cliente Fulano"/"repasse". */

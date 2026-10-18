@@ -20,6 +20,7 @@ import { qk } from "@/lib/client/query-keys";
 import { formatDateTimeBR } from "@/lib/dates";
 import { AI_PROVIDER_LABELS, AI_TASK_LABELS, labelOf } from "@/lib/labels";
 import { useCan } from "@/features/me/use-me";
+import { TranscriptFixesCard } from "./transcript-fixes-card";
 
 type ProviderType = "ANTHROPIC" | "OPENAI" | "OPENAI_COMPATIBLE" | "LOCAL";
 
@@ -265,6 +266,8 @@ export function AiSettingsView() {
           Toda saída de IA é validada antes de gravar: valores precisam constar na mensagem, referências são conferidas com os cadastros da família e a confiança define se o lançamento é automático, pendente ou se o sistema pergunta.
         </p>
       </section>
+
+      <TranscriptFixesCard />
 
       {canManage && (
         <Card>

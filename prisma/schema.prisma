@@ -473,6 +473,7 @@ model Household {
   members               HouseholdMember[]
   sessions              Session[]
   invitations           Invitation[]
+  transcriptFixes       TranscriptFix[]
   accounts              Account[]
   investmentYields      InvestmentYield[]
   creditCards           CreditCard[]
@@ -586,6 +587,25 @@ model HouseholdMember {
   @@unique([householdId, userId])
   @@index([householdId])
   @@index([whatsappPhone])
+}
+
+/// Palavra que a transcrição de áudio ouve errado nesta família e a forma certa, aprendida quando
+/// alguém corrige a descrição de um lançamento vindo de áudio ("revirante" → "refrigerante").
+model TranscriptFix {
+  id                String   @id @default(cuid())
+  householdId       String
+  /// Forma errada normalizada (minúsculas, sem acento), palavra inteira ou expressão curta.
+  wrong             String
+  /// Como apareceu na transcrição (para mostrar na lista).
+  wrongDisplay      String
+  right             String
+  createdByMemberId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, wrong])
 }
 
 /// Convite de uso único para criar UMA nova família (outra conta, dados separados) com o cadastro

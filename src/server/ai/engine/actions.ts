@@ -13,6 +13,7 @@ import { createPendingItem } from "../../modules/pending/service";
 import { contributeToGoal } from "../../modules/goals/service";
 import { findMatchingScheduledPayment } from "../../modules/bills/service";
 import { checkBudgetAlerts } from "../../modules/budgets/service";
+import { findMatchingRule } from "../../modules/rules/matcher";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { answerImportConfirmation } from "./statement-import";
@@ -481,7 +482,7 @@ async function buildCorrectionPatch(ctx: ServiceContext, corr: RawCorrection, tx
   return { patch, missing: null, summary };
 }
 
-async function applyCorrection(ctx: ServiceContext, corr: RawCorrection, txId: string, hc: HouseholdContext): Promise<ActionOutcome> {
+export async function applyCorrection(ctx: ServiceContext, corr: RawCorrection, txId: string, hc: HouseholdContext): Promise<ActionOutcome> {
   const tx = await prisma.transaction.findFirstOrThrow({ where: { id: txId, householdId: ctx.householdId } });
   const { patch, missing, summary } = await buildCorrectionPatch(ctx, corr, txId, hc);
   if (missing) return { status: "NEEDS_CLARIFICATION", intent: "CORRECTION", replies: [missing], transactionIds: [txId] };
@@ -514,13 +515,54 @@ async function handleCorrection(ctx: ServiceContext, result: InterpretResult, op
   return { status: "NEEDS_CLARIFICATION", intent: "CORRECTION", replies: [question], transactionIds: [] };
 }
 
-async function deleteOne(ctx: ServiceContext, txId: string, hc: HouseholdContext): Promise<ActionOutcome> {
-  const tx = await prisma.transaction.findFirstOrThrow({ where: { id: txId, householdId: ctx.householdId } });
+export async function deleteOne(ctx: ServiceContext, txId: string, hc: HouseholdContext): Promise<ActionOutcome> {
+  const tx = await prisma.transaction.findFirstOrThrow({
+    where: { id: txId, householdId: ctx.householdId },
+    include: { account: { select: { name: true } }, creditCard: { select: { name: true } } },
+  });
   await deleteTransaction(ctx, txId, { reason: "Exclusão via mensagem" });
+  const where = tx.creditCard?.name ?? tx.account?.name;
   return {
     status: "PROCESSED",
     intent: "DELETE",
-    replies: [`🗑️ Excluí *${tx.description}* — ${formatBRL(tx.amountCents)} (${relativeDate(tx.date.toISOString().slice(0, 10), hc.today)}).\nPara desfazer, responda *desfazer*.`],
+    replies: [
+      `🗑️ Apaguei: *${tx.description}* ${formatBRL(tx.amountCents)}${where ? ` (${where})` : ""} — ${relativeDate(tx.date.toISOString().slice(0, 10), hc.today)}.\nSe foi engano, responda *volta*.`,
+    ],
+    transactionIds: [txId],
+  };
+}
+
+/**
+ * Troca a descrição ("Revirante" → "Refrigerante") e reclassifica quando a nova descrição casa com
+ * uma regra da família ou com as palavras-chave de uma categoria. Lançamento vindo de áudio ensina o
+ * par à transcrição (ver updateTransaction).
+ */
+export async function applyDescription(ctx: ServiceContext, txId: string, rightRaw: string, hc: HouseholdContext): Promise<ActionOutcome> {
+  const tx = await prisma.transaction.findFirstOrThrow({ where: { id: txId, householdId: ctx.householdId } });
+  const right = rightRaw.trim().charAt(0).toLocaleUpperCase("pt-BR") + rightRaw.trim().slice(1);
+  const patch: TransactionUpdateInput = { description: right.slice(0, 200) };
+  if (tx.type === "EXPENSE" || tx.type === "INCOME") {
+    const kind = tx.type;
+    const rules = await prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, setCategoryId: { not: null }, setTransferAccountId: null } });
+    const rule = findMatchingRule(rules, { description: right, merchant: null, amountCents: tx.amountCents, type: kind, accountId: tx.accountId, creditCardId: tx.creditCardId });
+    const viaKeyword = rule ? null : matchCategory(normalizeForNlu(right), hc, kind);
+    if (rule?.setCategoryId) {
+      patch.categoryId = rule.setCategoryId;
+      patch.subcategoryId = rule.setSubcategoryId ?? null;
+    } else if (viaKeyword) {
+      patch.categoryId = viaKeyword.categoryId;
+      patch.subcategoryId = viaKeyword.subcategoryId;
+    }
+  }
+  if (normalizeText(tx.description) === normalizeText(right) && patch.categoryId === undefined) {
+    return { status: "PROCESSED", intent: "CORRECTION", replies: [`*${tx.description}* já está com esse nome.`], transactionIds: [txId] };
+  }
+  const updated = await updateTransaction(ctx, txId, patch, { reason: "Correção da descrição via mensagem" });
+  const category = updated.subcategory ? `${updated.category?.name} › ${updated.subcategory.name}` : updated.category?.name;
+  return {
+    status: "PROCESSED",
+    intent: "CORRECTION",
+    replies: [`✏️ Corrigido: ${tx.description} → *${updated.description}*${category ? ` (${category})` : ""}`],
     transactionIds: [txId],
   };
 }
@@ -555,7 +597,7 @@ async function handleDeletion(ctx: ServiceContext, result: InterpretResult, opts
   return { status: "NEEDS_CLARIFICATION", intent: "DELETE", replies: [question], transactionIds: [] };
 }
 
-async function handleRestore(ctx: ServiceContext, hc: HouseholdContext): Promise<ActionOutcome> {
+export async function handleRestore(ctx: ServiceContext, hc: HouseholdContext): Promise<ActionOutcome> {
   const last = await prisma.transaction.findFirst({
     where: { householdId: ctx.householdId, deletedAt: { gte: new Date(Date.now() - 2 * 86_400_000) }, deletedByMemberId: hc.sender?.memberId ?? undefined },
     orderBy: { deletedAt: "desc" },
@@ -632,6 +674,7 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
     if (!id) return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [`Escolha um número entre 1 e ${candidates.length}.`], transactionIds: [] };
     await closeClarification(open.id);
     if (payload.action === "delete") return deleteOne(ctx, id, hc);
+    if (payload.action === "describe") return applyDescription(ctx, id, String(payload.description ?? ""), hc);
     return applyCorrection(ctx, payload.correction as unknown as RawCorrection, id, hc);
   }
 

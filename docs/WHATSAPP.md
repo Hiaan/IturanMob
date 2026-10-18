@@ -272,6 +272,33 @@ oferece: *Não tenho a categoria Pet. Quer que eu crie? (sim/não)* — *sim* cr
 (próximos gastos parecidos já entram nela); *não* pede outra. Responder a pergunta com *cria categoria
 Pet* também cria e aplica.
 
+**Corrigir ou cancelar o último lançamento** (texto ou áudio, sem IA — `src/server/ai/nlu/last-tx.ts` e
+`src/server/ai/engine/last-transaction.ts`). Vale para os lançamentos da mensagem citada (responder a
+confirmação do bot) ou, sem citação, para o último lançamento de quem escreveu, neste grupo, nos
+últimos 15 minutos. Fora disso, o bot pergunta qual, mostrando os 3 últimos.
+
+- Cancelar: *cancela*, *esquece*, *apaga*, *apaga isso*, *não era pra lançar*, *lancei errado, apaga* →
+  "🗑️ Apaguei: Refrigerante R$ 8,00 (Nubank). Se foi engano, responda *volta*." *volta* / *restaura*
+  desfaz a exclusão; *desfaz* volta o que acabou de ser apagado ou, sem exclusão recente, cancela o último.
+- Nome: *não é revirante, é refrigerante*, *era refrigerante*, *é refrigerante*, *o nome é …*,
+  *errou, é …*, *corrige pra …* → troca a descrição e reclassifica quando o nome novo casa com uma regra
+  ou categoria ("✏️ Corrigido: Revirante → Refrigerante (Alimentação)"). *é mercado* (nome de categoria)
+  muda a categoria.
+- Valor, forma de pagamento e categoria logo depois do lançamento: *foram 15*, *foi 15 reais*,
+  *não, 15 reais*, *valor errado, 15*; *foi no crédito*, *no débito*; *muda pra mercado*,
+  *coloca em lazer*. Número solto ("2", "15") nunca é correção (é resposta de menu ou lançamento), e
+  mensagem com verbo de gasto (*paguei 15 no uber*) é lançamento novo.
+- Com uma pergunta do bot aberta (ex.: "Qual a categoria?"), esses comandos saem da pergunta e valem
+  para o lançamento ("cancela" não vira a categoria "Cancela").
+
+**Áudio:** a confirmação mostra o que foi ouvido ("🎙️ Ouvi: “comprei revirante 8 reais no nubank”") e
+como corrigir. Quando alguém corrige o nome de um lançamento vindo de áudio (pelo WhatsApp ou editando no
+painel) e as palavras soam parecido, o par fica guardado na família ("revirante" → "refrigerante"): os
+próximos áudios já saem certos (palavra inteira, sem diferenciar acento/maiúscula) e a palavra certa entra
+no prompt do Whisper. Lista e remoção em Integrações → IA → "Correções do áudio". Trocar "Mercado" por
+"Farmácia" não é aprendido (não é erro de escuta). O prompt também leva as palavras de compra mais
+frequentes da família e uma lista curta de itens comuns (refrigerante, padaria, gasolina, farmácia…).
+
 **Vários grupos: pessoa física × empresa.** A família pode autorizar mais de um grupo na mesma conexão
 (ex.: "Finanças da Família" e "Empresa"). Cada grupo tem uma **natureza padrão**: *Pessoa física*,
 *Empresa* ou *Não atribuído*. O primeiro grupo autorizado começa como Pessoa física (como era antes); os

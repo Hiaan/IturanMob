@@ -25,6 +25,8 @@ import { isQuestionText } from "../nlu/local-parser";
 import { expensesByCategory } from "../../modules/analytics/service";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
 import { handleCategoryCommand, parseCategoryCommand } from "../engine/category-commands";
+import { parseLastTxCommand } from "../nlu/last-tx";
+import { handleLastTxCommand } from "../engine/last-transaction";
 import { applyExclusion, handleExclusionCommand, hasExclusionMarker, parseExclusionCommand, stripExclusionMarker, type QuotedRef } from "../engine/report-exclusion";
 import type { InboundMessageResult } from "./types";
 
@@ -147,6 +149,12 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   // "cria categoria Pet", "nova categoria Escola dentro de Educação": comando determinístico.
   const categoryCommand = parseCategoryCommand(text, hc);
   if (categoryCommand) return handleCategoryCommand(ctx, hc, categoryCommand);
+  // "cancela", "é refrigerante", "foram 15", "foi no crédito": sobre o último lançamento (sem IA).
+  const lastCommand = parseLastTxCommand(text, hc);
+  if (lastCommand) {
+    const done = await handleLastTxCommand(ctx, hc, lastCommand, { channel: "WHATSAPP", chatId: opts.chatId, messageId: opts.messageId, quoted: opts.quoted ?? null });
+    if (done) return done;
+  }
   // "recebi 500 do Fulano, é repasse": registra (sem o marcador na descrição) e já desconsidera.
   const marker = hasExclusionMarker(text);
   let toInterpret = marker ? stripExclusionMarker(text) || text : text;
@@ -196,6 +204,8 @@ async function natureSplitLine(ctx: ServiceContext): Promise<string | null> {
 
 type MessageWithAttachment = Prisma.WhatsAppMessageGetPayload<{ include: { attachment: true } }>;
 
+const AUDIO_FIX_HINT = 'Algo errado? Responda "é …" com o nome certo, "foram …" para o valor ou "cancela".';
+
 async function processAudio(ctx: ServiceContext, message: MessageWithAttachment, base: MessageOptions, transcriptRetentionDays: number): Promise<ActionOutcome> {
   const att = message.attachment;
   if (!att) return { status: "IGNORED", intent: "AUDIO", replies: [], transactionIds: [], detail: "áudio sem anexo" };
@@ -243,7 +253,11 @@ async function processAudio(ctx: ServiceContext, message: MessageWithAttachment,
     await prisma.attachment.updateMany({ where: { id: att.id, transactionId: null }, data: { transactionId: outcome.transactionIds[0]! } });
   }
   // Mostra o que foi entendido quando houve ação, para o usuário poder corrigir.
-  if (outcome.replies.length && outcome.intent !== "SMALL_TALK") outcome.replies[0] = `🎙️ _“${transcript.slice(0, 300)}”_\n${outcome.replies[0]}`;
+  if (outcome.replies.length && outcome.intent !== "SMALL_TALK") {
+    const created = outcome.intent === "CREATE_TRANSACTIONS" && outcome.transactionIds.length > 0;
+    // Mostra o que ouviu e como corrigir: o Whisper às vezes troca palavras ("revirante").
+    outcome.replies[0] = `🎙️ Ouvi: “${transcript.slice(0, 300)}”\n${outcome.replies[0]}${created ? `\n${AUDIO_FIX_HINT}` : ""}`;
+  }
   return { ...outcome, detail: `${outcome.detail ?? ""} (áudio transcrito)`.trim() };
 }
 

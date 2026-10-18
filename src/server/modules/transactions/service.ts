@@ -1,4 +1,5 @@
 import { Prisma, type FinancialRule, type Transaction, type TransactionScope, type TransactionSource } from "@prisma/client";
+import { learnTranscriptFix } from "../../ai/transcription/fixes";
 import { parsePatch } from "../../validation";
 import { prisma, withTransaction, type Db } from "../../db";
 import type { ServiceContext } from "../../auth/context";
@@ -662,6 +663,8 @@ export async function updateTransaction(
 ): Promise<TransactionDTO> {
   assertCan(ctx, "transactions:write");
   const patch = parsePatch(transactionUpdateSchema, rawPatch);
+  /** Descrição de lançamento vindo de áudio corrigida: a transcrição aprende o par. */
+  let renamed: { from: string; to: string } | null = null;
 
   await runInTx(opts.db, async (db) => {
     const current = await loadEditable(db, ctx, id);
@@ -754,6 +757,7 @@ export async function updateTransaction(
       await resolvePendingWhere(db, { householdId: ctx.householdId, type: "NATURE_REVIEW", transactionId: id }, "Não é receita nem despesa", ctx.memberId ?? null);
     }
 
+    if (current.source === "WHATSAPP_AUDIO" && updated.description !== current.description) renamed = { from: current.description, to: updated.description };
     const before = snapshot(current);
     const after = snapshot(updated);
     const changedKeys = Object.keys(after).filter((k) => JSON.stringify((before as Record<string, unknown>)[k]) !== JSON.stringify((after as Record<string, unknown>)[k]));
@@ -765,6 +769,8 @@ export async function updateTransaction(
     await publishEvent(ctx.householdId, "transaction.changed", id);
     await publishEvent(ctx.householdId, "pending.changed");
   }
+  const learned = renamed as { from: string; to: string } | null;
+  if (learned) await learnTranscriptFix(ctx, learned.from, learned.to);
   return loadDTO(opts.db ?? prisma, id);
 }
 

@@ -83,3 +83,24 @@ describe("normalizeTranscript", () => {
     expect(soundKey("no banco")).toBe(soundKey("Nubank")); // por isso "no banco" é protegido pela lista de palavras comuns
   });
 });
+
+describe("correções aprendidas (revirante → refrigerante)", () => {
+  it("aprende só o que soa parecido e aplica como palavra inteira, sem acento/caixa", async () => {
+    const { fixPairs, soundsAlike } = await import("@/server/ai/transcription/fixes");
+    expect(fixPairs("Revirante", "Refrigerante")).toEqual([{ wrong: "revirante", wrongDisplay: "Revirante", right: "Refrigerante" }]);
+    expect(fixPairs("Coca revirante", "Coca refrigerante")).toEqual([{ wrong: "revirante", wrongDisplay: "revirante", right: "refrigerante" }]);
+    expect(fixPairs("Mercado", "Farmácia")).toEqual([]); // mudança de assunto, não erro de escuta
+    expect(fixPairs("Pão", "Pão de queijo")).toEqual([]);
+    expect(fixPairs("Atifani", "Thifanny")).toHaveLength(1);
+    expect(soundsAlike("revirante", "refrigerante")).toBe(true);
+    expect(soundsAlike("uber", "ifood")).toBe(false);
+
+    const fixes = [{ wrong: "revirante", right: "Refrigerante" }, { wrong: "pao de assucar", right: "Pão de Açúcar" }];
+    const v = { accounts: [], names: [], fixes };
+    expect(normalizeTranscript("comprei revirante 8 reais", v)).toBe("comprei refrigerante 8 reais");
+    expect(normalizeTranscript("Revirante 8 reais", v)).toBe("Refrigerante 8 reais");
+    expect(normalizeTranscript("comprei REVIRANTE", v)).toBe("comprei Refrigerante"); // mantém a maiúscula inicial
+    expect(normalizeTranscript("revirantes 8", v)).toBe("revirantes 8"); // palavra inteira
+    expect(normalizeTranscript("mercado no pão de assucar 50", v)).toBe("mercado no pão de Açúcar 50");
+  });
+});

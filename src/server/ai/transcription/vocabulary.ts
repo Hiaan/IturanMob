@@ -1,6 +1,7 @@
 import { prisma } from "../../db";
 import { normalizeText } from "@/lib/utils";
 import type { TranscriptVocabulary } from "../nlu/transcript";
+import { transcriptFixesFor } from "./fixes";
 
 /**
  * Vocabulário da família para a transcrição: entra no prompt do Whisper (para ele já ouvir "Ícaro",
@@ -13,7 +14,7 @@ export const BASE_PROMPT =
 /** Vale para qualquer família (não identifica ninguém). */
 export const NATURE_PROMPT = "Natureza: empresa, pessoal, PJ, PF.";
 /** Orçamento de caracteres do trecho da família (~140 tokens em português). */
-const FAMILY_BUDGET = 480;
+const FAMILY_BUDGET = 540;
 
 /** Palavras de nomes de contas/cartões que não identificam nada ("Conta Corrente", "Crédito"). */
 const GENERIC_ACCOUNT_WORDS = new Set(
@@ -24,8 +25,19 @@ const NOT_NAMES = new Set(
   "pix compra compras pagamento pagto transferencia ted doc deposito saque boleto fatura parcela parcelas mercado supermercado farmacia padaria almoco jantar lanche uber gasolina combustivel posto aluguel luz agua internet energia salario despesa receita lancamento importado ajuste de do da dos das para pro pra com no na em e o a os as".split(" "),
 );
 
+/** Itens comuns de compra em pt-BR (ajudam o Whisper com palavras do dia a dia). */
+export const COMMON_PURCHASE_WORDS = ["refrigerante", "supermercado", "padaria", "gasolina", "farmácia", "açougue", "hortifruti", "lanche", "delivery", "Uber", "iFood"];
+
+/** Palavras que não ajudam o Whisper (ligação, verbos de compra, genéricas). */
+const NOT_WORDS = new Set(
+  "de do da dos das no na nos nas em um uma o a os as e com para pra pro por ao aos the compra compras pagamento pagto pix ted doc transferencia deposito saque fatura parcela parcelas lancamento importado ajuste despesa receita total valor".split(" "),
+);
+
 export interface FamilyVocabulary extends TranscriptVocabulary {
   categories: string[];
+  /** Palavras de compra mais frequentes nas descrições da família (180 dias). */
+  words: string[];
+  fixes: Array<{ wrong: string; right: string }>;
 }
 
 function addScored(map: Map<string, { text: string; score: number }>, text: string | null | undefined, score: number) {
@@ -41,7 +53,7 @@ const ranked = (map: Map<string, { text: string; score: number }>) => [...map.va
 
 export async function familyVocabulary(householdId: string): Promise<FamilyVocabulary> {
   const since = new Date(Date.now() - 180 * 86_400_000);
-  const [members, accounts, cards, byAccount, byCard, categories, byCategory, rules, parties, recent] = await Promise.all([
+  const [members, accounts, cards, byAccount, byCard, categories, byCategory, rules, parties, recent, fixes] = await Promise.all([
     prisma.householdMember.findMany({ where: { householdId, isActive: true }, select: { displayName: true } }),
     prisma.account.findMany({ where: { householdId, archivedAt: null }, select: { id: true, name: true, institution: true } }),
     prisma.creditCard.findMany({ where: { householdId, archivedAt: null }, select: { id: true, name: true, issuer: true } }),
@@ -52,6 +64,7 @@ export async function familyVocabulary(householdId: string): Promise<FamilyVocab
     prisma.financialRule.findMany({ where: { householdId, active: true }, select: { pattern: true, setExclusionParty: true, timesApplied: true } }),
     prisma.transaction.groupBy({ by: ["exclusionParty"], where: { householdId, deletedAt: null, exclusionParty: { not: null } }, _count: { _all: true } }),
     prisma.transaction.findMany({ where: { householdId, deletedAt: null, date: { gte: since } }, orderBy: { date: "desc" }, take: 1500, select: { description: true } }),
+    transcriptFixesFor(householdId),
   ]);
 
   // Contas e cartões, por uso (o nome inteiro e as palavras marcantes: "Nubank", "Inter", "Wise").
@@ -88,13 +101,25 @@ export async function familyVocabulary(householdId: string): Promise<FamilyVocab
     }
   }
 
+  // Palavras de compra frequentes nas descrições ("Refrigerante", "Gasolina"), sem nomes nem contas.
+  const freq = new Map<string, { text: string; score: number }>();
+  const nameKeys = new Set([...names.keys()]);
+  for (const t of recent) {
+    for (const word of t.description.split(/[\s,.;:()/-]+/)) {
+      if (!/^\p{L}{4,}$/u.test(word)) continue;
+      const n = normalizeText(word);
+      if (NOT_WORDS.has(n) || NOT_NAMES.has(n) || accountWords.has(n) || nameKeys.has(n)) continue;
+      addScored(freq, word.charAt(0).toLocaleLowerCase("pt-BR") + word.slice(1), 1);
+    }
+  }
+
   const categoryUse = new Map(byCategory.map((r) => [r.categoryId!, r._count._all]));
   const cats = categories
     .map((c) => ({ text: c.name, score: categoryUse.get(c.id) ?? 0 }))
     .sort((a, b) => b.score - a.score)
     .map((c) => c.text);
 
-  return { accounts: ranked(acc), names: ranked(names).filter((n) => !/^\d/.test(n)), categories: cats };
+  return { accounts: ranked(acc), names: ranked(names).filter((n) => !/^\d/.test(n)), categories: cats, words: ranked(freq), fixes };
 }
 
 /** Lista "A, B, C" até o orçamento de caracteres. */
@@ -115,13 +140,24 @@ function fit(items: string[], budget: number): string[] {
  */
 export function transcriptionPrompt(vocab: FamilyVocabulary | null, external: boolean): string {
   if (external || !vocab) return `${BASE_PROMPT} ${NATURE_PROMPT}`;
-  const accounts = fit(vocab.accounts, 140);
-  const names = fit(vocab.names, 200);
-  const categories = fit(vocab.categories, Math.max(60, FAMILY_BUDGET - 140 - 200));
+  // Palavras corrigidas pela família vêm primeiro entre as de compra (são as que o Whisper errou).
+  const fixed = [...new Set((vocab.fixes ?? []).map((f) => f.right))];
+  const seen = new Set<string>();
+  const purchase = [...fixed, ...(vocab.words ?? []), ...COMMON_PURCHASE_WORDS].filter((w) => {
+    const k = normalizeText(w);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const accounts = fit(vocab.accounts, 110);
+  const names = fit(vocab.names, 170);
+  const words = fit(purchase, 160);
+  const categories = fit(vocab.categories, Math.max(50, FAMILY_BUDGET - 110 - 170 - 160));
   // O Whisper corta o começo quando passa do limite: o mais importante fica no fim.
   const parts = [
     BASE_PROMPT,
     categories.length ? `Categorias: ${categories.join(", ")}.` : "",
+    words.length ? `Compras: ${words.join(", ")}.` : "",
     accounts.length ? `Contas e cartões: ${accounts.join(", ")}.` : "",
     names.length ? `Pessoas: ${names.join(", ")}.` : "",
     NATURE_PROMPT,
