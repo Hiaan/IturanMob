@@ -3,15 +3,17 @@ import { prisma } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { logger, errorInfo } from "../../logger";
 import { ForbiddenError } from "../../errors";
+import { can } from "../../auth/permissions";
 import { formatBRL } from "@/lib/money";
 import { updateTransaction } from "../../modules/transactions/service";
-import { createCategory, createRule, createSubcategory } from "../../modules/categories/service";
+import { createRule, quickCreateCategory } from "../../modules/categories/service";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { findMentions, matchCategory, parseLocally } from "../nlu/local-parser";
 import { closeClarification, openClarification } from "./clarifications";
 import { parseExclusionCommand } from "./report-exclusion";
 import { setTransactionNature } from "../../modules/transactions/nature";
+import { findCategoryByName, parseCategoryCommand } from "./category-commands";
 import type { HouseholdContext } from "./context";
 
 /**
@@ -35,6 +37,8 @@ interface FollowUpPayload {
   current: FollowUp;
   queue: FollowUp[];
   attempts: number;
+  /** Categoria nova oferecida ("Quer que eu crie? sim/não"), aguardando a resposta. */
+  pendingCreate?: CategoryProposal | null;
 }
 
 export interface FollowUpOptions {
@@ -157,17 +161,21 @@ export async function askNextFollowUp(ctx: ServiceContext, hc: HouseholdContext,
 // -----------------------------------------------------------------------------
 
 const SKIP = /^(pular|pula|pule|deixa|deixe|deixa pra la|nao sei|sei la|depois|nenhuma|nenhum|tanto faz|sem categoria|ignora|ignorar|nao|n)\b/;
+/** Resposta à oferta de criar categoria. */
+const YES = /^(sim|s|pode|pode criar|cria|crie|criar|quero|ok|okay|isso|claro|beleza|blz|manda ver|bora|confirmo|confirma)\b/;
+const NO = /^(nao|n|nem|deixa|esquece|cancela)\b/;
 /** Palavras de ligação no início da resposta ("é almoço", "coloca em lazer", "categoria saúde"). */
 const LEADING = new Set(["e", "eh", "foi", "seria", "acho", "que", "categoria", "subcategoria", "coloca", "coloque", "poe", "ponha", "bota", "em", "na", "no", "de", "da", "do", "pra", "para", "a", "o", "como", "isso", "ai", "pode", "ser"]);
 /** Palavras que não identificam um gasto (não viram regra). */
 const GENERIC = new Set(["despesa", "gasto", "gastei", "compra", "comprei", "pagamento", "paguei", "pix", "debito", "credito", "cartao", "dinheiro", "conta", "valor", "reais", "real", "hoje", "ontem", "coisa", "coisas", "outro", "outros", "outra", "outras", "diversos", "item", "itens", "receita", "recebi", "de", "do", "da", "no", "na", "em", "com", "o", "a", "os", "as", "um", "uma"]);
-const NEW_CATEGORY_COLORS = ["#0ea5e9", "#f97316", "#a855f7", "#14b8a6", "#ec4899", "#84cc16", "#eab308", "#6366f1"];
 
 /** Mensagem que claramente não é resposta: tem valor ou é pergunta/correção/exclusão. */
 function looksLikeNewMessage(text: string, hc: HouseholdContext): boolean {
   // "desconsidera esse", "o pix do fulano é repasse": comando, não resposta à pergunta.
   if (parseExclusionCommand(text)) return true;
   if (extractAmounts(text).length) return true;
+  // "cria categoria Pet" é comando (na pergunta da categoria, tratado antes).
+  if (parseCategoryCommand(text, hc)) return true;
   // "confirmar"/"cancelar"/"importar" respondem a outra pergunta (ex.: importação de PDF), nunca viram categoria.
   if (/^(confirm\w*|cancel\w*|importa\w*)\b/.test(normalizeForNlu(text))) return true;
   const parsed = parseLocally(text, hc);
@@ -218,12 +226,27 @@ export interface CategoryChoice {
   created: boolean;
 }
 
+/** Nome que não existe: o bot oferece criar (nunca cria sem o "sim"). */
+export interface CategoryProposal {
+  proposal: true;
+  name: string;
+  kind: "EXPENSE" | "INCOME";
+  parentId: string | null;
+  parentName: string | null;
+}
+
+export function proposalQuestion(p: CategoryProposal): string {
+  return p.parentId
+    ? `Não tenho a categoria *${p.name}*. Quer que eu crie dentro de *${p.parentName}* (${p.parentName} › ${p.name})? (sim/não)`
+    : `Não tenho a categoria *${p.name}*. Quer que eu crie? (sim/não)`;
+}
+
 /**
  * Interpreta a resposta "qual a categoria?": casa com categoria/subcategoria existente (sem acento, singular/plural,
- * nome parecido); "Categoria > Sub" escolhe ou cria a subcategoria; sem correspondência, cria com o nome informado,
+ * nome parecido); "Categoria > Sub" escolhe a subcategoria; sem correspondência, propõe criar com o nome informado,
  * dentro da categoria sugerida pelas palavras-chave (ex.: "almoço" → Alimentação › Almoço) ou como categoria nova.
  */
-export async function resolveCategoryAnswer(ctx: ServiceContext, hc: HouseholdContext, text: string, kind: "EXPENSE" | "INCOME"): Promise<CategoryChoice | null> {
+export function resolveCategoryAnswer(hc: HouseholdContext, text: string, kind: "EXPENSE" | "INCOME"): CategoryChoice | CategoryProposal | null {
   const ofKind = hc.categories.filter((c) => c.kind === kind);
   const parts = text.split(/\s*(?:>|›|\/)\s*/).filter((p) => p.trim());
   const display = (words: Array<{ raw: string }>) => {
@@ -240,8 +263,7 @@ export async function resolveCategoryAnswer(ctx: ServiceContext, hc: HouseholdCo
       const childTerm = childWords.map((w) => w.norm).join(" ");
       const sub = parent.subcategories.find((s) => sameName(s.normalized, childTerm)) ?? parent.subcategories.find((s) => similarName(childTerm, s.normalized));
       if (sub) return { categoryId: parent.id, subcategoryId: sub.id, label: `${parent.name} › ${sub.name}`, created: false };
-      const created = await createSubcategory(ctx, parent.id, { name: display(childWords), keywords: [childTerm] });
-      return { categoryId: parent.id, subcategoryId: created.id, label: `${parent.name} › ${created.name}`, created: true };
+      return { proposal: true, name: display(childWords), kind, parentId: parent.id, parentName: parent.name };
     }
   }
 
@@ -257,14 +279,14 @@ export async function resolveCategoryAnswer(ctx: ServiceContext, hc: HouseholdCo
   // Nova: dentro da categoria indicada pelas palavras-chave, ou como categoria própria.
   const name = display(words);
   const hint = matchCategory(term, hc, kind);
-  if (hint) {
-    const parent = ofKind.find((c) => c.id === hint.categoryId)!;
-    const created = await createSubcategory(ctx, parent.id, { name, keywords: [term] });
-    return { categoryId: parent.id, subcategoryId: created.id, label: `${parent.name} › ${created.name}`, created: true };
-  }
-  const color = NEW_CATEGORY_COLORS[ofKind.length % NEW_CATEGORY_COLORS.length]!;
-  const created = await createCategory(ctx, { name, kind, icon: "tag", color });
-  return { categoryId: created.id, subcategoryId: null, label: created.name, created: true };
+  const parent = hint ? ofKind.find((c) => c.id === hint.categoryId) : undefined;
+  return { proposal: true, name, kind, parentId: parent?.id ?? null, parentName: parent?.name ?? null };
+}
+
+/** Cria a categoria proposta (ou reaproveita a de mesmo nome criada nesse meio-tempo). */
+async function createProposed(ctx: ServiceContext, p: CategoryProposal): Promise<CategoryChoice> {
+  const res = await quickCreateCategory(ctx, { name: p.name, kind: p.kind, parentId: p.parentId });
+  return { categoryId: res.categoryId, subcategoryId: res.subcategoryId, label: res.label, created: res.created };
 }
 
 /** Termo da descrição que identifica o gasto, para a regra aprendida (null se for genérico demais). */
@@ -321,11 +343,44 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
     if (question) replies.push(question);
     return { status: question ? ("NEEDS_CLARIFICATION" as const) : ("PROCESSED" as const), intent: "CLARIFICATION", replies, transactionIds: tx ? [tx.id] : [] };
   };
+  const kind = tx?.type === "INCOME" ? "INCOME" : "EXPENSE";
+  const label = tx ? `*${tx.description}* (${formatBRL(tx.amountCents)})` : "";
+  /** Aplica a categoria escolhida (ou criada com o "sim") e aprende a preferência. */
+  const applyCategory = async (choice: CategoryChoice) => {
+    await updateTransaction(ctx, tx!.id, { categoryId: choice.categoryId, subcategoryId: choice.subcategoryId });
+    await closeClarification(open.id);
+    const learned = await learnCategory(ctx, tx!.description, kind, choice);
+    const lines = [`✅ ${label} ficou em *${choice.label}*${choice.created ? " (categoria criada agora)" : ""}.`];
+    if (learned) lines.push(`Da próxima vez, “${learned}” já entra nessa categoria.`);
+    return next([lines.join("\n")]);
+  };
 
   // Já foi completado por outro caminho (painel, correção): segue para a próxima.
   if (!stillMissing(tx, current.field, hc)) {
     await closeClarification(open.id, "CANCELLED");
     return looksLikeNewMessage(opts.text, hc) ? null : next([]);
+  }
+  // Resposta à oferta "Não tenho a categoria X. Quer que eu crie? (sim/não)".
+  if (current.field === "category" && payload.pendingCreate) {
+    const proposal = payload.pendingCreate;
+    if (YES.test(norm) && norm.split(" ").length <= 4) {
+      let choice: CategoryChoice;
+      try {
+        choice = await createProposed(ctx, proposal);
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          await setPayload(open, { ...payload, pendingCreate: null });
+          return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: ["Seu perfil não pode criar categorias. Responda com uma categoria que já existe ou *pular*."], transactionIds: [tx!.id] };
+        }
+        throw err;
+      }
+      return applyCategory(choice);
+    }
+    if (NO.test(norm) && norm.split(" ").length <= 4) {
+      await setPayload(open, { ...payload, pendingCreate: null, attempts: 1 });
+      return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [`Ok, não criei. Qual a categoria de *${tx!.description}* (${formatBRL(tx!.amountCents)})? Responda uma que já existe ou *pular*.`], transactionIds: [tx!.id] };
+    }
+    // Outra resposta: vale como nova tentativa de categoria (abaixo).
   }
   if (SKIP.test(norm) && norm.split(" ").length <= 4) {
     await closeClarification(open.id);
@@ -347,7 +402,6 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
       { reason: "Natureza respondida no WhatsApp (saldo e fatura não mudam)" },
     );
     await closeClarification(open.id);
-    const label = `*${tx!.description}* (${formatBRL(tx!.amountCents)})`;
     const said =
       nature.nature === "BUSINESS"
         ? `🏢 ${label} ficou como *Empresa* (sai dos relatórios pessoais).`
@@ -357,31 +411,43 @@ export async function answerFollowUp(ctx: ServiceContext, hc: HouseholdContext, 
     if (!res.updated && res.skipped.length) return next([res.skipped[0]!.reason]);
     return next([said]);
   }
-  if (looksLikeNewMessage(opts.text, hc)) {
-    await closeClarification(open.id, "CANCELLED");
-    return null;
-  }
-
-  const kind = tx!.type === "INCOME" ? "INCOME" : "EXPENSE";
-  const label = `*${tx!.description}* (${formatBRL(tx!.amountCents)})`;
-
-  if (current.field === "category") {
-    let choice: CategoryChoice | null = null;
+  // "cria categoria Pet" / "criar subcategoria Ração em Pet" respondendo à pergunta: cria e já aplica.
+  const command = current.field === "category" ? parseCategoryCommand(opts.text, hc) : null;
+  if (command?.name && !(command.sub && !command.parentName)) {
+    const parent = command.parentName ? findCategoryByName(hc, command.parentName, kind) : null;
+    if (command.parentName && !parent) {
+      return {
+        status: "NEEDS_CLARIFICATION",
+        intent: "CLARIFICATION",
+        replies: [`Não encontrei a categoria *${command.parentName}*. Responda com uma que já existe, *cria categoria ${command.parentName}* ou *pular*.`],
+        transactionIds: [tx!.id],
+      };
+    }
     try {
-      choice = await resolveCategoryAnswer(ctx, hc, opts.text, kind);
+      return await applyCategory(await createProposed(ctx, { proposal: true, name: command.name, kind, parentId: parent?.id ?? null, parentName: parent?.name ?? null }));
     } catch (err) {
       if (err instanceof ForbiddenError) {
         return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: ["Seu perfil não pode criar categorias. Responda com uma categoria que já existe ou *pular*."], transactionIds: [tx!.id] };
       }
       throw err;
     }
-    if (!choice) return retry(open, payload);
-    await updateTransaction(ctx, tx!.id, { categoryId: choice.categoryId, subcategoryId: choice.subcategoryId });
-    await closeClarification(open.id);
-    const learned = await learnCategory(ctx, tx!.description, kind, choice);
-    const lines = [`✅ ${label} ficou em *${choice.label}*${choice.created ? " (categoria criada agora)" : ""}.`];
-    if (learned) lines.push(`Da próxima vez, “${learned}” já entra nessa categoria.`);
-    return next([lines.join("\n")]);
+  }
+  if (looksLikeNewMessage(opts.text, hc)) {
+    await closeClarification(open.id, "CANCELLED");
+    return null;
+  }
+
+  if (current.field === "category") {
+    const answer = resolveCategoryAnswer(hc, opts.text, kind);
+    if (!answer) return retry(open, payload);
+    if ("proposal" in answer) {
+      if (!can(ctx.role, "categories:write")) {
+        return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [`Não tenho a categoria *${answer.name}* e seu perfil não pode criar categorias. Responda com uma que já existe ou *pular*.`], transactionIds: [tx!.id] };
+      }
+      await setPayload(open, { ...payload, pendingCreate: answer });
+      return { status: "NEEDS_CLARIFICATION", intent: "CLARIFICATION", replies: [proposalQuestion(answer)], transactionIds: [tx!.id] };
+    }
+    return applyCategory(answer);
   }
 
   // Conta ou cartão
@@ -416,6 +482,10 @@ function natureAnswer(norm: string): { nature: "PERSONAL" | "BUSINESS" | "PASSTH
   if (/\b(empresa|trabalho|agencia|firma|negocio)\b/.test(t)) return { nature: "BUSINESS", party: null };
   if (/\b(pessoal|particular|meu|minha|nosso|nossa|casa|familia)\b/.test(t)) return { nature: "PERSONAL", party: null };
   return null;
+}
+
+async function setPayload(open: Clarification, payload: FollowUpPayload) {
+  await prisma.clarification.update({ where: { id: open.id }, data: { payload: payload as unknown as Prisma.InputJsonValue } });
 }
 
 /** Resposta não entendida: repete a pergunta uma vez; na segunda, desiste (o lançamento continua em Pendências). */

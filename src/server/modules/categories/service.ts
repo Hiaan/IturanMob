@@ -144,6 +144,60 @@ export async function createSubcategory(ctx: ServiceContext, categoryId: string,
   return sub;
 }
 
+// -----------------------------------------------------------------------------
+// Criação rápida (seletores de categoria e WhatsApp)
+// -----------------------------------------------------------------------------
+
+/** Cores das categorias criadas na hora (a pessoa troca depois em Categorias). */
+const QUICK_COLORS = ["#0ea5e9", "#f97316", "#a855f7", "#14b8a6", "#ec4899", "#84cc16", "#eab308", "#6366f1"];
+
+export const quickCategorySchema = z.object({
+  name: z.string().trim().min(1, "Informe o nome").max(50),
+  kind: z.enum(["EXPENSE", "INCOME"]).default("EXPENSE"),
+  /** Categoria-mãe: com ela, cria (ou escolhe) a subcategoria. */
+  parentId: z.string().max(40).nullish(),
+});
+
+export interface QuickCategoryResult {
+  categoryId: string;
+  subcategoryId: string | null;
+  /** "Pet" ou "Pet › Ração". */
+  label: string;
+  kind: "EXPENSE" | "INCOME";
+  /** false = já existia com esse nome (foi só escolhida; arquivada volta a ficar ativa). */
+  created: boolean;
+}
+
+/**
+ * Cria a categoria (ou a subcategoria dentro de `parentId`) e devolve o que selecionar. Nome que já
+ * existe (sem diferenciar maiúsculas) não duplica: devolve a existente, reativando se estava arquivada.
+ */
+export async function quickCreateCategory(ctx: ServiceContext, input: z.input<typeof quickCategorySchema>): Promise<QuickCategoryResult> {
+  assertCan(ctx, "categories:write");
+  const data = quickCategorySchema.parse(input);
+  const name = data.name.charAt(0).toLocaleUpperCase("pt-BR") + data.name.slice(1);
+  if (data.parentId) {
+    const parent = await prisma.category.findFirst({ where: { id: data.parentId, householdId: ctx.householdId } });
+    if (!parent) throw new NotFoundError("Categoria");
+    if (parent.archivedAt) await updateCategory(ctx, parent.id, { archived: false });
+    const existing = await prisma.subcategory.findFirst({ where: { categoryId: parent.id, name: { equals: name, mode: "insensitive" } } });
+    if (existing) {
+      if (existing.archivedAt) await updateSubcategory(ctx, existing.id, { archived: false });
+      return { categoryId: parent.id, subcategoryId: existing.id, label: `${parent.name} › ${existing.name}`, kind: parent.kind, created: false };
+    }
+    const sub = await createSubcategory(ctx, parent.id, { name, keywords: [normalizeText(name)].filter(Boolean) });
+    return { categoryId: parent.id, subcategoryId: sub.id, label: `${parent.name} › ${sub.name}`, kind: parent.kind, created: true };
+  }
+  const existing = await prisma.category.findFirst({ where: { householdId: ctx.householdId, kind: data.kind, name: { equals: name, mode: "insensitive" } } });
+  if (existing) {
+    if (existing.archivedAt) await updateCategory(ctx, existing.id, { archived: false });
+    return { categoryId: existing.id, subcategoryId: null, label: existing.name, kind: existing.kind, created: false };
+  }
+  const count = await prisma.category.count({ where: { householdId: ctx.householdId, kind: data.kind } });
+  const cat = await createCategory(ctx, { name, kind: data.kind, icon: "tag", color: QUICK_COLORS[count % QUICK_COLORS.length]! });
+  return { categoryId: cat.id, subcategoryId: null, label: cat.name, kind: cat.kind, created: true };
+}
+
 export async function updateSubcategory(ctx: ServiceContext, id: string, input: z.input<typeof subcategoryUpdateSchema>) {
   assertCan(ctx, "categories:write");
   const data = parsePatch(subcategoryUpdateSchema, input);

@@ -47,7 +47,13 @@ describe("Pipeline de IA: perguntas de complemento (categoria e conta)", () => {
     expect(first.reply).toContain("Qual a categoria de *Feijoada* (R$ 37,00)?");
     expect(await openQuestions(fam.householdId)).toHaveLength(1);
 
-    const answer = await sendMessage(fam, { text: "almoço" });
+    // Nome que não existe: o bot oferece criar e só cria com o "sim".
+    const subsBefore = await prisma.subcategory.count({ where: { householdId: fam.householdId } });
+    const offer = await sendMessage(fam, { text: "almoço" });
+    expect(offer.reply).toContain("Não tenho a categoria *Almoço*. Quer que eu crie dentro de *Alimentação* (Alimentação › Almoço)? (sim/não)");
+    expect(await prisma.subcategory.count({ where: { householdId: fam.householdId } })).toBe(subsBefore);
+    expect(await openQuestions(fam.householdId)).toHaveLength(1);
+    const answer = await sendMessage(fam, { text: "sim" });
     const updated = await prisma.transaction.findUniqueOrThrow({ where: { id: tx!.id }, include: { category: true, subcategory: true } });
     expect(updated.category?.name).toBe("Alimentação");
     expect(updated.subcategory?.name).toBe("Almoço");
@@ -123,12 +129,16 @@ describe("Pipeline de IA: perguntas de complemento (categoria e conta)", () => {
   it("resposta com nome novo sem parente conhecido cria uma categoria própria; 'Categoria > Sub' cria a subcategoria", async () => {
     const { fam } = await familyWithOneAccount();
     await sendMessage(fam, { text: "120 ração do totó" });
-    const r1 = await sendMessage(fam, { text: "pets" });
+    const offer = await sendMessage(fam, { text: "pets" });
+    expect(offer.reply).toContain("Não tenho a categoria *Pets*. Quer que eu crie? (sim/não)");
+    const r1 = await sendMessage(fam, { text: "pode criar" });
     expect(r1.reply).toContain("ficou em *Pets* (categoria criada agora)");
     expect(await prisma.category.count({ where: { householdId: fam.householdId, name: "Pets", kind: "EXPENSE" } })).toBe(1);
 
     await sendMessage(fam, { text: "60 partitura" });
-    const r2 = await sendMessage(fam, { text: "Educação > Música" });
+    const offer2 = await sendMessage(fam, { text: "Educação > Música" });
+    expect(offer2.reply).toContain("Quer que eu crie dentro de *Educação* (Educação › Música)? (sim/não)");
+    const r2 = await sendMessage(fam, { text: "sim" });
     expect(r2.reply).toContain("Educação › Música");
     const tx = (await txsOf(fam.householdId)).find((t) => t.amountCents === 6000)!;
     expect(tx.subcategory?.name).toBe("Música");

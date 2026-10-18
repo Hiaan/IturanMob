@@ -264,6 +264,14 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
 - Natureza de lançamentos já feitos: *isso é da empresa*, *marca como empresa o pix do Daniel*, *isso é
   pessoal* / *não é da empresa* (mesmas regras de alvo).
 
+**Criar categoria pelo WhatsApp** (sem IA, `src/server/ai/engine/category-commands.ts`):
+*cria categoria Pet*, *cria categoria de receita Freelas*, *nova categoria Escola dentro de Educação*,
+*criar subcategoria Ração em Pet*. Nome que já existe não duplica; categoria-mãe inexistente → o bot
+explica. Quando o bot pergunta a categoria de um lançamento e a resposta é um nome que não existe, ele
+oferece: *Não tenho a categoria Pet. Quer que eu crie? (sim/não)* — *sim* cria, aplica e aprende
+(próximos gastos parecidos já entram nela); *não* pede outra. Responder a pergunta com *cria categoria
+Pet* também cria e aplica.
+
 **Vários grupos: pessoa física × empresa.** A família pode autorizar mais de um grupo na mesma conexão
 (ex.: "Finanças da Família" e "Empresa"). Cada grupo tem uma **natureza padrão**: *Pessoa física*,
 *Empresa* ou *Não atribuído*. O primeiro grupo autorizado começa como Pessoa física (como era antes); os

@@ -22,6 +22,7 @@ import { detectNatureTokens } from "../nlu/nature";
 import { isQuestionText } from "../nlu/local-parser";
 import { expensesByCategory } from "../../modules/analytics/service";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
+import { handleCategoryCommand, parseCategoryCommand } from "../engine/category-commands";
 import { applyExclusion, handleExclusionCommand, hasExclusionMarker, parseExclusionCommand, stripExclusionMarker, type QuotedRef } from "../engine/report-exclusion";
 import type { InboundMessageResult } from "./types";
 
@@ -141,6 +142,9 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   // "desconsidera esse" / "o pix do fulano é repasse": comando determinístico, sem IA.
   const exclusion = parseExclusionCommand(text);
   if (exclusion) return handleExclusionCommand(ctx, hc, exclusion, { channel: "WHATSAPP", chatId: opts.chatId, messageId: opts.messageId, quoted: opts.quoted ?? null });
+  // "cria categoria Pet", "nova categoria Escola dentro de Educação": comando determinístico.
+  const categoryCommand = parseCategoryCommand(text, hc);
+  if (categoryCommand) return handleCategoryCommand(ctx, hc, categoryCommand);
   // "recebi 500 do Fulano, é repasse": registra (sem o marcador na descrição) e já desconsidera.
   const marker = hasExclusionMarker(text);
   let toInterpret = marker ? stripExclusionMarker(text) || text : text;
