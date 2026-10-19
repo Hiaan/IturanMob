@@ -69,6 +69,8 @@ const SYNONYMS: Record<MigrationField, string[]> = {
   description: [
     "descricao", "historico", "lancamento", "lancamentos", "estabelecimento", "detalhes", "detalhe", "memo", "description", "titulo", "nome", "item",
     "gasto", "o que", "produto", "servico", "local", "loja", "favorecido", "beneficiario", "descricao do lancamento", "despesa descricao", "discriminacao",
+    // Abas de receitas: de onde veio o dinheiro.
+    "origem", "fonte", "de quem", "fonte pagadora", "recebido de", "pagador origem",
   ],
   amount: [
     "valor", "valor r", "valor rs", "valor em r", "valor brl", "valor em reais", "valor total", "valor lancamento", "valor do lancamento", "valor pago",
@@ -82,14 +84,20 @@ const SYNONYMS: Record<MigrationField, string[]> = {
   ],
   category: ["categoria", "categorias", "category", "classificacao", "grupo", "classe", "tipo de gasto", "tipo de despesa", "centro de custo", "rubrica"],
   subcategory: ["subcategoria", "sub categoria", "subcategorias", "subgrupo", "sub grupo", "subclasse", "detalhamento", "subtipo"],
-  account: ["conta", "banco", "conta bancaria", "instituicao", "conta corrente", "origem", "carteira", "conta origem", "conta cartao", "conta ou cartao", "meio"],
+  account: [
+    "conta", "banco", "conta bancaria", "instituicao", "conta corrente", "carteira", "conta origem", "conta cartao", "conta ou cartao", "banco cartao",
+    "meio", "onde paguei", "onde foi pago", "pagou onde", "onde",
+  ],
   card: ["cartao", "cartao de credito", "cartao credito", "card", "credit card", "qual cartao"],
   paymentMethod: [
     "forma de pagamento", "forma pagamento", "forma de pagto", "meio de pagamento", "metodo de pagamento", "pagamento", "forma", "metodo", "como pagou",
     "pago com", "modalidade", "pagto",
   ],
   person: ["pessoa", "quem", "responsavel", "membro", "pagador", "quem pagou", "usuario", "titular", "comprador", "quem gastou", "familiar", "dono"],
-  nature: ["natureza", "pf pj", "pf ou pj", "tipo pf pj", "pessoal empresa", "pessoal ou empresa", "empresa ou pessoal", "escopo", "ambito", "pj pf"],
+  nature: [
+    "natureza", "pf pj", "pf ou pj", "pj ou pf", "pj pf", "tipo pf pj", "pessoal empresa", "pessoal ou empresa", "empresa ou pessoal", "escopo", "ambito",
+    "pessoa fisica ou juridica", "fisica ou juridica", "tipo pessoa",
+  ],
   installment: ["parcela", "parcelas", "parc", "n parcela", "no parcela", "num parcela", "numero da parcela", "parcelamento", "qtd parcelas", "vezes", "prestacao"],
   status: ["status", "situacao", "pago", "paga", "quitado", "estado", "pago ou a pagar", "pagou", "efetivado"],
   notes: ["observacao", "observacoes", "obs", "nota", "notas", "comentario", "comentarios", "anotacao", "anotacoes", "complemento", "detalhe adicional"],
@@ -149,21 +157,21 @@ export function parseInstallment(text: string | null | undefined): InstallmentIn
 }
 
 /** Parcela marcada na descrição: "Geladeira (3/10)", "TV parc 2/12", "Sofá 3 de 10". */
-export function installmentFromDescription(description: string): { info: InstallmentInfo; base: string } | null {
+export function installmentFromDescription(description: string): { info: InstallmentInfo; base: string; /** "Compra 10/11" solto no fim (pode ser data). */ bare: boolean } | null {
   const patterns = [
     /\s*[([]\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*[)\]]\s*/,
     /\s*\bparc(?:ela)?\.?\s*(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})\b\s*/i,
     /\s+(\d{1,2})\s*\/\s*(\d{1,2})\s*$/,
     /\s+(\d{1,2})\s+de\s+(\d{1,2})\s*$/i,
   ];
-  for (const re of patterns) {
+  for (const [i, re] of patterns.entries()) {
     const m = re.exec(description);
     if (!m) continue;
     const number = Number(m[1]);
     const total = Number(m[2]);
     if (number < 1 || total < 2 || number > total || total > 72) continue;
     const base = (description.slice(0, m.index) + " " + description.slice(m.index + m[0].length)).replace(/\s+/g, " ").replace(/[\s\-–—:,]+$/, "").trim();
-    return { info: { number, total, purchaseTotal: false }, base: base || description };
+    return { info: { number, total, purchaseTotal: false }, base: base || description, bare: i === 2 };
   }
   return null;
 }
@@ -222,6 +230,9 @@ export function parsePaymentMethodValue(text: string | null | undefined): Paymen
   if (/\b(vale|va|vr|vale refeicao|vale alimentacao|ticket|alelo|sodexo|pluxee|flash|caju)\b/.test(n)) return "VOUCHER";
   return null;
 }
+
+/** Valor que é só a forma de pagamento, sem banco/cartão ("Pix", "Crédito", "Dinheiro"). */
+const PURE_METHOD = /^(pix|debito|credito|cartao|cartao de credito|cartao de debito|dinheiro|especie|boleto|ted|doc|transferencia|transf|vale|va|vr|vale refeicao|vale alimentacao|debito automatico|cheque|a vista)$/;
 
 /** Linha de total/subtotal/saldo (não é lançamento). */
 const TOTAL_ROW = /^(total|totais|subtotal|sub total|soma|somatorio|saldo|saldo anterior|saldo inicial|saldo final|saldo do mes|saldo atual|resumo|resultado|balanco|total geral|totalizador)(\b.*)?$/;
@@ -394,8 +405,44 @@ export function detectColumns(headers: string[], rows: string[][]): ColumnMap {
     map.credit = null;
   }
 
+  // "Pago com" / "Forma" com nomes de banco e cartão ("Itaú", "Nubank crédito", "Pix Inter") é a
+  // conta/cartão; a forma de pagamento sai do próprio valor quando ele a cita.
+  if (map.account === null && map.card === null && map.paymentMethod !== null) {
+    const vs = valuesOf(map.paymentMethod);
+    if (vs.length && ratio(vs, (v) => PURE_METHOD.test(normalizeText(v))) < 0.6) {
+      map.account = map.paymentMethod;
+      map.paymentMethod = null;
+    }
+  }
+
   // Reforço pelo conteúdo.
   const width = headers.length;
+  // "Classe"/"Grupo" com PF/PJ nos valores é a natureza, não a categoria.
+  if (map.nature === null && map.category !== null) {
+    const vs = valuesOf(map.category);
+    if (vs.length >= 2 && ratio(vs, (v) => parseNatureValue(v) !== null) >= 0.8) {
+      map.nature = map.category;
+      map.category = null;
+    }
+  }
+  // Natureza, status e tipo pelo conteúdo (cabeçalho desconhecido): quase todos os valores batem.
+  const byContent: Array<[MigrationField, (v: string) => boolean]> = [
+    ["nature", (v) => parseNatureValue(v) !== null],
+    ["status", (v) => parseStatusValue(v) !== null && normalizeText(v).length > 1],
+    ["type", (v) => parseFlowType(v) !== null && normalizeText(v).length > 1],
+  ];
+  for (const [field, test] of byContent) {
+    if (map[field] !== null) continue;
+    for (let col = 0; col < width; col++) {
+      if (used.has(col) || Object.values(map).includes(col)) continue;
+      const vs = valuesOf(col);
+      if (vs.length >= 2 && ratio(vs, test) >= 0.8) {
+        map[field] = col;
+        used.add(col);
+        break;
+      }
+    }
+  }
   if (map.date === null && map.day === null) {
     for (let col = 0; col < width; col++) {
       if (used.has(col)) continue;

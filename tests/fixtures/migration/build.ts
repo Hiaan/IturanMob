@@ -130,9 +130,66 @@ export async function messySheet(): Promise<Buffer> {
   return toBuffer(wb);
 }
 
+/**
+ * 5) Planilha "de cliente" (formato relatado na validação): resumo, abas mensais com cabeçalhos
+ * livres ("O que foi", "Onde paguei", "PJ ou PF", "Situação"), parcela só na descrição, aba de
+ * receitas com "Origem"/"Conta" e matriz por categoria com meses sem ano.
+ */
+export async function clientWorkbook(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const resumo = wb.addWorksheet("Resumo");
+  resumo.addRow(["Resumo 2025"]);
+  resumo.addRow(["Mês", "Gastos", "Receitas"]);
+  resumo.addRow(["Janeiro", 731.7, 7500]);
+  resumo.addRow(["Fevereiro", 720.3, 6000]);
+  const header = ["Dia", "O que foi", "Valor (R$)", "Onde paguei", "Tipo de gasto", "PJ ou PF", "Situação"];
+  const months: Array<[string, Array<[number, string, number, string, string, string, string]>, string]> = [
+    [
+      "Janeiro",
+      [
+        [3, "Mercado Extra", 250.4, "Itaú", "Mercado", "PF", "Pago"],
+        [5, "Geladeira 3/10", 300, "Nubank crédito", "Casa", "PF", "Pago"],
+        [8, "Uber reunião", 32.5, "Pix Inter", "Transporte", "PJ", "Pago"],
+        [12, "Farmácia", 48.9, "Itaú", "Saúde", "", "Pago"],
+        [20, "Internet", 99.9, "Itaú", "Contas da casa", "PF", "Pago"],
+      ],
+      "TOTAL",
+    ],
+    [
+      "Fevereiro",
+      [
+        [4, "Mercado Extra", 230.5, "Itaú", "Mercado", "PF", "Pago"],
+        [5, "Geladeira 4/10", 300, "Nubank crédito", "Casa", "PF", "Pago"],
+        [2, "Almoço cliente 02/02", 89.9, "Pix Inter", "Alimentação", "PJ", "Pago"],
+        [20, "Internet", 99.9, "Itaú", "Contas da casa", "PF", "A pagar"],
+      ],
+      "Total do mês",
+    ],
+  ];
+  for (const [name, rows, total] of months) {
+    const ws = wb.addWorksheet(name);
+    ws.addRow(header);
+    for (const r of rows) ws.addRow(r);
+    ws.addRow([total, "", rows.reduce((s2, r) => s2 + r[2], 0), "", "", "", ""]);
+  }
+  const receitas = wb.addWorksheet("Receitas");
+  receitas.addRow(["Data", "Origem", "Valor", "Conta"]);
+  receitas.addRow([d("2025-01-05"), "Salário", 6000, "Itaú"]);
+  receitas.addRow([d("2025-01-20"), "Freela site", 1500, "Inter"]);
+  receitas.addRow([d("2025-02-05"), "Salário", 6000, "Itaú"]);
+  receitas.getColumn(1).numFmt = "dd/mm/yyyy";
+  const matriz = wb.addWorksheet("Gastos por categoria");
+  matriz.addRow(["Categoria", "Jan", "Fev", "Mar"]);
+  matriz.addRow(["Mercado", 800, 850, 900]);
+  matriz.addRow(["Transporte", 200, 180, 220]);
+  matriz.addRow(["Total", 1000, 1030, 1120]);
+  return toBuffer(wb);
+}
+
 export const FIXTURES = {
   "lista-simples": simpleList,
   "abas-mensais": monthlySheets,
   "matriz-categorias": categoryMatrix,
   "planilha-baguncada": messySheet,
+  "controle-financeiro-2025": clientWorkbook,
 } as const;

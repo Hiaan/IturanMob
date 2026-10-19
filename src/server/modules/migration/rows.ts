@@ -44,6 +44,8 @@ export interface SheetRowValues {
   baseDescription: string;
   values: Record<CorrespondenceField, string>;
   paymentMethod: PaymentMethod | null;
+  /** A forma de pagamento foi deduzida do valor da conta (a escolha da conta vale). */
+  paymentFromAccount: boolean;
   installment: InstallmentInfo | null;
   status: StatusValue | null;
   notes: string | null;
@@ -155,7 +157,9 @@ export function readSheetRows(sheet: RawSheet, cfg: SheetConfig, contextYear: nu
     let installment = parseInstallment(installmentCell);
     let baseDescription = description;
     const fromDesc = installmentFromDescription(description);
-    if (fromDesc) {
+    // "Jantar 10/11" em 10/11: é a data da compra, não parcela.
+    const isRowDate = Boolean(fromDesc?.bare && date && Number(date.slice(8, 10)) === fromDesc.info.number && Number(date.slice(5, 7)) === fromDesc.info.total);
+    if (fromDesc && !isRowDate) {
       baseDescription = fromDesc.base;
       installment ??= fromDesc.info;
     }
@@ -185,7 +189,9 @@ export function readSheetRows(sheet: RawSheet, cfg: SheetConfig, contextYear: nu
         person: cellOf(row, c.person).slice(0, 80),
         nature: cellOf(row, c.nature).slice(0, 80),
       },
-      paymentMethod: parsePaymentMethodValue(cellOf(row, c.paymentMethod)),
+      // Sem coluna própria, a forma de pagamento pode vir da conta ("Pix Inter", "Nubank crédito").
+      paymentMethod: parsePaymentMethodValue(cellOf(row, c.paymentMethod)) ?? parsePaymentMethodValue(cellOf(row, c.account)),
+      paymentFromAccount: !parsePaymentMethodValue(cellOf(row, c.paymentMethod)) && Boolean(parsePaymentMethodValue(cellOf(row, c.account))),
       installment,
       status: parseStatusValue(cellOf(row, c.status)),
       notes: cellOf(row, c.notes).slice(0, 500) || null,
@@ -316,7 +322,7 @@ function destinationFor(v: SheetRowValues, res: Resolution, opts: BuildOptions):
     const d = res.account.get(valueKey(v.values.account));
     if (d) {
       // Conta escolhida, mas a linha diz "crédito": vai para o cartão padrão (compra no cartão não mexe no saldo da conta).
-      if (d.accountId && v.paymentMethod === "CREDIT_CARD") return opts.defaultCardId ? { accountId: null, creditCardId: opts.defaultCardId } : null;
+      if (d.accountId && v.paymentMethod === "CREDIT_CARD" && !v.paymentFromAccount) return opts.defaultCardId ? { accountId: null, creditCardId: opts.defaultCardId } : null;
       return d;
     }
   }

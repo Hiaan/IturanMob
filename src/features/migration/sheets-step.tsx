@@ -74,6 +74,27 @@ function MonthPicker({ id, value, onChange, disabled }: { id: string; value: str
   );
 }
 
+/** Ano dos meses de uma aba categorias × meses (o cabeçalho só tinha "Jan", "Fev"…). */
+function MatrixYearSelect({ id, value, onChange, disabled }: { id: string; value: number | null; onChange: (v: number) => void; disabled: boolean }) {
+  const thisYear = Number(todayISO().slice(0, 4));
+  const years = Array.from({ length: 32 }, (_, i) => thisYear + 1 - i);
+  if (value && !years.includes(value)) years.push(value);
+  return (
+    <Select value={value ? String(value) : ""} onValueChange={(v) => onChange(Number(v))} disabled={disabled}>
+      <SelectTrigger id={id} className="w-28" aria-label="Ano dos meses">
+        <SelectValue placeholder="Ano" />
+      </SelectTrigger>
+      <SelectContent>
+        {years.map((year) => (
+          <SelectItem key={year} value={String(year)}>
+            {year}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function MatrixModeField({ sheet, onChange, disabled }: { sheet: SheetConfig; onChange: (v: MatrixMode) => void; disabled: boolean }) {
   const name = useId();
   const options: Array<{ value: MatrixMode; title: string; hint: string }> = [
@@ -162,6 +183,26 @@ function SheetControls({ sheet, patch, disabled }: { sheet: SheetConfig; patch: 
               <CalendarDays className="size-3.5 shrink-0" aria-hidden /> {plural(months.length, "mês encontrado", "meses encontrados")}: {monthRangeLabel(months)}
             </p>
           )}
+          <Field
+            label="Ano dos meses"
+            htmlFor={`${base}-matrix-year`}
+            hint={
+              sheet.yearGuessed ? (
+                <span className="inline-flex items-center gap-1 font-medium text-warning">
+                  <TriangleAlert className="size-3.5" aria-hidden /> Ano estimado — confira
+                </span>
+              ) : (
+                "Ano do primeiro mês da tabela (na virada de dezembro para janeiro, o ano avança)."
+              )
+            }
+          >
+            <MatrixYearSelect
+              id={`${base}-matrix-year`}
+              value={months[0] ? Number(months[0].slice(0, 4)) : null}
+              onChange={(matrixYear) => patch({ matrixYear })}
+              disabled={disabled}
+            />
+          </Field>
           <MatrixModeField sheet={sheet} onChange={(matrixMode) => patch({ matrixMode })} disabled={disabled} />
         </>
       )}

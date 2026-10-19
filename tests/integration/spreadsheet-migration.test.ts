@@ -22,7 +22,7 @@ import {
   updateMigrationSheets,
 } from "@/server/modules/migration/service";
 import type { Correspondence, MigrationDTO } from "@/server/modules/migration/types";
-import { categoryMatrix, messySheet, monthlySheets, simpleList } from "../fixtures/migration/build";
+import { categoryMatrix, clientWorkbook, messySheet, monthlySheets, simpleList } from "../fixtures/migration/build";
 import { categoryId, createFamily, resetDatabase, subcategory } from "./helpers";
 
 /** Estado financeiro comparável antes/depois (saldos, ledger, faturas, contas a pagar, orçamentos). */
@@ -289,6 +289,62 @@ describe("migração de planilha", () => {
     m = await discardMigration(ctx, m.id);
     expect(m.status).toBe("DISCARDED");
     expect(await prisma.category.count({ where: { householdId, name: "Streaming da casa" } })).toBe(0);
+  });
+
+  it("planilha de cliente: Conta × Origem, ano da matriz pelo arquivo, 'Onde paguei', 'PJ ou PF' e parcela na descrição", async () => {
+    const itau = await createAccount(ctx, { name: "Itaú", institution: "Itaú", type: "CHECKING", initialBalanceCents: 0, initialBalanceDate: "2024-12-31" });
+    const inter = await createAccount(ctx, { name: "Inter", institution: "Banco Inter", type: "DIGITAL", initialBalanceCents: 0, initialBalanceDate: "2024-12-31" });
+    const nubank = await createCard(ctx, { name: "Nubank", issuer: "Nubank", closingDay: 25, dueDay: 5 });
+    let m = await startMigration(ctx, { fileName: "Controle Financeiro 2025.xlsx", content: await clientWorkbook() });
+    const sheet = (name: string) => m.sheets.find((s) => s.name === name)!;
+    const col = (name: string, field: keyof (typeof m.sheets)[number]["columns"]) => {
+      const s = sheet(name);
+      const i = s.columns[field];
+      return i === null ? null : s.headers[i];
+    };
+    // Receitas: "Conta" é a conta (cabeçalho exato) e "Origem" a descrição.
+    expect([col("Receitas", "description"), col("Receitas", "account")]).toEqual(["Origem", "Conta"]);
+    expect(sheet("Receitas").unsignedAs).toBe("INCOME");
+    // Abas mensais: "Onde paguei" → conta/cartão, "PJ ou PF" → natureza, "Situação" → status.
+    expect([col("Janeiro", "account"), col("Janeiro", "nature"), col("Janeiro", "status"), col("Janeiro", "category")]).toEqual(["Onde paguei", "PJ ou PF", "Situação", "Tipo de gasto"]);
+    expect(sheet("Janeiro")).toMatchObject({ kind: "MONTH", month: "2025-01", ignoredRows: 1 });
+    expect(sheet("Fevereiro")).toMatchObject({ month: "2025-02", ignoredRows: 1 });
+    // Matriz com "Jan/Fev/Mar": ano do arquivo (2025), marcado para conferir; dá para trocar.
+    expect(sheet("Gastos por categoria")).toMatchObject({ kind: "MATRIX", yearGuessed: true });
+    expect(sheet("Gastos por categoria").matrix!.months.map((x) => x.month)).toEqual(["2025-01", "2025-02", "2025-03"]);
+    m = await updateMigrationSheets(ctx, m.id, { sheets: [{ index: sheet("Gastos por categoria").index, matrixYear: 2024 }] });
+    expect(sheet("Gastos por categoria").matrix!.months.map((x) => x.month)).toEqual(["2024-01", "2024-02", "2024-03"]);
+    expect(sheet("Gastos por categoria").yearGuessed).toBe(false);
+    m = await updateMigrationSheets(ctx, m.id, { sheets: [{ index: sheet("Gastos por categoria").index, matrixYear: 2025, matrixMode: "BUDGET" }] });
+
+    expect(item(m, "account", "Itaú").suggestion).toMatchObject({ targetType: "ACCOUNT", targetId: itau.id });
+    expect(item(m, "account", "Pix Inter").suggestion).toMatchObject({ targetType: "ACCOUNT", targetId: inter.id });
+    expect(item(m, "account", "Inter").suggestion).toMatchObject({ targetType: "ACCOUNT", targetId: inter.id });
+    expect(item(m, "account", "Nubank crédito").suggestion).toMatchObject({ targetType: "CARD", targetId: nubank.id });
+    expect(item(m, "nature", "PJ").suggestion).toMatchObject({ targetId: "BUSINESS" });
+    expect(item(m, "category", "Contas da casa").suggestion).toMatchObject({ label: "Moradia" });
+
+    m = await applyMigrationSuggestions(ctx, m.id, {});
+    m = await requestMigrationPreview(ctx, m.id);
+    expect(m.error).toBeNull();
+    const dest = Object.fromEntries(m.summary!.destinations.map((d) => [d.name, d]));
+    expect(dest["Nubank"]).toMatchObject({ selectedRows: 1, skippedRows: 1, installmentPurchases: 1 });
+    const card = await getImportPreview(ctx, dest["Nubank"]!.batchId);
+    expect(card.rows.find((r) => r.status === "NEW")!.installmentPlan).toEqual({ count: 8, amountCents: 240_000, firstNumber: 3, ofTotal: 10 });
+    const interRows = (await getImportPreview(ctx, dest["Inter"]!.batchId)).rows;
+    // "02/02" no dia 02/02 é a data, não parcela.
+    expect(interRows.find((r) => r.description === "Almoço cliente 02/02")).toMatchObject({ amountCents: -8_990, installmentPlan: null, installment: null });
+    expect(m.summary!.bills.map((b) => [b.description, b.dueDate])).toEqual([["Internet", "2025-02-20"]]);
+    expect(m.summary!.budgets.filter((b) => b.month === "2025-03").map((b) => b.limitCents).sort()).toEqual([22_000, 90_000]);
+
+    m = await requestMigrationCommit(ctx, m.id);
+    expect(m.status).toBe("IMPORTED");
+    const uber = await prisma.transaction.findFirstOrThrow({ where: { householdId, description: "Uber reunião" } });
+    expect(uber).toMatchObject({ accountId: inter.id, paymentMethod: "PIX", scope: "BUSINESS", amountCents: 3_250 });
+    const farmacia = await prisma.transaction.findFirstOrThrow({ where: { householdId, description: "Farmácia" } });
+    expect(farmacia).toMatchObject({ accountId: itau.id, scope: "PERSONAL" });
+    const salario = await prisma.transaction.findFirstOrThrow({ where: { householdId, description: "Freela site" } });
+    expect(salario).toMatchObject({ type: "INCOME", accountId: inter.id, amountCents: 150_000 });
   });
 
   it("valida as decisões e o que falta antes da prévia", async () => {

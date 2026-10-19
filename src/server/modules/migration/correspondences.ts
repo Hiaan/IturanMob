@@ -278,7 +278,8 @@ const BANK_ALIASES: Record<string, string> = {
   "c6 bank": "c6",
   mp: "mercado pago",
 };
-const GENERIC = new Set(["conta", "corrente", "cartao", "credito", "debito", "banco", "digital", "de", "do", "da"]);
+// Palavras que não identificam a conta (inclui a forma de pagamento: "Pix Inter" → Inter).
+const GENERIC = new Set(["conta", "corrente", "cartao", "credito", "debito", "banco", "digital", "de", "do", "da", "pix", "ted", "doc", "boleto", "transferencia", "transf", "automatico", "via", "no", "na", "pelo", "pela"]);
 const CARD_WORDS = /\b(cartao|credito|visa|master|mastercard|elo|amex|hipercard|black|platinum|gold|infinite)\b/;
 
 function significantTokens(text: string): string[] {

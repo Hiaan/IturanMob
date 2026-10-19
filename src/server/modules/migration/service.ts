@@ -690,6 +690,8 @@ export const sheetsPatchSchema = z.object({
         unsignedAs: z.enum(["EXPENSE", "INCOME", "BY_CATEGORY"]).optional(),
         invertSigns: z.boolean().optional(),
         matrixMode: z.enum(["TRANSACTIONS", "BUDGET"]).nullable().optional(),
+        /** Categorias × meses: ano do primeiro mês sem ano no cabeçalho (os seguintes avançam na virada). */
+        matrixYear: z.number().int().min(1990).max(2100).optional(),
       }),
     )
     .min(1)
@@ -715,9 +717,11 @@ export async function updateMigrationSheets(ctx: ServiceContext, id: string, raw
     }
     if (p.kind && p.kind !== cfg.kind) {
       if (p.kind === "MATRIX") {
-        const matrix = cfg.matrix ?? detectMatrix(sheet.rows);
-        if (!matrix) throw new ValidationError(`Não encontrei os meses no cabeçalho da aba "${cfg.name}" para usá-la como categorias × meses.`);
+        const detected = cfg.matrix ? { ...cfg.matrix, guessed: cfg.yearGuessed } : detectMatrix(sheet.rows, year.year);
+        if (!detected) throw new ValidationError(`Não encontrei os meses no cabeçalho da aba "${cfg.name}" para usá-la como categorias × meses.`);
+        const { guessed, ...matrix } = detected;
         cfg.matrix = matrix;
+        cfg.yearGuessed = guessed;
         cfg.headerRowIndex = matrix.headerRowIndex;
         cfg.headers = headersAt(sheet, matrix.headerRowIndex);
       } else if ((p.kind === "LIST" || p.kind === "MONTH") && !cfg.headers.length) {
@@ -745,6 +749,15 @@ export async function updateMigrationSheets(ctx: ServiceContext, id: string, raw
     if (p.unsignedAs) cfg.unsignedAs = p.unsignedAs;
     if (p.invertSigns !== undefined) cfg.invertSigns = p.invertSigns;
     if (p.matrixMode !== undefined) cfg.matrixMode = p.matrixMode;
+    if (p.matrixYear !== undefined) {
+      if (cfg.kind !== "MATRIX") throw new ValidationError(`A aba "${cfg.name}" não é de categorias × meses.`);
+      const detected = detectMatrix(sheet.rows, p.matrixYear);
+      if (detected) {
+        const { guessed: _g, ...matrix } = detected;
+        cfg.matrix = matrix;
+      }
+      cfg.yearGuessed = false;
+    }
     if (p.selected !== undefined) {
       if (p.selected && (cfg.kind === "SUMMARY" || cfg.kind === "EMPTY")) throw new ValidationError(`Escolha o tipo da aba "${cfg.name}" (lista, mês ou categorias × meses) antes de usá-la.`);
       cfg.selected = p.selected;

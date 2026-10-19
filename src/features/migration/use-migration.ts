@@ -150,6 +150,8 @@ export interface SheetPatch {
   unsignedAs?: UnsignedAs;
   invertSigns?: boolean;
   matrixMode?: MatrixMode | null;
+  /** Categorias × meses: ano do primeiro mês (quando o cabeçalho não traz o ano). */
+  matrixYear?: number;
 }
 
 /** Ajustes das abas (as correspondências são recalculadas no servidor). Aplica na tela antes da resposta. */

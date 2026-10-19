@@ -52,10 +52,12 @@ describe("valores das colunas extras", () => {
     expect(parseInstallment("à vista")).toBeNull();
     expect(parseInstallment("1/1")).toBeNull();
     expect(parseInstallment("11/10")).toBeNull();
-    expect(installmentFromDescription("Geladeira Brastemp (3/10)")).toEqual({ info: { number: 3, total: 10, purchaseTotal: false }, base: "Geladeira Brastemp" });
+    expect(installmentFromDescription("Geladeira Brastemp (3/10)")).toMatchObject({ info: { number: 3, total: 10, purchaseTotal: false }, base: "Geladeira Brastemp" });
     expect(installmentFromDescription("TV Samsung parc 2/12 loja")?.base).toBe("TV Samsung loja");
     expect(installmentFromDescription("Sofá 3 de 10")?.info.number).toBe(3);
     expect(installmentFromDescription("Conta 2025")).toBeNull();
+    expect(installmentFromDescription("Geladeira 3/10")).toMatchObject({ info: { number: 3, total: 10 }, base: "Geladeira", bare: true });
+    expect(installmentFromDescription("Geladeira (3/10)")?.bare).toBe(false);
   });
 
   it("natureza, tipo, status, forma de pagamento e linhas de total", () => {
@@ -97,6 +99,18 @@ describe("valores das colunas extras", () => {
     const c = detectColumns(headers, rows);
     expect([c.day, c.description, c.amount, c.card, c.person, c.installment, c.status, c.notes]).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(c.date).toBeNull();
+    // Receitas: "Conta" é a conta e "Origem" a descrição (não o contrário).
+    const income = detectColumns(["Data", "Origem", "Valor", "Conta"], [["05/01/2025", "Salário", "6000", "Itaú"], ["20/01/2025", "Freela", "1500", "Inter"]]);
+    expect([income.description, income.account]).toEqual([1, 3]);
+    // Natureza e status pelo conteúdo, mesmo com cabeçalho desconhecido; "Pago com" com bancos é a conta.
+    const free = detectColumns(["Dia", "O que foi", "Valor", "Pago com", "Classe X", "Ok?"], [
+      ["3", "Mercado", "250,40", "Itaú", "PF", "pago"],
+      ["5", "Geladeira 3/10", "300", "Nubank crédito", "PJ", "a pagar"],
+      ["8", "Uber", "32,50", "Pix Inter", "", "pago"],
+    ]);
+    expect([free.account, free.paymentMethod, free.nature, free.status]).toEqual([3, null, 4, 5]);
+    const methods = detectColumns(["Data", "Descrição", "Valor", "Forma de pagamento"], [["05/01/2025", "a", "1", "Pix"], ["06/01/2025", "b", "2", "Crédito"], ["07/01/2025", "c", "3", "Dinheiro"]]);
+    expect([methods.paymentMethod, methods.account]).toEqual([3, null]);
     // "Conta" com muitos nomes diferentes é a descrição (planilha de contas da casa).
     const bills = detectColumns(["Conta", "Vencimento", "Valor"], Array.from({ length: 15 }, (_, i) => [`Conta ${i}`, `10/${String((i % 12) + 1).padStart(2, "0")}/2025`, "100,00"]));
     expect(bills.description).toBe(0);
@@ -134,6 +148,7 @@ describe("sugestões do De → Para", () => {
     expect(suggestDestination("final 1234", "card", catalog)).toMatchObject({ targetId: "card-nu" });
     expect(suggestDestination("XP", "card", catalog)).toMatchObject({ targetId: "card-xp" });
     expect(suggestDestination("Carteira", "account", catalog)).toBeNull();
+    expect(suggestDestination("Pix BB", "account", catalog)).toMatchObject({ targetId: "acc-bb" });
     expect(suggestMember("joao", catalog)).toMatchObject({ targetId: "m-joao", source: "SIMILAR" });
     expect(suggestMember("Maria", catalog)).toMatchObject({ targetId: "m-maria", source: "EXACT" });
     expect(suggestMember("eu", catalog)).toMatchObject({ targetId: "m-joao" });

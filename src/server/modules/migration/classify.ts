@@ -104,7 +104,11 @@ function nonEmpty(row: string[] | undefined): number {
   return (row ?? []).filter((c) => c.trim() !== "").length;
 }
 
-function detectMatrix(rows: string[][]): MatrixLayout | null {
+/**
+ * Matriz: linha de cabeçalho com 3+ meses e rótulos de categoria à esquerda. Meses sem ano usam
+ * `baseYear` (o ano do arquivo/contexto) e `guessed` avisa para conferir.
+ */
+function detectMatrix(rows: string[][], baseYear: number): (MatrixLayout & { guessed: boolean }) | null {
   const limit = Math.min(rows.length, 15);
   for (let i = 0; i < limit; i++) {
     const row = rows[i] ?? [];
@@ -133,7 +137,7 @@ function detectMatrix(rows: string[][]): MatrixLayout | null {
     if (!cells.length || cells.filter((c) => parseImportAmount(c) !== null).length / cells.length < 0.7) continue;
     // Anos ausentes: o do primeiro mês com ano, avançando quando o mês "volta" (dez → jan).
     const known = months.find((m) => m.month.year)?.month.year ?? null;
-    let year = known ?? new Date().getUTCFullYear();
+    let year = known ?? baseYear;
     let prev = 0;
     const resolved = months
       .sort((a, b) => a.column - b.column)
@@ -143,7 +147,7 @@ function detectMatrix(rows: string[][]): MatrixLayout | null {
         prev = m.month.month;
         return { column: m.column, month: monthKeyFromParts(m.month.year ?? year, m.month.month) };
       });
-    return { headerRowIndex: i, labelColumn, months: resolved };
+    return { headerRowIndex: i, labelColumn, months: resolved, guessed: known === null };
   }
   return null;
 }
@@ -247,8 +251,11 @@ export function classifySheet(sheet: RawSheet, ctx: ClassifyContext, monthOverri
   }
 
   // 2) Matriz categorias × meses.
-  const matrix = detectMatrix(sheet.rows);
-  if (matrix) {
+  // Meses sem ano: o ano do nome da aba ("Gastos 2025") ou o do arquivo — e a tela pede para conferir.
+  const nameYear = /(?:^|\D)((?:19|20)\d{2})(?:\D|$)/.exec(sheet.name)?.[1];
+  const detected = detectMatrix(sheet.rows, nameYear ? Number(nameYear) : ctx.year);
+  if (detected) {
+    const { guessed, ...matrix } = detected;
     const rows = sheet.rows.slice(matrix.headerRowIndex + 1).filter((r) => (r[matrix.labelColumn] ?? "").trim() && !isTotalLabel(r[matrix.labelColumn]));
     return {
       ...base,
@@ -257,6 +264,7 @@ export function classifySheet(sheet: RawSheet, ctx: ClassifyContext, monthOverri
       headerRowIndex: matrix.headerRowIndex,
       headers: (sheet.rows[matrix.headerRowIndex] ?? []).map((c, i) => c.trim() || `Coluna ${i + 1}`),
       matrix,
+      yearGuessed: guessed && !nameYear,
       dataRows: rows.length,
     };
   }
