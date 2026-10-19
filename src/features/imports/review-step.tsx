@@ -215,8 +215,11 @@ function showMessage(row: ImportRowDTO): boolean {
   return Boolean(row.message) && (!(row.status === "MATCHED" && row.matchedTransaction) || row.kind === "TRANSFER");
 }
 
-/** Etapa de revisão: contadores, filtros por status, seleção, categoria por linha e confirmação. */
-export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; onCommitted: (data: ImportPreview) => void }) {
+/**
+ * Etapa de revisão: contadores, filtros por status, seleção, categoria por linha e confirmação.
+ * `embedded`: sem a barra de confirmação (lotes da migração de planilha, confirmados todos juntos pelo assistente).
+ */
+export function ReviewStep({ preview, onCommitted, embedded = false }: { preview: ImportPreview; onCommitted?: (data: ImportPreview) => void; embedded?: boolean }) {
   const [filter, setFilter] = useState<ImportRowStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [transfersOnly, setTransfersOnly] = useState(false);
@@ -675,111 +678,115 @@ export function ReviewStep({ preview, onCommitted }: { preview: ImportPreview; o
         )}
       </Card>
 
-      <Card className="sticky bottom-20 z-10 flex items-center justify-between gap-3 border-brand/30 p-3 shadow-lg sm:p-4 lg:bottom-4">
-        <div className="min-w-0 text-sm">
-          <p className="font-semibold">
-            {toCreate.length} novo(s) a criar
-            <span className="font-normal text-muted-foreground sm:hidden">
-              {" "}
-              · {toLink.length} vínculo(s) · {toReview.length} divergência(s){transfers.count ? ` · ${transfers.count} transferência(s)` : ""}
-            </span>
-            {toCreate.length > 0 && (
-              <span className="hidden font-normal text-muted-foreground sm:inline">
+      {!embedded && (
+        <Card className="sticky bottom-20 z-10 flex items-center justify-between gap-3 border-brand/30 p-3 shadow-lg sm:p-4 lg:bottom-4">
+          <div className="min-w-0 text-sm">
+            <p className="font-semibold">
+              {toCreate.length} novo(s) a criar
+              <span className="font-normal text-muted-foreground sm:hidden">
                 {" "}
-                · receitas <span className="tabular">{money(inflow)}</span> · despesas <span className="tabular">{money(Math.abs(outflow))}</span>
-                {transfers.count > 0 && (
-                  <>
-                    {" "}
-                    · {transfers.count} transferência(s):
-                    {transfers.inflowCents > 0 && (
-                      <>
-                        {" "}
-                        <span className="tabular">{money(transfers.inflowCents)}</span> entrando
-                      </>
-                    )}
-                    {transfers.inflowCents > 0 && transfers.outflowCents > 0 && " e"}
-                    {transfers.outflowCents > 0 && (
-                      <>
-                        {" "}
-                        <span className="tabular">{money(transfers.outflowCents)}</span> saindo
-                      </>
-                    )}
-                  </>
-                )}
+                · {toLink.length} vínculo(s) · {toReview.length} divergência(s){transfers.count ? ` · ${transfers.count} transferência(s)` : ""}
               </span>
-            )}
-          </p>
-          <p className="hidden text-xs text-muted-foreground sm:block">
-            {toLink.length} correspondência(s) serão vinculadas sem duplicar · {toReview.length} divergência(s) viram pendências · duplicados e ignorados não entram
-            {transfers.count || toConvert.length ? " · transferências entre contas próprias não contam como receita nem despesa" : ""}
-            {natureCounts.business ? ` · ${natureCounts.business} como Empresa` : ""}
-            {natureCounts.passthrough ? ` · ${natureCounts.passthrough} como Repasse` : ""}
-            {natureCounts.ask ? ` · ${natureCounts.ask} pedem natureza` : ""}.
-          </p>
-        </div>
-        <Button variant="brand" onClick={() => setConfirmOpen(true)} disabled={!selected.length} loading={commit.isPending} className="shrink-0">
-          <Upload /> <span className="sm:hidden">Importar</span>
-          <span className="hidden sm:inline">Confirmar importação</span>
-        </Button>
-      </Card>
+              {toCreate.length > 0 && (
+                <span className="hidden font-normal text-muted-foreground sm:inline">
+                  {" "}
+                  · receitas <span className="tabular">{money(inflow)}</span> · despesas <span className="tabular">{money(Math.abs(outflow))}</span>
+                  {transfers.count > 0 && (
+                    <>
+                      {" "}
+                      · {transfers.count} transferência(s):
+                      {transfers.inflowCents > 0 && (
+                        <>
+                          {" "}
+                          <span className="tabular">{money(transfers.inflowCents)}</span> entrando
+                        </>
+                      )}
+                      {transfers.inflowCents > 0 && transfers.outflowCents > 0 && " e"}
+                      {transfers.outflowCents > 0 && (
+                        <>
+                          {" "}
+                          <span className="tabular">{money(transfers.outflowCents)}</span> saindo
+                        </>
+                      )}
+                    </>
+                  )}
+                </span>
+              )}
+            </p>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              {toLink.length} correspondência(s) serão vinculadas sem duplicar · {toReview.length} divergência(s) viram pendências · duplicados e ignorados não entram
+              {transfers.count || toConvert.length ? " · transferências entre contas próprias não contam como receita nem despesa" : ""}
+              {natureCounts.business ? ` · ${natureCounts.business} como Empresa` : ""}
+              {natureCounts.passthrough ? ` · ${natureCounts.passthrough} como Repasse` : ""}
+              {natureCounts.ask ? ` · ${natureCounts.ask} pedem natureza` : ""}.
+            </p>
+          </div>
+          <Button variant="brand" onClick={() => setConfirmOpen(true)} disabled={!selected.length} loading={commit.isPending} className="shrink-0">
+            <Upload /> <span className="sm:hidden">Importar</span>
+            <span className="hidden sm:inline">Confirmar importação</span>
+          </Button>
+        </Card>
+      )}
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar importação?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>
-                  Serão criados <strong className="text-foreground">{toCreate.length}</strong> lançamento(s)
-                  {preview.batch.account ? ` na conta ${preview.batch.account.name}` : preview.batch.creditCard ? ` no cartão ${preview.batch.creditCard.name}` : ""}, vinculadas{" "}
-                  <strong className="text-foreground">{toLink.length}</strong> correspondência(s) e abertas <strong className="text-foreground">{toReview.length}</strong> pendência(s) de divergência.
-                </p>
-                {(transfers.count > 0 || toConvert.length > 0) && (
+      {!embedded && (
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar importação?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-muted-foreground">
                   <p>
-                    {transfers.count > 0 && (
-                      <>
-                        <strong className="text-foreground">{transfers.count}</strong> deles entram como transferência entre contas próprias (aplicação/resgate).{" "}
-                      </>
-                    )}
-                    {toConvert.length > 0 && (
-                      <>
-                        <strong className="text-foreground">{toConvert.length}</strong> lançamento(s) já registrado(s) como receita/despesa vão virar transferência.{" "}
-                      </>
-                    )}
-                    Transferências não contam como receita nem despesa.
+                    Serão criados <strong className="text-foreground">{toCreate.length}</strong> lançamento(s)
+                    {preview.batch.account ? ` na conta ${preview.batch.account.name}` : preview.batch.creditCard ? ` no cartão ${preview.batch.creditCard.name}` : ""}, vinculadas{" "}
+                    <strong className="text-foreground">{toLink.length}</strong> correspondência(s) e abertas <strong className="text-foreground">{toReview.length}</strong> pendência(s) de divergência.
                   </p>
-                )}
-                {(natureCounts.business > 0 || natureCounts.passthrough > 0 || natureCounts.ask > 0) && (
-                  <p>
-                    Natureza:{" "}
-                    {[
-                      natureCounts.business ? `${natureCounts.business} como Empresa` : null,
-                      natureCounts.passthrough ? `${natureCounts.passthrough} como Repasse (fora dos relatórios)` : null,
-                      natureCounts.ask ? `${natureCounts.ask} sem escolha: entram como Pessoal e ficam em Pendências para você escolher` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    . Saldo e fatura não mudam.
-                  </p>
-                )}
-                <p>Você poderá desfazer a importação depois: os lançamentos criados vão para a lixeira e os saldos voltam ao que eram.</p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                commit.mutate(undefined, { onSettled: () => setConfirmOpen(false) });
-              }}
-              disabled={commit.isPending}
-            >
-              {commit.isPending ? "Importando…" : "Importar"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                  {(transfers.count > 0 || toConvert.length > 0) && (
+                    <p>
+                      {transfers.count > 0 && (
+                        <>
+                          <strong className="text-foreground">{transfers.count}</strong> deles entram como transferência entre contas próprias (aplicação/resgate).{" "}
+                        </>
+                      )}
+                      {toConvert.length > 0 && (
+                        <>
+                          <strong className="text-foreground">{toConvert.length}</strong> lançamento(s) já registrado(s) como receita/despesa vão virar transferência.{" "}
+                        </>
+                      )}
+                      Transferências não contam como receita nem despesa.
+                    </p>
+                  )}
+                  {(natureCounts.business > 0 || natureCounts.passthrough > 0 || natureCounts.ask > 0) && (
+                    <p>
+                      Natureza:{" "}
+                      {[
+                        natureCounts.business ? `${natureCounts.business} como Empresa` : null,
+                        natureCounts.passthrough ? `${natureCounts.passthrough} como Repasse (fora dos relatórios)` : null,
+                        natureCounts.ask ? `${natureCounts.ask} sem escolha: entram como Pessoal e ficam em Pendências para você escolher` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      . Saldo e fatura não mudam.
+                    </p>
+                  )}
+                  <p>Você poderá desfazer a importação depois: os lançamentos criados vão para a lixeira e os saldos voltam ao que eram.</p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Voltar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  commit.mutate(undefined, { onSettled: () => setConfirmOpen(false) });
+                }}
+                disabled={commit.isPending}
+              >
+                {commit.isPending ? "Importando…" : "Importar"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       <TransferRowsDialog open={transferOpen} onOpenChange={setTransferOpen} preview={preview} rows={transferRows} />
     </div>

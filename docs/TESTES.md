@@ -65,6 +65,15 @@ Outras coberturas além dos 22 cenários:
   aplicações no meio do mês, IR/IOF) e `investment-yield.test.ts` (integração: Banco Central simulado,
   idempotência, BCB fora do ar, exclusão respeitada, ajuste ao saldo do banco);
 - edições parciais não reaplicam valores padrão: `partial-updates.test.ts`.
+- migrar de planilha: `spreadsheet-migration.test.ts` (planilha "bagunçada" com várias contas, cartão,
+  natureza, parcelas 3/10 e 10x, linhas de total e nomes diferentes dos do app → De → Para → prévia por
+  destino → importar, conferindo saldos, faturas, parcelas e contagens → desfazer e voltar exatamente ao
+  estado anterior; abas mensais com o mês no nome e formato lembrado; matriz categorias × meses como
+  orçamento e como totais mensais; voltar/descartar; validações), `whatsapp-spreadsheet.test.ts`
+  (planilha no grupo → link do assistente), `migration-readers.test.ts` (.xlsx/.xls/.ods/.csv, HTML e XML
+  2003, arquivos inválidos e "bomba") e `migration-logic.test.ts` (colunas extras, meses, sugestões,
+  parcelas, contas a pagar, formato lembrado). Planilhas em `tests/fixtures/migration/`
+  (geradas por `scripts/build-migration-fixtures.ts`).
 - desconsiderar nos relatórios (repasse de cliente): `report-exclusion.test.ts` (saldo, ledger, parcelas,
   fatura e projeção idênticos antes/depois; relatórios em competência e caixa; orçamento; lista e
   filtros; saldo do repasse; regra com condição de cartão aplicada aos novos e anteriores; desfazer),

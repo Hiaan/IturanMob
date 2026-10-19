@@ -245,6 +245,56 @@ prefixado), taxa (ex.: 101,5% do CDI) e data de início.
 - Limites: 15 MB por arquivo, 5.000 lançamentos por arquivo, 60 páginas por PDF e 20 arquivos por
   confirmação em massa.
 
+### 10.4.1 Migrar de planilha
+
+Assistente próprio em Importar (`/importacao/migrar`) para quem controlava as finanças numa planilha.
+Código em `src/server/modules/migration/`.
+
+- **Arquivo:** .xlsx, .xls (Excel 97–2003, HTML ou XML 2003 com essa extensão), .ods e .csv, até 15 MB e
+  20 mil linhas. Leitura, prévia e importação rodam em segundo plano (worker, fila `imports`; sem worker,
+  no próprio servidor) com progresso na tela. Arquivos protegidos por senha, corrompidos ou "bomba" de
+  compactação são recusados com o motivo.
+- **Abas:** todas são lidas e classificadas — *lista de lançamentos*; *aba do mês* (só o dia; mês/ano
+  pelo nome: "Janeiro", "Jan-25", "01-2025"; sem ano, vale o ano do arquivo e a tela pede para conferir);
+  *categorias × meses* (vira um lançamento consolidado por categoria e mês, marcado "importado de
+  planilha (total do mês)", sem conta/cartão e sem pendência de forma de pagamento, **ou** orçamento);
+  *resumo/gráfico/cálculo* (ignorada, com o motivo). Abas ocultas vêm desmarcadas.
+- **Colunas reconhecidas** (além de data, descrição, valor ou débito/crédito, categoria): conta/banco,
+  cartão, forma de pagamento, pessoa, natureza (PF/PJ/Pessoal/Empresa/Repasse), subcategoria, parcela
+  ("3/10", "parcela 3 de 10", "3x"), status (pago/a pagar), tipo (entrada/saída) quando o valor não tem
+  sinal, observação e saldo. Linhas de total, subtotal e saldo são ignoradas. Valores sem sinal e sem
+  coluna de tipo: a aba diz se são despesas, receitas ou "pelo tipo da categoria".
+- **Correspondências (De → Para):** cada valor distinto de categoria, subcategoria, conta, cartão,
+  pessoa e natureza, com quantas linhas e a soma. Sugestão: igual → parecido (acentos, plural,
+  abreviação) → sinônimo (palavras-chave das subcategorias e lista comum: "Supermercado" → Mercado,
+  "Combustível" → Transporte › Combustível) → IA, se configurada e autorizada, **só com os nomes
+  distintos** (nunca valores, datas, descrições, contas ou pessoas). Por item: aceitar, escolher outro,
+  criar (categoria "dentro de" outra; conta/cartão com nome e tipo, na hora) ou ignorar. Nada é aplicado
+  sem a pessoa aceitar ("Aplicar sugestões" aceita as pendentes de uma vez). A prévia só sai com todas as
+  contas/cartões decididos.
+- **Prévia:** um lote de importação por conta/cartão (mais "sem conta" e "totais mensais"), com a mesma
+  classificação da importação comum: duplicados de importações anteriores, já registrados no app
+  (concilia, não duplica), transferências entre contas próprias (a mesma transferência vista pelas duas
+  contas entra uma vez), regras da família e natureza. Compras no crédito vão para o cartão (nunca para
+  o saldo de uma conta).
+- **Parcelas:** no cartão, "3/10" vira **uma** compra parcelada a partir da parcela 3 (8 parcelas: as
+  futuras entram nas próximas faturas) e as linhas 4/10, 5/10… da mesma compra ficam como "incluídas";
+  "10x" usa o valor da linha como total da compra. Em conta, cada parcela da planilha é um pagamento e as
+  futuras (depois da última da planilha, a partir de hoje) viram contas a pagar.
+- **A pagar:** linha "a pagar" não é movimento de caixa: vira conta a pagar/receber (vencida, se a data
+  já passou). Contas a pagar iguais já existentes não são recriadas.
+- **Saldo inicial:** conta criada pela migração usa o saldo antes do primeiro lançamento — pela coluna de
+  saldo (quando ela fecha linha a linha) ou pela linha "saldo inicial" da aba — ou o informado pela pessoa
+  (saldo naquela data ou saldo de hoje). Conta que já existia: os lançamentos anteriores ao saldo inicial
+  dela são compensados no saldo inicial (o saldo de hoje não muda); só os posteriores mexem no saldo.
+- **Desfazer a migração inteira:** exclui (logicamente, com auditoria) os lançamentos criados, remove as
+  contas a pagar ainda pendentes, restaura orçamentos e saldos iniciais e remove (ou arquiva, se já
+  referenciados) categorias, contas e cartões criados por ela e sem uso.
+- **Formato lembrado:** ao importar, a família pode salvar o formato (abas, colunas pelo nome do
+  cabeçalho, correspondências), identificado pelos cabeçalhos. A próxima planilha igual já vem
+  preenchida e só pergunta o que for novo. "Baixar planilha modelo" traz as colunas recomendadas e
+  linhas de exemplo (as que começam com "EXEMPLO" são ignoradas na migração).
+
 ### 10.5 Desconsiderar nos relatórios (repasse de cliente, reembolso)
 
 Para dinheiro que passa pela conta/cartão mas não é da família — ex.: anúncios (Facebook Ads) pagos no

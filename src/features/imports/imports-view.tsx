@@ -24,6 +24,7 @@ import { BulkImport } from "./bulk-import";
 import { clearBulkSession, isBulkUploading, useBulkSession } from "./bulk-store";
 import { bankLabel, isNatureWarning, isTabularFormat, isTransferWarning, needsMappingReview, statementKindLabel } from "./helpers";
 import { useImportPreview } from "./use-imports";
+import { MigrationEntryCard } from "@/features/migration/entry-card";
 import type { ImportPreview } from "./types";
 
 type StepId = "upload" | "mapping" | "review" | "reconcile";
@@ -215,6 +216,7 @@ export function ImportsView() {
           <BulkImport session={bulk} />
         ) : (
           <>
+            <MigrationEntryCard className="mb-6" />
             <SingleStepper current="upload" hasMapping />
             <UploadStep onUploaded={(p) => open(p.batch.id)} onBulkStarted={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
           </>

@@ -249,6 +249,12 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
    (lidos em imagem). PDF sem lançamentos reconhecíveis → pendência com o motivo.
 5. Reprocessar a mesma mensagem reaproveita a prévia já criada.
 
+**Planilhas (.xlsx, .xls, .ods, .csv).** Uma planilha enviada no grupo vai para o assistente
+"Migrar de planilha" do site (`src/server/ai/engine/spreadsheet-import.ts`): o bot responde com o que
+leu (abas com lançamentos, abas ignoradas, nomes para conferir, formato reconhecido) e o link
+`/importacao/migrar?id=…`. Nada é importado pela conversa: abas, colunas e correspondências se conferem
+na tela. A mesma mensagem reprocessada devolve o link da migração já criada.
+
 **Desconsiderar nos relatórios (repasse/reembolso).** Comandos determinísticos, sem IA
 (`src/server/ai/engine/report-exclusion.ts`), que só marcam o lançamento — saldo e fatura não mudam:
 

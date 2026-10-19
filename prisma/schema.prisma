@@ -312,6 +312,29 @@ enum ImportFormat {
   XLSX
   /// Extrato ou fatura em PDF (texto lido localmente; digitalizado, pela IA quando autorizada).
   PDF
+  /// Excel 97–2003 (migração de planilha).
+  XLS
+  /// OpenDocument (LibreOffice/Google Planilhas) — migração de planilha.
+  ODS
+}
+
+/// Etapas da migração de planilha (assistente "Migrar de planilha").
+enum SpreadsheetMigrationStatus {
+  /// Lendo o arquivo e classificando as abas (em segundo plano).
+  READING
+  /// Abas, colunas e correspondências prontas para revisão.
+  READY
+  /// Gerando a prévia (um lote por conta/cartão).
+  PREVIEWING
+  /// Prévia pronta, aguardando confirmação.
+  PREVIEW
+  /// Importando (em segundo plano).
+  COMMITTING
+  IMPORTED
+  UNDONE
+  /// Descartada antes de importar.
+  DISCARDED
+  FAILED
 }
 
 enum ImportStatus {
@@ -502,6 +525,8 @@ model Household {
   aiCredentials         AIProviderCredential[]
   aiTaskConfigs         AITaskConfig[]
   importBatches         ImportBatch[]
+  spreadsheetMigrations SpreadsheetMigration[]
+  spreadsheetTemplates  SpreadsheetTemplate[]
   importRows            ImportRow[]
   pendingItems          PendingItem[]
   clarifications        Clarification[]
@@ -1610,14 +1635,76 @@ model ImportBatch {
   createdAt     DateTime     @default(now())
   importedAt    DateTime?
   undoneAt      DateTime?
+  /// Lote gerado pela migração de planilha (um por conta/cartão de destino).
+  migrationId   String?
 
-  household    Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  account      Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  creditCard   CreditCard?   @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  household    Household             @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  account      Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard   CreditCard?           @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  migration    SpreadsheetMigration? @relation(fields: [migrationId], references: [id], onDelete: SetNull)
   rows         ImportRow[]
   transactions Transaction[]
 
   @@index([householdId, createdAt])
+  @@index([migrationId])
+}
+
+/// Migração de planilha: arquivo, abas lidas, correspondências De → Para e o que foi criado
+/// (lotes, contas a pagar, orçamentos, saldos iniciais), para conferir e desfazer de uma vez.
+model SpreadsheetMigration {
+  id              String                     @id @default(cuid())
+  householdId     String
+  fileName        String
+  fileSha256      String
+  /// XLSX, XLS, ODS ou CSV.
+  format          String
+  storageKey      String?
+  status          SpreadsheetMigrationStatus @default(READING)
+  /// 0 a 100 (leitura, prévia e importação em segundo plano).
+  progress        Int                        @default(0)
+  progressLabel   String?
+  error           String?
+  /// Abas: tipo, seleção, cabeçalho, colunas, mês e opções.
+  sheets          Json?
+  /// Correspondências De → Para dos valores distintos (categoria, conta, cartão, pessoa, natureza).
+  correspondences Json?
+  /// Opções escolhidas e registro do que a migração criou/alterou (para desfazer).
+  options         Json?
+  /// Resumo da prévia e resultado da importação.
+  summary         Json?
+  templateId      String?
+  /// Planilha enviada no WhatsApp (conversa e mensagem de origem).
+  origin          Json?
+  createdById     String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  importedAt      DateTime?
+  undoneAt        DateTime?
+
+  household Household            @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  template  SpreadsheetTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  batches   ImportBatch[]
+
+  @@index([householdId, createdAt])
+}
+
+/// Formato de planilha lembrado pela família (abas, colunas e correspondências), identificado
+/// pelos cabeçalhos: a próxima planilha igual já vem preenchida e só pergunta o que for novo.
+model SpreadsheetTemplate {
+  id          String    @id @default(cuid())
+  householdId String
+  name        String
+  signature   String
+  config      Json
+  timesUsed   Int       @default(0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household  Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  migrations SpreadsheetMigration[]
+
+  @@unique([householdId, signature])
 }
 
 model ImportRow {

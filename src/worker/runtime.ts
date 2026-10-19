@@ -10,6 +10,7 @@ import {
   producerReady,
   QUEUE_NAMES,
   type InboundJobData,
+  type MigrationJobData,
   type OutboundJobData,
   type PeriodicJobData,
 } from "../server/jobs/queues";
@@ -81,6 +82,18 @@ export async function startWorker(): Promise<WorkerRuntime> {
     logger.warn({ jobId: job?.id, attempts: job?.attemptsMade, err: err.message.slice(0, 200) }, "worker: envio de mensagem falhou"),
   );
   workers.push(outbound as unknown as Worker);
+  // Migração de planilha (leitura, prévia, importação): uma por vez, sem novas tentativas automáticas
+  // (o estado fica no banco; a pessoa repete a etapa pela tela).
+  const imports = createWorker<MigrationJobData>(
+    QUEUE_NAMES.imports,
+    async (job: Job<MigrationJobData>) => {
+      const { runMigrationJob } = await import("../server/modules/migration/jobs");
+      await runMigrationJob(job.data);
+    },
+    { concurrency: 1, lockDuration: 10 * 60_000 },
+  );
+  imports.on("failed", (job, err) => logger.warn({ jobId: job?.id, err: err.message.slice(0, 200) }, "worker: etapa da migração falhou"));
+  workers.push(imports as unknown as Worker);
 
   // 3) Tarefas periódicas (jobs repetíveis)
   const tasks = new Map<string, PeriodicTask>();

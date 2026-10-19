@@ -8,7 +8,7 @@ import type { ParsedTable } from "./types";
  * Datas viram ISO (AAAA-MM-DD) e números decimais usam ponto, para leitura uniforme.
  */
 
-function cellToString(value: ExcelJS.CellValue): string {
+export function cellToString(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? "" : dateToISO(value);
   if (typeof value === "number") {

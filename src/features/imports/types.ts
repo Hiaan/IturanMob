@@ -2,7 +2,8 @@
 
 export type ImportRowStatus = "NEW" | "DUPLICATE" | "MATCHED" | "DIVERGENT" | "SKIPPED" | "IMPORTED" | "ERROR";
 export type ImportBatchStatus = "PREVIEW" | "IMPORTED" | "UNDONE" | "FAILED";
-export type ImportFormat = "CSV" | "OFX" | "XLSX" | "PDF";
+/** XLS e ODS só chegam pela migração de planilha (lotes criados pelo assistente "Migrar de planilha"). */
+export type ImportFormat = "CSV" | "OFX" | "XLSX" | "XLS" | "ODS" | "PDF";
 export type DateFormat = "auto" | "dmy" | "ymd" | "mdy";
 
 export interface ColumnMapping {
@@ -38,6 +39,8 @@ export interface ImportBatchDTO {
   /** Linhas que a confirmação marcou como duplicadas (já criadas por outro arquivo ou registradas depois da prévia). */
   duplicatesAtCommit?: number;
   origin?: "WHATSAPP" | null;
+  /** Lote gerado pela migração de planilha (confirmar/desfazer pelo assistente). */
+  migrationId?: string | null;
 }
 
 /** Dados do extrato (OFX e PDF). Em PDFs, `bank` traz o banco identificado e alguns campos podem faltar. */

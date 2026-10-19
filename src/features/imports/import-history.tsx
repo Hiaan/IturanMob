@@ -1,6 +1,7 @@
 "use client";
 
-import { CreditCard, History, Landmark } from "lucide-react";
+import Link from "next/link";
+import { CreditCard, FileSpreadsheet, History, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -69,10 +70,21 @@ export function ImportHistory({ activeId, onOpen, timezone }: { activeId: string
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2 pl-12 sm:pl-0">
-                    <Button variant={b.id === activeId ? "secondary" : "outline"} size="sm" onClick={() => onOpen(b.id)} aria-current={b.id === activeId || undefined}>
-                      {b.status === "PREVIEW" ? "Continuar" : "Abrir"}
-                    </Button>
-                    <UndoImportButton batch={b} variant="ghost" />
+                    {b.migrationId ? (
+                      // Lote da migração de planilha: confirmar e desfazer valem para a migração inteira.
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/importacao/migrar?id=${b.migrationId}`}>
+                          <FileSpreadsheet aria-hidden /> Ver migração
+                        </Link>
+                      </Button>
+                    ) : (
+                      <>
+                        <Button variant={b.id === activeId ? "secondary" : "outline"} size="sm" onClick={() => onOpen(b.id)} aria-current={b.id === activeId || undefined}>
+                          {b.status === "PREVIEW" ? "Continuar" : "Abrir"}
+                        </Button>
+                        <UndoImportButton batch={b} variant="ghost" />
+                      </>
+                    )}
                   </div>
                 </li>
               );

@@ -50,6 +50,8 @@ export interface CreateTransactionOptions {
    * `scope` aplica direto; `ask` marca "escolher natureza" (pergunta/pendência).
    */
   natureFallback?: { scope?: TransactionScope | null; ask?: boolean } | null;
+  /** Não abre a pendência "sem conta ou forma de pagamento" (ex.: total mensal importado de planilha). */
+  skipPaymentPending?: boolean;
   /** Executa dentro de uma transação de banco já aberta. */
   db?: Prisma.TransactionClient;
 }
@@ -359,11 +361,11 @@ export async function repostTransaction(db: Db, transactionId: string): Promise<
 }
 
 /** Atualiza as pendências automáticas (sem categoria / sem forma de pagamento) de uma transação. */
-async function syncAutomaticPending(db: Db, ctx: ServiceContext, tx: Transaction): Promise<string[]> {
+async function syncAutomaticPending(db: Db, ctx: ServiceContext, tx: Transaction, opts: { skipPayment?: boolean } = {}): Promise<string[]> {
   const created: string[] = [];
   const active = !tx.deletedAt;
   const needsCategory = active && (tx.type === "EXPENSE" || tx.type === "INCOME") && !tx.categoryId;
-  const needsPayment = active && tx.type === "EXPENSE" && !tx.accountId && !tx.creditCardId;
+  const needsPayment = active && !opts.skipPayment && tx.type === "EXPENSE" && !tx.accountId && !tx.creditCardId;
 
   if (needsCategory) {
     await createPendingItem(db, {
@@ -536,7 +538,7 @@ export async function createTransaction(
     });
 
     await repostTransaction(db, tx.id);
-    const pendingTypes = await syncAutomaticPending(db, ctx, tx);
+    const pendingTypes = await syncAutomaticPending(db, ctx, tx, { skipPayment: opts.skipPaymentPending });
     if (tx.natureReview) {
       await createPendingItem(db, {
         householdId: ctx.householdId,

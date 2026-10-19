@@ -16,7 +16,7 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.__prisma = prisma;
 export type Db = Prisma.TransactionClient | PrismaClient;
 
 /** Executa em transação serializável com novas tentativas em conflitos de serialização. */
-export async function withTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, opts?: { retries?: number }): Promise<T> {
+export async function withTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, opts?: { retries?: number; timeout?: number }): Promise<T> {
   const retries = opts?.retries ?? 3;
   let attempt = 0;
   for (;;) {
@@ -24,7 +24,7 @@ export async function withTransaction<T>(fn: (tx: Prisma.TransactionClient) => P
       return await prisma.$transaction(fn, {
         isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
         maxWait: 10_000,
-        timeout: 30_000,
+        timeout: opts?.timeout ?? 30_000,
       });
     } catch (err) {
       attempt++;

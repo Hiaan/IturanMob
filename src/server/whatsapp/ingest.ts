@@ -45,7 +45,9 @@ export type IngestConnection = Pick<WhatsAppConnection, "id" | "householdId">;
 /** Prefixo usado em statusDetail quando o mesmo arquivo (SHA-256) já foi recebido pela família. */
 export const DUPLICATE_MEDIA_PREFIX = "Mídia repetida";
 
-const PROCESSABLE_DOC_MIME = /^(application\/pdf|image\/)/i;
+/** PDF (extrato/fatura/comprovante), imagem e planilha (assistente de migração). */
+const PROCESSABLE_DOC_MIME =
+  /^(application\/pdf|image\/|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|application\/vnd\.ms-excel|application\/vnd\.oasis\.opendocument\.spreadsheet|text\/csv|text\/comma-separated-values|application\/csv)/i;
 
 const discardCounters = new Map<IngestSkipReason, number>();
 

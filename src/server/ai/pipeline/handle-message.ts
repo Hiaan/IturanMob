@@ -24,6 +24,7 @@ import { detectNatureTokens } from "../nlu/nature";
 import { isQuestionText } from "../nlu/local-parser";
 import { expensesByCategory } from "../../modules/analytics/service";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
+import { isSpreadsheetAttachment, processSpreadsheet } from "../engine/spreadsheet-import";
 import { handleCategoryCommand, parseCategoryCommand } from "../engine/category-commands";
 import { parseLastTxCommand } from "../nlu/last-tx";
 import { handleLastTxCommand } from "../engine/last-transaction";
@@ -280,6 +281,9 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
       };
     }
   }
+
+  // Planilha (.xlsx/.xls/.ods/.csv) → assistente "Migrar de planilha" (link para conferir e confirmar).
+  if (message.type === "DOCUMENT" && isSpreadsheetAttachment(att)) return processSpreadsheet(ctx, message, att);
 
   const captionHasAmount = extractAmounts(caption).length > 0;
   // PDF de extrato/fatura → prévia de importação. Legenda com valor ("50 mercado") sem menção a

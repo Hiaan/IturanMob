@@ -12,6 +12,8 @@ export const QUEUE_NAMES = {
   inbound: "whatsapp-inbound",
   outbound: "whatsapp-outbound",
   periodic: "periodic",
+  /** Migração de planilha (leitura, prévia e importação em segundo plano). */
+  imports: "imports",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -37,6 +39,14 @@ export interface OutboundJobData {
 
 export interface PeriodicJobData {
   task: string;
+}
+
+export interface MigrationJobData {
+  migrationId: string;
+  householdId: string;
+  /** Membro que pediu a etapa (o contexto do job é o dele). */
+  memberId: string | null;
+  kind: "read" | "preview" | "commit";
 }
 
 let prefix = "fa";

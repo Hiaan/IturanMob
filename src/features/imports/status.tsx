@@ -50,6 +50,8 @@ export const FORMAT_META: Record<ImportFormat, { label: string; short: string; i
   CSV: { label: "CSV", short: "CSV", icon: FileText, tone: "bg-muted text-muted-foreground", tag: "text-muted-foreground" },
   OFX: { label: "OFX", short: "OFX", icon: Landmark, tone: "bg-info/10 text-info", tag: "text-info" },
   XLSX: { label: "Excel (XLSX)", short: "XLSX", icon: FileSpreadsheet, tone: "bg-positive/10 text-positive", tag: "text-positive" },
+  XLS: { label: "Excel 97–2003 (XLS)", short: "XLS", icon: FileSpreadsheet, tone: "bg-positive/10 text-positive", tag: "text-positive" },
+  ODS: { label: "OpenDocument (ODS)", short: "ODS", icon: FileSpreadsheet, tone: "bg-info/10 text-info", tag: "text-info" },
   PDF: { label: "PDF", short: "PDF", icon: FileText, tone: "bg-negative/10 text-negative", tag: "text-negative" },
 };
 
@@ -57,7 +59,7 @@ export function formatLabel(format: ImportFormat | string): string {
   return FORMAT_META[format as ImportFormat]?.label ?? format;
 }
 
-/** Ícone do arquivo com a etiqueta do formato (CSV, OFX, XLSX, PDF). */
+/** Ícone do arquivo com a etiqueta do formato (CSV, OFX, XLSX, XLS, ODS, PDF). */
 export function FormatTile({ format, className }: { format: ImportFormat | null; className?: string }) {
   const meta = format ? FORMAT_META[format] : null;
   const Icon = meta?.icon ?? FileText;

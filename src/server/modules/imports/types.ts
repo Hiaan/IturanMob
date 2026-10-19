@@ -1,3 +1,5 @@
+import type { PaymentMethod } from "@prisma/client";
+
 /**
  * Tipos compartilhados da importação de extratos (CSV, OFX, XLSX, PDF).
  * Valores monetários em centavos com sinal: negativo = saída, positivo = entrada.
@@ -45,6 +47,32 @@ export interface ParsedImportRow {
   error: string | null;
   /** Linha informativa a ignorar (saldo, total). */
   skipReason: string | null;
-  /** Informações adicionais (ex.: TRNTYPE e MEMO do OFX). */
-  meta: { trnType?: string | null; memo?: string | null; checkNum?: string | null };
+  /** Informações adicionais (ex.: TRNTYPE e MEMO do OFX; na migração de planilha, as correspondências resolvidas). */
+  meta: ImportRowMeta;
+}
+
+export interface ImportRowMeta {
+  trnType?: string | null;
+  memo?: string | null;
+  checkNum?: string | null;
+  /** Migração de planilha: categoria/subcategoria escolhidas nas correspondências (valem sobre o nome). */
+  categoryId?: string | null;
+  subcategoryId?: string | null;
+  payerMemberId?: string | null;
+  /** Natureza da coluna PF/PJ (vale como escolha da pessoa, sobre as regras). */
+  nature?: "PERSONAL" | "BUSINESS" | "PASSTHROUGH" | null;
+  paymentMethod?: PaymentMethod | null;
+  notes?: string | null;
+  /** Aba e linha da planilha de origem. */
+  location?: { sheet: string; row: number } | null;
+  installmentInfo?: { number: number; total: number; purchaseTotal: boolean } | null;
+  baseDescription?: string | null;
+  /** Compra parcelada a criar no cartão: quantidade de parcelas, valor total e numeração original. */
+  installmentPlan?: { count: number; amountCents: number; firstNumber: number; ofTotal: number } | null;
+  /** Parcela da planilha para conferir com compras parceladas já registradas no app. */
+  installmentRef?: { number: number; total: number } | null;
+  /** Parcela já coberta por outra linha (a compra parcelada). */
+  coveredBy?: number | null;
+  /** Total mensal consolidado (matriz categorias × meses): não procura correspondência no app. */
+  consolidated?: boolean;
 }

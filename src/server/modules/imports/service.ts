@@ -189,6 +189,12 @@ interface RowRawData {
   natureAsk?: boolean;
   /** Sugestão veio da natureza do grupo do WhatsApp (não de regra). */
   natureFromGroup?: boolean;
+  /** Migração de planilha: aba/linha de origem, subcategoria, pessoa, compra parcelada e totais mensais. */
+  location?: { sheet: string; row: number } | null;
+  subcategory?: { id: string; categoryId: string } | null;
+  payerMemberId?: string | null;
+  installmentPlan?: { count: number; amountCents: number; firstNumber: number; ofTotal: number } | null;
+  consolidated?: boolean;
 }
 
 interface PreparedRow {
@@ -716,7 +722,13 @@ async function prepareRows(
       kind: outflow ? "EXPENSE" : "INCOME",
       categoryName: r.categoryName,
       trnType: r.meta.trnType ?? null,
-      memo: r.meta.memo ?? null,
+      memo: r.meta.memo ?? r.meta.notes ?? null,
+      ...(r.meta.location ? { location: r.meta.location } : {}),
+      ...(r.meta.subcategoryId && r.meta.categoryId ? { subcategory: { id: r.meta.subcategoryId, categoryId: r.meta.categoryId } } : {}),
+      ...(r.meta.payerMemberId ? { payerMemberId: r.meta.payerMemberId } : {}),
+      ...(r.meta.nature ? { nature: r.meta.nature } : {}),
+      ...(r.meta.consolidated ? { consolidated: true } : {}),
+      ...(r.meta.installmentPlan && isCard ? { installmentPlan: r.meta.installmentPlan } : {}),
     };
     const row: PreparedRow = {
       rowIndex: r.rowIndex,
@@ -753,7 +765,8 @@ async function prepareRows(
           selected: false,
         };
       }
-      raw.installment = detectInstallment(r.description);
+      // Migração: a parcela vem da coluna/descrição já interpretada (e agrupada por compra).
+      raw.installment = r.meta.location ? r.meta.installmentRef ?? null : detectInstallment(r.description);
     } else if (scope.accountId && outflow && looksLikeCardBillPayment(r.description)) {
       const cardId = resolveCard(r.description);
       if (!cardId) {
@@ -778,9 +791,11 @@ async function prepareRows(
     }
 
     if (raw.kind !== "CARD_PAYMENT") {
-      raw.suggestedPaymentMethod = scope.accountId ? suggestPaymentMethod(r.description, r.meta.trnType, outflow) : null;
-      if (r.categoryName && raw.kind !== "TRANSFER") {
-        row.categoryId = catByName.get(`${outflow ? "EXPENSE" : "INCOME"}|${normalizeText(r.categoryName)}`) ?? null;
+      raw.suggestedPaymentMethod = r.meta.paymentMethod ?? (scope.accountId ? suggestPaymentMethod(r.description, r.meta.trnType, outflow) : null);
+      if (raw.kind !== "TRANSFER") {
+        // Migração: a categoria escolhida nas correspondências (ou nenhuma) vale sobre o nome.
+        if (r.meta.categoryId !== undefined) row.categoryId = r.meta.categoryId;
+        else if (r.categoryName) row.categoryId = catByName.get(`${outflow ? "EXPENSE" : "INCOME"}|${normalizeText(r.categoryName)}`) ?? null;
       }
     }
     return row;
@@ -789,6 +804,13 @@ async function prepareRows(
   if (repeatedIds) opts.warnings.push("O arquivo contém identificadores repetidos; a detecção de duplicidade também considera data, valor e descrição.");
   if (cardPaymentSkipped) opts.warnings.push(`${cardPaymentSkipped} linha(s) de pagamento/crédito da fatura foram ignoradas (não são compras).`);
   return { rows, cardPurchasesPositive };
+}
+
+function installmentPlanMessage(plan: NonNullable<RowRawData["installmentPlan"]>): string {
+  const per = formatBRL(Math.round(plan.amountCents / plan.count));
+  return plan.firstNumber > 1
+    ? `Compra parcelada: parcelas ${plan.firstNumber} a ${plan.ofTotal} de ${plan.ofTotal} (${plan.count} × ${per}). As parcelas futuras entram nas próximas faturas.`
+    : `Compra parcelada em ${plan.count}× de ${per} (total ${formatBRL(plan.amountCents)}). As parcelas futuras entram nas próximas faturas.`;
 }
 
 function compatible(row: PreparedRow, tx: Candidate, scope: ImportScope): boolean {
@@ -846,6 +868,14 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
     r.message = `Já importado em ${formatDateBR(instantToISO(when, ctx.timezone))} (arquivo "${prev.batch.fileName.slice(0, 60)}").`;
   }
 
+  // Totais mensais (matriz da planilha): não correspondem a lançamentos individuais do app.
+  for (const r of pending) {
+    if (r.status === null && r.raw.consolidated) {
+      r.status = "NEW";
+      r.message = "Total do mês por categoria (importado de planilha): não altera saldos.";
+    }
+  }
+
   const open = pending.filter((r) => r.status === null);
   if (!open.length) return rows;
 
@@ -873,6 +903,8 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
           r.status = "MATCHED";
           r.matchedTransactionId = hit.transactionId;
           r.message = `Parcela ${inst.number}/${inst.total} de compra parcelada já registrada no app.`;
+        } else if (r.raw.installmentPlan) {
+          r.message = installmentPlanMessage(r.raw.installmentPlan);
         } else if (inst.number > 1) {
           r.status = "NEW";
           r.selected = false;
@@ -883,6 +915,8 @@ async function classifyRows(ctx: ServiceContext, scope: ImportScope, rows: Prepa
       }
     }
   }
+
+  for (const r of open) if (r.status === null && r.raw.installmentPlan && !r.message) r.message = installmentPlanMessage(r.raw.installmentPlan);
 
   // 3) Correspondência com transações existentes (ex.: registradas pelo WhatsApp).
   const toMatch = open.filter((r) => r.status === null);
@@ -1010,7 +1044,7 @@ async function refreshCounters(db: Prisma.TransactionClient | typeof prisma, bat
   });
 }
 
-async function storeImportFile(ctx: ServiceContext, content: Buffer, fileName: string, sha: string, mimeType: string): Promise<string> {
+export async function storeImportFile(ctx: ServiceContext, content: Buffer, fileName: string, sha: string, mimeType: string): Promise<string> {
   const existing = await prisma.attachment.findUnique({ where: { householdId_sha256: { householdId: ctx.householdId, sha256: sha } } });
   if (existing?.storageKey && !existing.contentDeletedAt && (await storedFileExists(existing.storageKey))) return existing.storageKey;
   const stored = await storeFile("imports", content);
@@ -1049,13 +1083,16 @@ async function buildRows(
     fileName?: string;
     pdfAi?: ImportBatchMeta["pdfAi"];
     defaultNature?: ImportBatchMeta["defaultNature"];
+    /** Limite de linhas (a migração de planilha aceita mais que a importação comum). */
+    maxRows?: number;
   },
 ) {
   const parsed = opts.parsed ?? (await parseImportFile(format, content, { ...opts, householdId: ctx.householdId, timezone: ctx.timezone }));
   if (parsed.ofxKind === "CREDIT_CARD" && scope.accountId) throw new ValidationError("Este OFX é de cartão de crédito. Selecione o cartão correspondente em vez de uma conta.");
   if (parsed.ofxKind === "BANK" && scope.creditCardId) throw new ValidationError("Este OFX é de conta bancária. Selecione a conta correspondente em vez de um cartão.");
   if (!parsed.rows.length) throw new ValidationError("Nenhum lançamento foi encontrado no arquivo.");
-  if (parsed.rows.length > IMPORT_MAX_ROWS) throw new ValidationError(`O arquivo tem mais de ${IMPORT_MAX_ROWS.toLocaleString("pt-BR")} linhas. Divida o arquivo em partes.`);
+  const maxRows = opts.maxRows ?? IMPORT_MAX_ROWS;
+  if (parsed.rows.length > maxRows) throw new ValidationError(`O arquivo tem mais de ${maxRows.toLocaleString("pt-BR")} linhas. Divida o arquivo em partes.`);
   const warnings = [...parsed.meta.warnings];
   if (!scope.accountId && !scope.creditCardId) {
     warnings.push("Nenhuma conta ou cartão foi escolhido: os lançamentos não alterarão saldos e ficarão pendentes de forma de pagamento.");
@@ -1194,6 +1231,95 @@ export async function createImportPreviewFromBuffer(
   return getImportPreview(ctx, batch.id);
 }
 
+/**
+ * Prévia de um destino (conta, cartão, sem destino ou totais mensais) da migração de planilha: as
+ * linhas já chegam lidas e com as correspondências resolvidas; a classificação (duplicados, já
+ * registrados, transferências, regras, natureza) é a mesma da importação comum.
+ */
+export async function createMigrationBatch(
+  ctx: ServiceContext,
+  input: {
+    migrationId: string;
+    fileName: string;
+    format: "XLSX" | "XLS" | "ODS" | "CSV";
+    sha256: string;
+    storageKey: string | null;
+    accountId: string | null;
+    creditCardId: string | null;
+    rows: ParsedImportRow[];
+    consolidated?: boolean;
+    maxRows: number;
+  },
+): Promise<string | null> {
+  assertCan(ctx, "data:import");
+  if (!input.rows.length) return null;
+  const scope = await resolveScope(ctx, input.accountId, input.creditCardId);
+  const parsed: ParseResult = {
+    rows: input.rows.map((r, i) => ({ ...r, rowIndex: i })),
+    ofxKind: null,
+    pdf: null,
+    meta: { mapping: null, headers: [], headerRowIndex: null, delimiter: null, sheetName: null, statement: null, warnings: [], pdfAi: null },
+  };
+  const { rows, meta } = await buildRows(ctx, scope, "CSV", Buffer.alloc(0), { parsed, invertSigns: false, fileName: input.fileName, maxRows: input.maxRows });
+  if (input.consolidated) {
+    meta.warnings = meta.warnings.filter((w) => !w.startsWith("Nenhuma conta ou cartão"));
+    meta.warnings.unshift("Totais mensais por categoria da planilha: entram como lançamentos consolidados, sem conta ou cartão (não alteram saldos).");
+  }
+  const overlap = await overlappingPreviews(ctx, scope, rows);
+  if (overlap) meta.warnings.push(overlap);
+  const previous = await prisma.importBatch.findFirst({
+    where: { householdId: ctx.householdId, fileSha256: input.sha256, status: "IMPORTED", accountId: scope.accountId, creditCardId: scope.creditCardId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (previous) {
+    meta.warnings.unshift(`Esta planilha já foi importada ${scope.creditCardId ? "neste cartão" : scope.accountId ? "nesta conta" : "antes"} em ${formatDateBR(instantToISO(previous.importedAt ?? previous.createdAt, ctx.timezone))}. As linhas repetidas foram marcadas como duplicadas.`);
+  }
+  meta.storageKey = input.storageKey;
+  const label = scope.label ?? (input.consolidated ? "totais mensais" : "sem conta");
+  const batch = await withTransaction(async (db) => {
+    const created = await db.importBatch.create({
+      data: {
+        householdId: ctx.householdId,
+        format: input.format,
+        fileName: `${input.fileName.slice(0, 150)} — ${label}`.slice(0, 200),
+        fileSha256: input.sha256,
+        accountId: scope.accountId,
+        creditCardId: scope.creditCardId,
+        status: "PREVIEW",
+        mapping: toJson(meta),
+        createdById: ctx.memberId,
+        migrationId: input.migrationId,
+      },
+    });
+    for (let i = 0; i < rows.length; i += 2000) {
+      await db.importRow.createMany({ data: rows.slice(i, i + 2000).map((r) => rowCreateData(ctx.householdId, created.id, r)) });
+    }
+    await refreshCounters(db, created.id);
+    return created;
+  }, { timeout: 120_000 });
+  logger.info({ householdId: ctx.householdId, batchId: batch.id, migrationId: input.migrationId, rows: rows.length }, "imports: prévia da migração criada");
+  return batch.id;
+}
+
+/** Marca linhas de uma prévia da migração como duplicadas (ex.: a mesma transferência vista pelas duas contas). */
+export async function markMigrationRowsDuplicate(batchId: string, marks: Array<{ rowId: string; message: string }>) {
+  if (!marks.length) return;
+  await withTransaction(async (db) => {
+    for (const m of marks) {
+      await db.importRow.updateMany({ where: { id: m.rowId, batchId, status: "NEW", createdTransactionId: null }, data: { status: "DUPLICATE", selected: false, message: m.message.slice(0, 500) } });
+    }
+    await refreshCounters(db, batchId);
+  });
+}
+
+/** Descarta uma prévia (lote ainda não importado) da migração de planilha. */
+export async function discardMigrationBatch(ctx: ServiceContext, batchId: string) {
+  const batch = await loadBatch(ctx, batchId);
+  if (batch.status !== "PREVIEW") return false;
+  await prisma.importBatch.deleteMany({ where: { id: batchId, status: "PREVIEW", importedAt: null } });
+  return true;
+}
+
 const rowInclude = {
   matchedTransaction: { select: { id: true, description: true, amountCents: true, date: true, type: true, status: true, source: true, deletedAt: true } },
 } satisfies Prisma.ImportRowInclude;
@@ -1241,6 +1367,10 @@ function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency:
         : null,
     categoryName: raw.categoryName ?? null,
     installment: raw.installment ?? null,
+    /** Migração de planilha: compra parcelada a criar, aba/linha de origem e total mensal consolidado. */
+    installmentPlan: raw.installmentPlan ?? null,
+    location: raw.location ?? null,
+    consolidated: Boolean(raw.consolidated),
     cells: raw.cells,
     matchedTransaction: r.matchedTransaction
       ? {
@@ -1283,6 +1413,7 @@ function batchDTO(
     scopeMismatch: meta.scopeMismatch ?? false,
     duplicatesAtCommit: meta.duplicatesAtCommit ?? 0,
     origin: meta.origin?.channel ?? null,
+    migrationId: b.migrationId,
   };
 }
 
@@ -1484,11 +1615,14 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
   const batch = await loadBatch(ctx, batchId);
   if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída e não pode mais ser alterada.");
   const meta = readMeta(batch.mapping);
-  if ((batch.format === "OFX" || batch.format === "PDF") && input.mapping) throw new ValidationError(`Arquivos ${batch.format} não usam mapeamento de colunas.`);
+  // Lotes da migração de planilha vêm de várias abas: colunas e abas se ajustam no assistente.
+  if (batch.migrationId || batch.format === "XLS" || batch.format === "ODS") throw new ValidationError("Ajuste as colunas e as abas pelo assistente \"Migrar de planilha\".");
+  const format: ImportFileFormat = batch.format;
+  if ((format === "OFX" || format === "PDF") && input.mapping) throw new ValidationError(`Arquivos ${format} não usam mapeamento de colunas.`);
   if (!meta.storageKey || !(await storedFileExists(meta.storageKey))) throw new ValidationError("O arquivo original não está mais disponível. Envie o arquivo novamente.");
   const content = await readStoredFile(meta.storageKey);
   const scope = await resolveScope(ctx, batch.accountId, batch.creditCardId);
-  const { rows, meta: newMeta } = await buildRows(ctx, scope, batch.format, content, {
+  const { rows, meta: newMeta } = await buildRows(ctx, scope, format, content, {
     // Nova linha de cabeçalho sem mapeamento explícito → detecta as colunas novamente.
     mapping: input.mapping ?? (input.headerRowIndex !== undefined && input.headerRowIndex !== null ? null : meta.mapping),
     headerRowIndex: input.headerRowIndex ?? meta.headerRowIndex,
@@ -1607,7 +1741,7 @@ async function markDuplicatesAtCommit(ctx: ServiceContext, batch: { id: string; 
   return marks.size;
 }
 
-export async function commitImport(ctx: ServiceContext, batchId: string) {
+export async function commitImport(ctx: ServiceContext, batchId: string, opts: { onProgress?: (done: number, total: number) => Promise<void> | void } = {}) {
   assertCan(ctx, "data:import");
   assertCan(ctx, "transactions:write");
   const batch = await loadBatch(ctx, batchId);
@@ -1637,13 +1771,17 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
       orderBy: { rowIndex: "asc" },
       include: rowInclude,
     });
+    let done = 0;
     for (const row of rows) {
+      if (opts.onProgress && ++done % 25 === 0) await opts.onProgress(done, rows.length);
       const raw = readRaw(row.rawData);
       if (row.status === "NEW") {
         if (row.createdTransactionId || !row.date || !row.amountCents) continue;
         const amount = Math.abs(row.amountCents);
         const outflow = row.amountCents < 0;
         const installment = scope.creditCardId && raw.installment && raw.installment.number === 1 ? raw.installment : null;
+        // Compra parcelada: plano da migração (ex.: parcelas 3 a 10) ou a parcela 1/N do extrato.
+        const plan = scope.creditCardId ? raw.installmentPlan ?? (installment ? { count: installment.total, amountCents: amount * installment.total } : null) : null;
         if (raw.kind === "TRANSFER" && (!raw.transferAccountId || !scope.accountId)) {
           errors++;
           await prisma.importRow.update({ where: { id: row.id }, data: { status: "ERROR", message: "Transferência sem a conta do outro lado: escolha a conta na prévia." } });
@@ -1675,12 +1813,12 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                   paymentMethod: raw.suggestedPaymentMethod && raw.suggestedPaymentMethod !== "DEBIT_CARD" && raw.suggestedPaymentMethod !== "CASH" ? raw.suggestedPaymentMethod : "BANK_TRANSFER",
                 }
             : scope.creditCardId
-              ? { type: "EXPENSE" as const, creditCardId: scope.creditCardId, installmentCount: installment?.total ?? 1, payerMemberId: scope.cardHolderId ?? undefined }
+              ? { type: "EXPENSE" as const, creditCardId: scope.creditCardId, installmentCount: plan?.count ?? 1, payerMemberId: raw.payerMemberId ?? scope.cardHolderId ?? undefined }
               : {
                   type: outflow ? ("EXPENSE" as const) : ("INCOME" as const),
                   accountId: scope.accountId,
                   paymentMethod: raw.suggestedPaymentMethod ?? null,
-                  payerMemberId: scope.accountOwnerId ?? undefined,
+                  payerMemberId: raw.payerMemberId ?? scope.accountOwnerId ?? undefined,
                 };
         try {
           const done = await withTransaction(async (db) => {
@@ -1691,12 +1829,14 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
               ctx,
               {
                 ...fields,
-                amountCents: installment ? amount * installment.total : amount,
+                amountCents: plan ? plan.amountCents : amount,
                 ...(crossAmounts ?? {}),
                 description: row.description || "Lançamento importado",
                 notes: raw.memo && row.description && !row.description.includes(raw.memo) ? raw.memo.slice(0, 500) : null,
                 date: dateToISO(row.date!),
                 categoryId: raw.kind === "CARD_PAYMENT" || raw.kind === "TRANSFER" ? null : row.categoryId,
+                // Subcategoria da planilha só se a categoria não foi trocada na prévia.
+                subcategoryId: raw.kind !== "CARD_PAYMENT" && raw.kind !== "TRANSFER" && raw.subcategory && raw.subcategory.categoryId === row.categoryId ? raw.subcategory.id : null,
                 // Natureza escolhida na prévia vale sobre as regras; sem escolha, as regras decidem.
                 ...(raw.nature && (raw.kind === "EXPENSE" || raw.kind === "INCOME") ? { nature: raw.nature } : {}),
               },
@@ -1707,6 +1847,8 @@ export async function commitImport(ctx: ServiceContext, batchId: string) {
                 db,
                 // PDF do grupo da empresa: sem escolha nem regra, entra como Empresa.
                 natureFallback: raw.natureFromGroup && raw.natureSuggested === "BUSINESS" ? { scope: "BUSINESS" } : null,
+                // Total mensal da planilha não tem conta/cartão por natureza: sem pendência de forma de pagamento.
+                skipPaymentPending: Boolean(raw.consolidated),
               },
             );
             await db.importRow.update({ where: { id: row.id }, data: { createdTransactionId: res.transaction.id } });

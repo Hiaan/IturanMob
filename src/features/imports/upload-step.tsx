@@ -21,7 +21,8 @@ const ACCEPT = ".csv,.txt,.ofx,.qfx,.xlsx,.pdf,application/pdf";
 
 function validate(file: File): string | null {
   const ext = file.name.toLowerCase().split(".").pop() ?? "";
-  if (ext === "xls") return "Planilhas .xls (Excel 97-2003) não são suportadas. Salve como .xlsx ou CSV.";
+  if (ext === "xls" || ext === "ods")
+    return "Planilhas .xls e .ods não entram como extrato: salve como .xlsx ou CSV. Se são os seus controles de uma planilha, use “Migrar de planilha” (lê XLSX, XLS, ODS e CSV).";
   if (!formatFromFileName(file.name)) return "Formato não suportado. Envie CSV, OFX, XLSX ou PDF.";
   if (file.size > MAX_IMPORT_BYTES) return `O arquivo tem ${formatFileSize(file.size)}; o limite é ${MAX_IMPORT_MB} MB por arquivo.`;
   if (!file.size) return "O arquivo está vazio.";
