@@ -9,6 +9,7 @@ import type { OutboundJobData } from "../jobs/queues";
 import { markSentByBot, withBotPrefix } from "./bot-messages";
 import { OUTBOUND_DONE_TTL_SECONDS, outboundDoneKey, outboundHourKey, outboundSecondKey } from "./keys";
 import type { WhatsAppProvider } from "./types";
+import { deleteStoredFile, readStoredFile } from "../storage";
 
 /**
  * Consumidor da fila "whatsapp-outbound" (roda no worker).
@@ -100,12 +101,13 @@ async function markDelivered(hash: string, externalId: string): Promise<void> {
 }
 
 /** Remetente "estático" do simulador: registra a resposta como mensagem simulada (sem WhatsApp real). */
-const simulatorSender: Pick<WhatsAppProvider, "isConnected" | "sendText"> = {
+const simulatorSender: Pick<WhatsAppProvider, "isConnected" | "sendText" | "sendDocument"> = {
   isConnected: () => true,
   sendText: async () => ({ externalId: `SIM-OUT-${randomUUID()}` }),
+  sendDocument: async () => ({ externalId: `SIM-OUT-${randomUUID()}` }),
 };
 
-function senderFor(conn: WhatsAppConnection, registry: ProviderRegistry | null): Pick<WhatsAppProvider, "isConnected" | "sendText"> | null {
+function senderFor(conn: WhatsAppConnection, registry: ProviderRegistry | null): Pick<WhatsAppProvider, "isConnected" | "sendText" | "sendDocument"> | null {
   const running = registry?.getProvider(conn.householdId) ?? null;
   if (running && running.type === conn.provider) return running;
   if (conn.provider === "SIMULATOR") return simulatorSender;
@@ -126,6 +128,10 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
   if (!conn) throw new UnrecoverableError("WhatsApp não configurado para a família");
   const targets = await resolveTargets(conn, data.quotedExternalId);
   const fullText = withBotPrefix(data.text);
+  const doc = data.document ?? null;
+  // Registro da mensagem: legenda + nome do arquivo (o conteúdo do arquivo não vai para o banco).
+  const recordText = doc ? `${fullText}\n📎 ${doc.fileName}` : fullText;
+  const recordType = doc ? ("DOCUMENT" as const) : ("TEXT" as const);
   const attemptNo = ctx.attemptsMade + 1;
   const final = attemptNo >= ctx.maxAttempts;
 
@@ -138,8 +144,8 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
         externalId: `out-${data.dedupeHash}`,
         chatId: "-",
         direction: "OUTBOUND",
-        type: "TEXT",
-        text: fullText,
+        type: recordType,
+        text: recordText,
         sentAt: new Date(),
         status: "FAILED",
         statusDetail: "Não enviada: nenhum chat autorizado",
@@ -177,8 +183,8 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
             externalId: placeholder,
             chatId: target.chatId,
             direction: "OUTBOUND",
-            type: "TEXT",
-            text: fullText,
+            type: recordType,
+            text: recordText,
             quotedExternalId: target.quoted,
             sentAt: new Date(),
             status: "QUEUED",
@@ -210,7 +216,13 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
     }
 
     try {
-      const { externalId } = await sender.sendText(target.chatId, fullText, { quotedExternalId: target.quoted });
+      const { externalId } = doc
+        ? await sender.sendDocument(
+            target.chatId,
+            { buffer: await readStoredFile(doc.storageKey), mimeType: doc.mimeType, fileName: doc.fileName, caption: fullText },
+            { quotedExternalId: target.quoted },
+          )
+        : await sender.sendText(target.chatId, fullText, { quotedExternalId: target.quoted });
       await markSentByBot(conn.id, externalId);
       await markDelivered(hash, externalId);
       const done = { status: "PROCESSED" as const, processedAt: new Date(), sentAt: new Date(), statusDetail: `Enviada (${KIND_LABELS[data.kind] ?? data.kind})` };
@@ -232,6 +244,8 @@ export async function deliverOutbound(data: OutboundJobData, ctx: DeliveryContex
       throw err;
     }
   }
+  // Arquivo gerado só para este envio (relatório pedido no chat): apagado depois de entregue.
+  if (doc) await deleteStoredFile(doc.storageKey).catch(() => undefined);
   return { sent, skipped };
 }
 

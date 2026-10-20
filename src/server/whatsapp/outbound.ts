@@ -14,6 +14,14 @@ export interface OutboundMessageInput {
   dedupeKey?: string | null;
   /** Origem lógica (ex.: "reply", "notification", "report"). */
   kind?: "reply" | "notification" | "report";
+  /** Arquivo já gravado no armazenamento (relatório, planilha); `text` vira a legenda. */
+  document?: OutboundDocumentRef | null;
+}
+
+export interface OutboundDocumentRef {
+  storageKey: string;
+  mimeType: string;
+  fileName: string;
 }
 
 export { enqueueOutboundMessage, whatsappCanSend } from "./outbound-impl";

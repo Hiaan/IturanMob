@@ -2,11 +2,11 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, errorMessage } from "@/lib/client/api";
+import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
 import { formatDayMonthBR } from "@/lib/dates";
-import type { BillDTO, BillList, BillStatus } from "./types";
+import type { BillDTO, BillList, BillStatus, BoletoBillInput, BoletoBillResult, BoletoFilePreview, BoletoPreview } from "./types";
 
 /** Adiamento padrão do "Pagar depois" (o servidor aceita de 1 a 15 dias). */
 export const SNOOZE_DAYS = 3;
@@ -124,4 +124,63 @@ export function useBillMutations() {
   });
 
   return { create, update, pay, undoPay, skip, snooze, cancel, reopen };
+}
+
+/** Envia o PDF ou a foto do boleto (multipart, campo "file") e devolve o código conferido + sugestões. */
+export async function readBoletoFile(file: File): Promise<BoletoFilePreview> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const res = await fetch("/api/v1/bills/boleto/read", {
+    method: "POST",
+    body: form,
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "X-Requested-With": "fetch" },
+  });
+  if (res.status === 401) {
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    throw new ApiError(401, "UNAUTHORIZED", "Sessão expirada.");
+  }
+  let payload: { data?: BoletoFilePreview; error?: { code: string; message: string; details?: unknown } } = {};
+  try {
+    payload = await res.json();
+  } catch {
+    throw new ApiError(res.status, "HTTP_ERROR", "Falha de comunicação com o servidor.");
+  }
+  if (!res.ok || payload.error || !payload.data) {
+    throw new ApiError(res.status, payload.error?.code ?? "HTTP_ERROR", payload.error?.message ?? "Não foi possível ler o arquivo.", payload.error?.details);
+  }
+  return payload.data;
+}
+
+/** Boleto: conferir o código, ler PDF/foto e cadastrar nas contas a pagar. */
+export function useBoletoMutations() {
+  const invalidate = useInvalidateBills();
+
+  const preview = useMutation({
+    mutationFn: (line: string) => api.post<BoletoPreview>("/api/v1/bills/boleto/preview", { line }),
+  });
+
+  const readFile = useMutation({ mutationFn: (file: File) => readBoletoFile(file) });
+
+  const create = useMutation({
+    mutationFn: (body: BoletoBillInput) => api.post<BoletoBillResult>("/api/v1/bills/boleto", body),
+    onSuccess: ({ bill, duplicate }) => {
+      if (duplicate) toast.info("Este boleto já estava nas contas a pagar", { description: bill.description });
+      else toast.success("Boleto cadastrado nas contas a pagar", { description: `${bill.description} · ${formatBRL(bill.amountCents)}` });
+      invalidate();
+    },
+    onError: (err: unknown) => toast.error(errorMessage(err)),
+  });
+
+  return { preview, readFile, create };
+}
+
+/** Copia a linha digitável (só dígitos) para a área de transferência. */
+export async function copyBoletoLine(line: string) {
+  try {
+    await navigator.clipboard.writeText(line);
+    toast.success("Código copiado");
+  } catch {
+    toast.error("Não foi possível copiar. Selecione o código e copie manualmente.");
+  }
 }

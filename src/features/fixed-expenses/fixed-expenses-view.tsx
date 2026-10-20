@@ -19,6 +19,7 @@ import { ScopeBar } from "@/features/transactions/scope-bar";
 import { InstallmentsSection } from "./installments-section";
 import { ProjectionSection, endingNote } from "./projection-section";
 import { RecurringSection } from "./recurring-section";
+import { SubscriptionsSection } from "./subscriptions-section";
 import { useFixedExpenses } from "./use-fixed-expenses";
 import type { FixedExpensesOverview } from "./types";
 
@@ -89,6 +90,8 @@ export function FixedExpensesView() {
             : "Contas que se repetem, parcelas nos cartões e o que já está comprometido nos próximos meses"
         }
       />
+
+      <SubscriptionsSection canEdit={canEditBills} />
 
       {q.isLoading || !pref.ready ? (
         <LoadingState />

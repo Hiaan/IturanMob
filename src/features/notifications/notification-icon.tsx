@@ -11,6 +11,8 @@ import {
   MessageCircleWarning,
   PiggyBank,
   Receipt,
+  Repeat,
+  TrendingDown,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
@@ -31,6 +33,8 @@ const ICONS: Record<string, LucideIcon> = {
   WHATSAPP_CONNECTION_FAILED: MessageCircleWarning,
   INCOME_GOAL: TrendingUp,
   GOAL_PROGRESS: PiggyBank,
+  CASH_SHORTFALL: TrendingDown,
+  SUBSCRIPTION_FOUND: Repeat,
   SYSTEM: Info,
 };
 

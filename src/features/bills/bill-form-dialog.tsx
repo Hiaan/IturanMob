@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { Copy, TrendingDown, TrendingUp } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -13,11 +13,12 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { MoneyInput } from "@/components/shared/money-input";
 import { addDays, todayISO } from "@/lib/dates";
+import { formatDigitableLine } from "@/lib/boleto";
 import { cn } from "@/lib/utils";
 import { useMe } from "@/features/me/use-me";
 import { AccountSelect, CardSelect, CategoryPicker, NONE, PayWithToggle, categoryValue, parseCategoryValue } from "@/features/recurring/pickers";
 import type { BillDTO } from "./types";
-import { useBillMutations } from "./use-bills";
+import { copyBoletoLine, useBillMutations } from "./use-bills";
 
 const schema = z
   .object({
@@ -96,6 +97,17 @@ export function BillFormDialog({ open, onOpenChange, bill }: { open: boolean; on
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" noValidate onSubmit={handleSubmit(submit)}>
+          {bill?.boletoLine && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-3 py-2">
+              <span className="min-w-0">
+                <span className="block text-xs text-muted-foreground">Código do boleto</span>
+                <code className="break-all font-mono text-xs">{formatDigitableLine(bill.boletoLine)}</code>
+              </span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => bill.boletoLine && copyBoletoLine(bill.boletoLine)}>
+                <Copy /> Copiar código
+              </Button>
+            </div>
+          )}
           {!bill && (
             <Controller
               control={control}

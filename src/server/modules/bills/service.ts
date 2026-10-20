@@ -8,6 +8,7 @@ import { publishEvent } from "../../events";
 import { addDays, dateToISO, diffDays, endOfMonth, formatDateBR, formatMonthBR, isMonthKey, isoToDate, minISO, monthRange, startOfMonth, todayISO, type ISODate } from "@/lib/dates";
 import { RECURRENCE_FREQUENCY_LABELS, SCHEDULED_STATUS_LABELS } from "@/lib/labels";
 import { normalizeText, tokenSimilarity } from "@/lib/utils";
+import { boletoLabel, isBoleto, parseBoleto, type BoletoError, type ParsedBoleto } from "@/lib/boleto";
 import { audit } from "../audit/service";
 import { listCards, listStatements } from "../cards/service";
 import { createTransaction, deleteTransaction } from "../transactions/service";
@@ -115,6 +116,8 @@ export interface BillDTO {
   paidAt: string | null;
   /** "Pagar depois": lembrete de conta vencida adiado até esta data. */
   reminderSnoozedUntil: string | null;
+  /** Linha digitável (só dígitos) quando a conta veio de um boleto. */
+  boletoLine: string | null;
   notes: string | null;
   statement: { id: string; creditCardId: string; referenceMonth: string; closingDate: string; totalCents: number; paidCents: number; status: string } | null;
 }
@@ -165,6 +168,7 @@ function toBillDTO(sp: BillRow, today: ISODate): BillDTO {
     paidAmountCents: tx && (sp.status === "PAID" || sp.status === "POSTED") ? tx.amountCents : null,
     paidAt: sp.paidAt?.toISOString() ?? null,
     reminderSnoozedUntil: sp.reminderSnoozedUntil ? dateToISO(sp.reminderSnoozedUntil) : null,
+    boletoLine: sp.boletoLine,
     notes: sp.notes,
     statement: null,
   };
@@ -268,6 +272,7 @@ export async function listBills(ctx: ServiceContext, filters: BillListFilters = 
           paidAmountCents: null,
           paidAt: null,
           reminderSnoozedUntil: null,
+          boletoLine: null,
           notes: null,
           statement: {
             id: st.id,
@@ -397,6 +402,104 @@ export async function createBill(ctx: ServiceContext, input: BillCreateInput): P
   });
   await publishEvent(ctx.householdId, "bill.changed", id);
   return getBill(ctx, id);
+}
+
+// -----------------------------------------------------------------------------
+// Boleto → conta a pagar
+// -----------------------------------------------------------------------------
+
+export const BOLETO_ERROR_MESSAGES: Record<BoletoError, string> = {
+  LENGTH: "O código do boleto precisa ter 47 ou 48 números (linha digitável) ou 44 (código de barras).",
+  CHECK_DIGIT: "O código do boleto não confere (dígito verificador). Confira se todos os números foram copiados.",
+  FORMAT: "Este código não parece ser de um boleto.",
+};
+
+export const boletoLineSchema = z.string().trim().min(1, "Informe o código do boleto").max(120);
+
+export const boletoBillSchema = z.object({
+  line: boletoLineSchema,
+  description: z.string().trim().min(1).max(200).nullish(),
+  /** Obrigatório só quando o código não traz o valor. */
+  amountCents: amountCentsSchema.nullish(),
+  /** Obrigatório só quando o código não traz o vencimento (contas de consumo). */
+  dueDate: isoDateSchema.nullish(),
+  categoryId: idSchema.nullish(),
+  accountId: idSchema.nullish(),
+  notes: z.string().trim().max(1000).nullish(),
+});
+export type BoletoBillInput = z.input<typeof boletoBillSchema>;
+
+export interface BoletoPreview {
+  boleto: ParsedBoleto;
+  label: string;
+  /** Conta já cadastrada com este mesmo boleto. */
+  existingBillId: string | null;
+}
+
+/** Lê e confere o código (sem gravar nada). Código inválido → erro com o motivo. */
+export function readBoleto(line: string, today: ISODate): ParsedBoleto {
+  const parsed = parseBoleto(line, today);
+  if (!isBoleto(parsed)) throw new ValidationError(BOLETO_ERROR_MESSAGES[parsed], { reason: parsed });
+  return parsed;
+}
+
+export async function previewBoleto(ctx: ServiceContext, line: string): Promise<BoletoPreview> {
+  assertCan(ctx, "bills:write");
+  const boleto = readBoleto(line, todayISO(ctx.timezone));
+  const existing = await prisma.scheduledPayment.findUnique({
+    where: { householdId_boletoLine: { householdId: ctx.householdId, boletoLine: boleto.digitableLine } },
+    select: { id: true },
+  });
+  return { boleto, label: boletoLabel(boleto), existingBillId: existing?.id ?? null };
+}
+
+/**
+ * Cadastra a conta a pagar de um boleto. Valor e vencimento vêm do próprio código (dígitos
+ * conferidos); o que o código não traz precisa vir da pessoa ou do documento — nunca é inventado.
+ * O mesmo boleto não é cadastrado duas vezes: devolve a conta existente com `duplicate: true`.
+ */
+export async function createBillFromBoleto(ctx: ServiceContext, input: BoletoBillInput): Promise<{ bill: BillDTO; boleto: ParsedBoleto; duplicate: boolean }> {
+  assertCan(ctx, "bills:write");
+  const data = boletoBillSchema.parse(input);
+  const boleto = readBoleto(data.line, todayISO(ctx.timezone));
+  const amountCents = boleto.amountCents ?? data.amountCents ?? null;
+  const dueDate = boleto.dueDate ?? data.dueDate ?? null;
+  if (!amountCents) throw new ValidationError("Este boleto não traz o valor no código. Informe o valor.", { missing: "amountCents" });
+  if (!dueDate) throw new ValidationError("Este boleto não traz o vencimento no código. Informe a data de vencimento.", { missing: "dueDate" });
+
+  const existing = await prisma.scheduledPayment.findUnique({
+    where: { householdId_boletoLine: { householdId: ctx.householdId, boletoLine: boleto.digitableLine } },
+    select: { id: true },
+  });
+  if (existing) return { bill: await getBill(ctx, existing.id), boleto, duplicate: true };
+
+  const result = await withTransaction(async (db) => {
+    await validateRefs(ctx, db, { type: "EXPENSE", categoryId: data.categoryId, accountId: data.accountId });
+    const dup = await db.scheduledPayment.findUnique({
+      where: { householdId_boletoLine: { householdId: ctx.householdId, boletoLine: boleto.digitableLine } },
+      select: { id: true },
+    });
+    if (dup) return { id: dup.id, duplicate: true };
+    const sp = await db.scheduledPayment.create({
+      data: {
+        householdId: ctx.householdId,
+        type: "EXPENSE",
+        description: data.description ?? boletoLabel(boleto),
+        amountCents,
+        isEstimate: false,
+        dueDate: isoToDate(dueDate),
+        status: "PENDING",
+        categoryId: data.categoryId ?? null,
+        accountId: data.accountId ?? null,
+        boletoLine: boleto.digitableLine,
+        notes: data.notes ?? null,
+      },
+    });
+    await audit(ctx, { action: "CREATE", entityType: "ScheduledPayment", entityId: sp.id, after: billSnapshot(sp), source: "Boleto" }, db);
+    return { id: sp.id, duplicate: false };
+  });
+  if (!result.duplicate) await publishEvent(ctx.householdId, "bill.changed", result.id);
+  return { bill: await getBill(ctx, result.id), boleto, duplicate: result.duplicate };
 }
 
 /** Edita uma conta prevista (contas pagas precisam ter o pagamento desfeito antes). */

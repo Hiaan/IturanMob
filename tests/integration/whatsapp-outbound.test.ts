@@ -10,6 +10,7 @@ import { ingestMessage } from "@/server/whatsapp/ingest";
 import { outboundDoneKey, outboundHourKey, outboundSecondKey } from "@/server/whatsapp/keys";
 import { PROVIDER_CAPABILITIES, type WhatsAppProvider } from "@/server/whatsapp/types";
 import { createFamily, resetDatabase } from "./helpers";
+import { storeFile, storedFileExists } from "@/server/storage";
 
 const GROUP = "120363000000000001@g.us";
 const cleanupKeys: string[] = [];
@@ -27,6 +28,11 @@ class FakeProvider implements WhatsAppProvider {
   }
   async sendText(chatId: string, text: string, opts?: { quotedExternalId?: string | null }) {
     this.sent.push({ chatId, text, quoted: opts?.quotedExternalId ?? null });
+    return { externalId: `WA-OUT-${randomBytes(6).toString("hex").toUpperCase()}` };
+  }
+  documents: Array<{ chatId: string; fileName: string; mimeType: string; caption: string; size: number }> = [];
+  async sendDocument(chatId: string, doc: { buffer: Buffer; mimeType: string; fileName: string; caption: string }) {
+    this.documents.push({ chatId, fileName: doc.fileName, mimeType: doc.mimeType, caption: doc.caption, size: doc.buffer.length });
     return { externalId: `WA-OUT-${randomBytes(6).toString("hex").toUpperCase()}` };
   }
   async listGroups() {
@@ -159,6 +165,18 @@ describe("WhatsApp: envio", () => {
       { externalId: rows[0]!.externalId, chatId: GROUP, isGroup: true, senderIds: {}, fromMe: true, sentAt: new Date(), type: "TEXT", text: "Lembrete" },
     );
     expect(echo).toMatchObject({ accepted: false, reason: "bot_message" });
+  });
+
+  it("arquivo (relatório): envia como documento com legenda, registra sem o conteúdo e apaga o arquivo", async () => {
+    const { fam, conn, provider, registry } = await setup();
+    const stored = await storeFile("reports", Buffer.from("%PDF-1.4 relatorio"));
+    const data = { ...jobData(fam.householdId, "reply-doc:x:0", "📊 Relatório — outubro de 2026"), kind: "report" as const, document: { storageKey: stored.storageKey, mimeType: "application/pdf", fileName: "relatorio-mensal-2026-10.pdf" } };
+    expect(await deliverOutbound(data, { attemptsMade: 0, maxAttempts: 6 }, registry)).toMatchObject({ sent: 1 });
+    expect(provider.sent).toEqual([]);
+    expect(provider.documents).toEqual([{ chatId: GROUP, fileName: "relatorio-mensal-2026-10.pdf", mimeType: "application/pdf", caption: "🤖 📊 Relatório — outubro de 2026", size: 18 }]);
+    const row = await prisma.whatsAppMessage.findFirstOrThrow({ where: { connectionId: conn.id, direction: "OUTBOUND" } });
+    expect(row).toMatchObject({ type: "DOCUMENT", status: "PROCESSED", text: "🤖 📊 Relatório — outubro de 2026\n📎 relatorio-mensal-2026-10.pdf" });
+    expect(await storedFileExists(stored.storageKey)).toBe(false);
   });
 
   it("resposta cita a mensagem original do grupo autorizado", async () => {

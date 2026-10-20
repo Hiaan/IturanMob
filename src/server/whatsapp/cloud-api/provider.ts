@@ -7,6 +7,7 @@ import {
   type NormalizedInboundMessage,
   type ProviderCallbacks,
   type ProviderGroup,
+  type OutboundDocument,
   type SendTextOptions,
   type WhatsAppProvider,
 } from "../types";
@@ -270,6 +271,46 @@ export class CloudApiProvider implements WhatsAppProvider {
       body: JSON.stringify(body),
     })) as { messages?: Array<{ id?: string }> };
     const id = res?.messages?.[0]?.id;
+    if (!id) throw new Error("A Graph API não retornou o id da mensagem");
+    return { externalId: id };
+  }
+
+  /** Envia o arquivo para a Graph API (POST /{phone-number-id}/media) e depois a mensagem "document". */
+  async sendDocument(chatId: string, doc: OutboundDocument, opts?: SendTextOptions): Promise<{ externalId: string }> {
+    const to = chatId.replace(/\D/g, "");
+    if (!to) throw new Error("Destinatário inválido");
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", doc.mimeType);
+    form.append("file", new Blob([new Uint8Array(doc.buffer)], { type: doc.mimeType }), doc.fileName);
+    const res = await fetch(`${GRAPH}/${this.cfg.apiVersion}/${encodeURIComponent(this.cfg.phoneNumberId)}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.cfg.accessToken}` },
+      body: form,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const text = await res.text();
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = null;
+    }
+    if (!res.ok) throw new Error(sanitizeGraphError(res.status, body));
+    const mediaId = (body as { id?: string } | null)?.id;
+    if (!mediaId) throw new Error("A Graph API não retornou o id do arquivo");
+    const sent = (await graphFetch(this.cfg, `${encodeURIComponent(this.cfg.phoneNumberId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "document",
+        document: { id: mediaId, filename: doc.fileName, caption: doc.caption.slice(0, 1024) },
+        ...(opts?.quotedExternalId ? { context: { message_id: opts.quotedExternalId } } : {}),
+      }),
+    })) as { messages?: Array<{ id?: string }> };
+    const id = sent?.messages?.[0]?.id;
     if (!id) throw new Error("A Graph API não retornou o id da mensagem");
     return { externalId: id };
   }

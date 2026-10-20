@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlarmClockOff, CalendarClock, CreditCard, ExternalLink, Landmark, MoreHorizontal, Pencil, Plus, Repeat, RotateCcw, SkipForward, Undo2, XCircle, Zap } from "lucide-react";
+import { AlarmClockOff, Barcode, CalendarClock, Copy, CreditCard, ExternalLink, Landmark, MoreHorizontal, Pencil, Plus, Repeat, RotateCcw, SkipForward, Undo2, XCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,10 +31,12 @@ import { useCan, useMe } from "@/features/me/use-me";
 import { MonthSwitcher } from "@/features/budgets/month-switcher";
 import { SummaryTile } from "@/features/budgets/summary-tile";
 import { BillFormDialog } from "./bill-form-dialog";
+import { BoletoDialog } from "./boleto-dialog";
 import { BillStatusBadge } from "./bill-status-badge";
 import { PayBillDialog } from "./pay-bill-dialog";
 import type { BillDTO, BillStatus } from "./types";
-import { SNOOZE_DAYS, useBillMutations, useBills } from "./use-bills";
+import { SNOOZE_DAYS, copyBoletoLine, useBillMutations, useBills } from "./use-bills";
+import { formatDigitableLine } from "@/lib/boleto";
 
 const FILTERS: Array<{ value: string; label: string; statuses?: BillStatus[] }> = [
   { value: "all", label: "Todas" },
@@ -114,6 +116,11 @@ function Meta({ bill }: { bill: BillDTO }) {
           <Zap className="size-3" aria-hidden /> automático
         </span>
       )}
+      {bill.boletoLine && (
+        <span className="inline-flex items-center gap-1">
+          <Barcode className="size-3" aria-hidden /> boleto
+        </span>
+      )}
       {bill.isEstimate && <Badge variant="muted">valor estimado</Badge>}
     </span>
   );
@@ -151,6 +158,14 @@ function Payer({ bill, hideEmpty }: { bill: BillDTO; hideEmpty?: boolean }) {
   return hideEmpty ? null : <span className="text-muted-foreground">—</span>;
 }
 
+function CopyBoletoButton({ line }: { line: string }) {
+  return (
+    <Button size="sm" variant="ghost" onClick={() => copyBoletoLine(line)} title={formatDigitableLine(line)}>
+      <Copy /> Copiar código
+    </Button>
+  );
+}
+
 function Actions({ bill, canEdit, h }: { bill: BillDTO; canEdit: boolean; h: Handlers }) {
   if (bill.kind === "CARD_STATEMENT") {
     return (
@@ -161,12 +176,14 @@ function Actions({ bill, canEdit, h }: { bill: BillDTO; canEdit: boolean; h: Han
       </Button>
     );
   }
-  if (!canEdit) return null;
+  const copy = bill.boletoLine ? <CopyBoletoButton line={bill.boletoLine} /> : null;
+  if (!canEdit) return copy;
   const open = bill.status === "PENDING" || bill.status === "OVERDUE";
   const done = bill.status === "PAID" || bill.status === "POSTED";
   const closed = bill.status === "SKIPPED" || bill.status === "CANCELLED";
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
+      {copy}
       {canSnooze(bill, h.today) && (
         <Button size="sm" variant="outline" onClick={() => h.onSnooze(bill)} loading={h.snoozingId === bill.id} title={`Adia o lembrete por ${SNOOZE_DAYS} dias; a conta continua em aberto`}>
           Pagar depois
@@ -226,6 +243,7 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
   const q = useBills({ month, statuses });
   const { undoPay, cancel, skip, snooze, reopen } = useBillMutations();
   const [formOpen, setFormOpen] = useState(false);
+  const [boletoOpen, setBoletoOpen] = useState(false);
   const [editing, setEditing] = useState<BillDTO | null>(null);
   const [paying, setPaying] = useState<BillDTO | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "undo" | "cancel"; bill: BillDTO } | null>(null);
@@ -288,15 +306,20 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
             ))}
           </div>
           {canEdit && (
-            <Button
-              variant="brand"
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
-            >
-              <Plus /> Nova conta
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setBoletoOpen(true)}>
+                <Barcode /> Adicionar boleto
+              </Button>
+              <Button
+                variant="brand"
+                onClick={() => {
+                  setEditing(null);
+                  setFormOpen(true);
+                }}
+              >
+                <Plus /> Nova conta
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -345,6 +368,9 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
                   <div className="flex flex-wrap justify-center gap-2">
                     <Button variant="outline" onClick={onGoToRecurring}>
                       <Repeat /> Cadastrar recorrência
+                    </Button>
+                    <Button variant="outline" onClick={() => setBoletoOpen(true)}>
+                      <Barcode /> Adicionar boleto
                     </Button>
                     <Button
                       variant="brand"
@@ -409,7 +435,7 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
                               </span>
                               <SnoozeHint bill={b} today={today} />
                             </div>
-                            {(canEdit || b.kind === "CARD_STATEMENT") && (
+                            {(canEdit || b.kind === "CARD_STATEMENT" || b.boletoLine) && (
                               <div className="mt-3 border-t pt-3">
                                 <Actions bill={b} canEdit={canEdit} h={h} />
                               </div>
@@ -427,6 +453,7 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
       )}
 
       <BillFormDialog open={formOpen} onOpenChange={setFormOpen} bill={editing} />
+      <BoletoDialog open={boletoOpen} onOpenChange={setBoletoOpen} />
       <PayBillDialog bill={paying} onOpenChange={(o) => !o && setPaying(null)} />
       <AlertDialog open={Boolean(confirm)} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>

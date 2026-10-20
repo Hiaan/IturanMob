@@ -100,6 +100,14 @@ export interface SendTextOptions {
   quotedExternalId?: string | null;
 }
 
+/** Arquivo enviado (relatório em PDF, planilha). `caption` acompanha o arquivo. */
+export interface OutboundDocument {
+  buffer: Buffer;
+  mimeType: string;
+  fileName: string;
+  caption: string;
+}
+
 export interface WhatsAppProvider {
   readonly type: WhatsAppProviderType;
   readonly capabilities: ProviderCapabilities;
@@ -111,6 +119,7 @@ export interface WhatsAppProvider {
   logout(): Promise<void>;
   isConnected(): boolean;
   sendText(chatId: string, text: string, opts?: SendTextOptions): Promise<{ externalId: string }>;
+  sendDocument(chatId: string, doc: OutboundDocument, opts?: SendTextOptions): Promise<{ externalId: string }>;
   listGroups(): Promise<ProviderGroup[]>;
 }
 

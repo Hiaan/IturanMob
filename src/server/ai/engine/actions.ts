@@ -32,11 +32,15 @@ import type { InterpretResult, RecentTx } from "./interpret";
 import type { HouseholdContext } from "./context";
 import type { RawCorrection, RawDeletion } from "./schemas";
 import { answerQuestion } from "../assistant/service";
+import { answerBoletoClarification } from "./boleto-commands";
+import type { ReplyDocument } from "../pipeline/types";
 
 export interface ActionOutcome {
   status: "PROCESSED" | "IGNORED" | "NEEDS_CLARIFICATION";
   intent: string;
   replies: string[];
+  /** Arquivos enviados depois das respostas (relatório, planilha). */
+  documents?: ReplyDocument[];
   transactionIds: string[];
   detail?: string;
 }
@@ -676,6 +680,10 @@ export async function tryAnswerClarification(ctx: ServiceContext, hc: HouseholdC
     if (payload.action === "delete") return deleteOne(ctx, id, hc);
     if (payload.action === "describe") return applyDescription(ctx, id, String(payload.description ?? ""), hc);
     return applyCorrection(ctx, payload.correction as unknown as RawCorrection, id, hc);
+  }
+
+  if (open.kind === "MISSING_FIELDS" && payload.action === "boleto") {
+    return answerBoletoClarification(ctx, open, opts.text);
   }
 
   if (open.kind === "MISSING_FIELDS") {

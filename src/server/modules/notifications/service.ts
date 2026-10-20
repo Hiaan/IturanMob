@@ -40,6 +40,8 @@ export const NOTIFICATION_TYPES = [
   "GOAL_PROGRESS",
   "BILL_OVERDUE",
   "STATEMENT_DUE",
+  "CASH_SHORTFALL",
+  "SUBSCRIPTION_FOUND",
 ] as const satisfies readonly NotificationType[];
 
 export const NOTIFICATION_FREQUENCIES = ["IMMEDIATE", "DAILY_DIGEST", "OFF"] as const satisfies readonly NotificationFrequency[];

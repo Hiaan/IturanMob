@@ -18,6 +18,10 @@ import { transcribeAudio } from "../transcription";
 import { familyVocabulary, type FamilyVocabulary } from "../transcription/vocabulary";
 import { normalizeTranscript } from "../nlu/transcript";
 import { extractReceipt } from "../vision/receipt";
+import { handleBoletoText, registerBoleto } from "../engine/boleto-commands";
+import { handleReportCommand, parseReportCommand } from "../engine/report-commands";
+import { readBoletoFromPdf } from "../../modules/bills/boleto-reader";
+import { isBoleto, parseBoleto } from "@/lib/boleto";
 import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { detectNatureTokens } from "../nlu/nature";
@@ -94,7 +98,7 @@ export async function handleInboundMessage(messageId: string): Promise<InboundMe
       outcome = { status: "IGNORED", intent: "UNSUPPORTED", replies: [], transactionIds: [], detail: `tipo ${message.type} não processado` };
     }
     await publishEvent(ctx.householdId, "whatsapp.message", messageId);
-    return { status: outcome.status, intent: outcome.intent, replies: outcome.replies, transactionIds: outcome.transactionIds, detail: outcome.detail };
+    return { status: outcome.status, intent: outcome.intent, replies: outcome.replies, documents: outcome.documents, transactionIds: outcome.transactionIds, detail: outcome.detail };
   } catch (err) {
     logger.error({ err: errorInfo(err), messageId }, "pipeline: falha ao processar mensagem");
     const code = (err as { code?: string }).code;
@@ -144,6 +148,16 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   if (opts.source === "WHATSAPP_TEXT" && EXPLICIT_IMPORT_CONFIRM.test(normalizeForNlu(text))) {
     const imported = await answerImportConfirmation(ctx, opts.chatId, text, null);
     if (imported) return imported;
+  }
+  // Linha digitável de boleto colada → conta a pagar (código conferido pelos dígitos, sem IA).
+  if (/(?:\d[\s.-]?){43}/.test(text)) {
+    const boleto = await handleBoletoText(ctx, text, { chatId: opts.chatId, messageId: opts.messageId });
+    if (boleto) return boleto;
+  }
+  // "manda o relatório do mês", "planilha de setembro": gera e envia o arquivo (sem IA).
+  if (opts.source !== "WHATSAPP_IMAGE") {
+    const reportCmd = parseReportCommand(text, todayISO(ctx.timezone));
+    if (reportCmd) return handleReportCommand(ctx, reportCmd);
   }
   // "desconsidera esse" / "o pix do fulano é repasse": comando determinístico, sem IA.
   const exclusion = parseExclusionCommand(text);
@@ -299,6 +313,13 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
     if (!att.storageKey) {
       return failWithPending(ctx, message, "PROCESSING_FAILED", "PDF indisponível", "O arquivo não está mais armazenado.", "Não consegui acessar o PDF. Envie novamente.");
     }
+    // Boleto em PDF (não extrato/fatura) → conta a pagar. Comprovante de boleto pago segue o
+    // fluxo de comprovantes.
+    const pdfBoleto = await readBoletoFromPdf(await readStoredFile(att.storageKey), todayISO(ctx.timezone));
+    if (pdfBoleto.status === "BOLETO") {
+      await prisma.attachment.update({ where: { id: att.id }, data: { processingStatus: "EXTRACTED", extractedData: { boleto: true } } });
+      return registerBoleto(ctx, pdfBoleto.boleto, pdfBoleto.hints, { chatId: message.chatId, messageId: message.id, origin: "PDF", caption });
+    }
     // Extrato/fatura em PDF → prévia de importação com confirmação pela conversa.
     const pdfNature = caption ? detectNatureTokens(caption).nature : null;
     const statement = await processPdfStatement(
@@ -334,6 +355,27 @@ async function processReceipt(ctx: ServiceContext, message: MessageWithAttachmen
 
   const image = await readStoredFile(att.storageKey);
   const extraction = await extractReceipt(ctx.householdId, image, att.mimeType, message.id);
+  // Foto de boleto a pagar: a linha lida pela IA só vale se os dígitos verificadores conferirem.
+  if (extraction.ok && extraction.boleto && !extraction.data.is_receipt) {
+    const today = todayISO(ctx.timezone);
+    const parsed = extraction.boleto.digitable_line ? parseBoleto(extraction.boleto.digitable_line, today) : null;
+    if (parsed && isBoleto(parsed)) {
+      await prisma.attachment.update({ where: { id: att.id }, data: { processingStatus: "EXTRACTED", extractedData: { boleto: true } } });
+      const due = extraction.boleto.due_date && isISODate(extraction.boleto.due_date) ? extraction.boleto.due_date : null;
+      const amount = extraction.boleto.amount && extraction.boleto.amount > 0 ? Math.round(extraction.boleto.amount * 100) : null;
+      return registerBoleto(ctx, parsed, { beneficiary: extraction.boleto.beneficiary, dueDate: due, amountCents: amount }, { chatId: message.chatId, messageId: message.id, origin: "IMAGE", caption });
+    }
+    await prisma.attachment.update({ where: { id: att.id }, data: { processingStatus: "UNREADABLE" } });
+    return failWithPending(
+      ctx,
+      message,
+      "UNREADABLE_RECEIPT",
+      "Boleto não lido",
+      "O código do boleto não ficou legível na foto (os dígitos não conferem).",
+      "🧾 Parece um boleto, mas não consegui ler o código com segurança. Copie a linha digitável (os números do boleto) e cole aqui, ou envie o PDF.",
+      att.id,
+    );
+  }
   if (!extraction.ok || !extraction.data.legible || extraction.data.total === null || !extraction.data.is_receipt) {
     const reason = extraction.ok ? (extraction.data.is_receipt ? "Valor total não legível." : "A imagem não parece ser um comprovante.") : extraction.reason;
     await prisma.attachment.update({ where: { id: att.id }, data: { processingStatus: "UNREADABLE", extractedData: extraction.ok ? (extraction.data as unknown as Prisma.InputJsonValue) : undefined } });

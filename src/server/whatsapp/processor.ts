@@ -10,12 +10,13 @@ import { audit } from "../modules/audit/service";
 import { createPendingItem, resolvePendingWhere } from "../modules/pending/service";
 import { getSettings } from "../modules/households/service";
 import { handleInboundMessage } from "../ai/pipeline/handle-message";
-import type { InboundMessageResult } from "../ai/pipeline/types";
+import type { InboundMessageResult, ReplyDocument } from "../ai/pipeline/types";
 import type { InboundJobData } from "../jobs/queues";
 import { enqueueOutboundMessage } from "./outbound";
 import { enqueueInboundJob } from "./inbound-queue";
 import { isProcessableType } from "./ingest";
 import { recordSimulatorReply } from "./simulator/record";
+import { deleteStoredFile } from "../storage";
 
 /**
  * PROCESSAMENTO — consumidor da fila "whatsapp-inbound".
@@ -67,9 +68,19 @@ async function markDead(job: Pick<MessageProcessingJob, "id" | "messageId" | "ho
   return { outcome: "DEAD", attempts };
 }
 
-async function deliverReplies(householdId: string, messageId: string, quotedExternalId: string, replies: string[], opts: ProcessOptions): Promise<number> {
+async function deliverReplies(
+  householdId: string,
+  messageId: string,
+  quotedExternalId: string,
+  replies: string[],
+  opts: ProcessOptions,
+  documents: ReplyDocument[] = [],
+): Promise<number> {
   const settings = await getSettings(householdId);
-  if (!settings.whatsappReplies) return 0;
+  if (!settings.whatsappReplies) {
+    for (const doc of documents) await deleteStoredFile(doc.storageKey).catch(() => undefined);
+    return 0;
+  }
   let count = 0;
   for (const [i, reply] of replies.entries()) {
     if (!reply?.trim()) continue;
@@ -81,6 +92,24 @@ async function deliverReplies(householdId: string, messageId: string, quotedExte
     const res = await enqueueOutboundMessage({ householdId, text: reply, kind: "reply", quotedExternalId, dedupeKey: `reply:${messageId}:${i}` });
     if (res.queued) count++;
     else logger.warn({ messageId, reason: res.reason }, "whatsapp: resposta não enfileirada");
+  }
+  for (const [i, doc] of documents.entries()) {
+    if (opts.inlineSimulator) {
+      await recordSimulatorReply(householdId, `${doc.caption}\n📎 ${doc.fileName}`, quotedExternalId);
+      await deleteStoredFile(doc.storageKey).catch(() => undefined);
+      count++;
+      continue;
+    }
+    const res = await enqueueOutboundMessage({
+      householdId,
+      text: doc.caption,
+      kind: "report",
+      quotedExternalId,
+      dedupeKey: `reply-doc:${messageId}:${i}`,
+      document: { storageKey: doc.storageKey, mimeType: doc.mimeType, fileName: doc.fileName },
+    });
+    if (res.queued) count++;
+    else logger.warn({ messageId, reason: res.reason }, "whatsapp: arquivo não enfileirado");
   }
   return count;
 }
@@ -208,7 +237,7 @@ async function runLocked(jobId: string, opts: ProcessOptions): Promise<ProcessOu
     if (resolved) await publishEvent(job.householdId, "pending.changed");
   }
 
-  const replies = await deliverReplies(job.householdId, job.messageId, message.externalId, result.replies ?? [], opts);
+  const replies = await deliverReplies(job.householdId, job.messageId, message.externalId, result.replies ?? [], opts, result.documents ?? []);
   await publishEvent(job.householdId, "whatsapp.message", job.messageId);
   logger.info({ jobId: job.id, status: result.status, intent: result.intent, transactions: result.transactionIds?.length ?? 0, replies }, "whatsapp: mensagem processada");
   return { outcome: failed ? "FAILED" : "SUCCEEDED", messageStatus: result.status, replies };

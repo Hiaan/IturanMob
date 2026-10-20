@@ -472,8 +472,17 @@ export async function cashflowProjection(ctx: ServiceContext, days = 90) {
   const startBalance = accounts.filter((a) => a.includeInTotals && a.type !== "INVESTMENT").reduce((s, a) => s + (a.balanceBrlCents ?? 0), 0);
   const events: CashflowEvent[] = [];
 
+  // Contas no cartão não saem do caixa no vencimento: entram pela fatura (logo abaixo). Contas de
+  // contas privadas que este contexto não vê ficam de fora (o saldo delas também não entra).
+  const hidden = await getVisibilityScope(ctx);
   const scheduled = await prisma.scheduledPayment.findMany({
-    where: { householdId: ctx.householdId, status: "PENDING", dueDate: { lte: isoToDate(end) } },
+    where: {
+      householdId: ctx.householdId,
+      status: "PENDING",
+      dueDate: { lte: isoToDate(end) },
+      creditCardId: null,
+      ...(hidden.hiddenAccountIds.length ? { OR: [{ accountId: null }, { accountId: { notIn: hidden.hiddenAccountIds } }] } : {}),
+    },
     orderBy: { dueDate: "asc" },
   });
   for (const s of scheduled) {

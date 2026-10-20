@@ -28,6 +28,9 @@ const DEFAULT_NOTIFICATION_PREFS: Array<{ type: NotificationType; inApp: boolean
   { type: "BILL_OVERDUE", inApp: true, whatsapp: true },
   // Fatura perto de vencer / vencida: no WhatsApp por padrão (o "fatura fechou" continua desligado).
   { type: "STATEMENT_DUE", inApp: true, whatsapp: true },
+  // "Vai faltar dinheiro": importante, no WhatsApp por padrão. Assinatura encontrada: só no app.
+  { type: "CASH_SHORTFALL", inApp: true, whatsapp: true },
+  { type: "SUBSCRIPTION_FOUND", inApp: true, whatsapp: false },
 ];
 
 export async function seedNotificationPreferences(db: Db, memberId: string) {

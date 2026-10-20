@@ -34,6 +34,12 @@ interface PreferenceDTO {
 const FREQUENCY_LABELS: Record<Frequency, string> = { IMMEDIATE: "Imediata", DAILY_DIGEST: "Resumo diário", OFF: "Desligada" };
 const QUERY_KEY = ["notifications", "preferences"] as const;
 
+/** Explicação curta dos tipos cujo nome sozinho não diz quando o aviso chega. */
+const TYPE_HINTS: Partial<Record<PreferenceDTO["type"], string>> = {
+  CASH_SHORTFALL: "Quando a projeção mostra o saldo das contas ficando negativo nos próximos 30 dias",
+  SUBSCRIPTION_FOUND: "Cobrança que se repete todo mês e não está nos gastos fixos, ou que ficou mais cara",
+};
+
 function same(a: PreferenceDTO, b: PreferenceDTO) {
   return a.inApp === b.inApp && a.whatsapp === b.whatsapp && a.push === b.push && a.frequency === b.frequency && (a.quietStart ?? "") === (b.quietStart ?? "") && (a.quietEnd ?? "") === (b.quietEnd ?? "");
 }
@@ -137,7 +143,10 @@ export function NotificationPreferencesForm() {
                       key={p.type}
                       className="grid grid-cols-1 gap-3 rounded-xl border p-3 xl:grid-cols-[minmax(0,1.6fr)_4.5rem_4.5rem_5.5rem_10rem_minmax(0,1.4fr)] xl:items-center xl:rounded-none xl:border-0 xl:px-3 xl:py-2.5"
                     >
-                      <span className={cn("text-sm font-medium", off && "text-muted-foreground")}>{label}</span>
+                      <span className={cn("text-sm font-medium", off && "text-muted-foreground")}>
+                        {label}
+                        {TYPE_HINTS[p.type] && <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{TYPE_HINTS[p.type]}</span>}
+                      </span>
                       <div className="flex items-center justify-between gap-2 xl:justify-center">
                         <span className="text-xs text-muted-foreground xl:hidden">No aplicativo</span>
                         <Switch checked={p.inApp} disabled={off} onCheckedChange={(v) => patch(p.type, { inApp: v })} aria-label={`${label}: no aplicativo`} />

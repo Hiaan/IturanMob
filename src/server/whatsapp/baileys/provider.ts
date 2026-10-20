@@ -28,6 +28,7 @@ import {
   type ProviderCallbacks,
   type ProviderGroup,
   type ProviderGroupParticipant,
+  type OutboundDocument,
   type SendTextOptions,
   type WhatsAppProvider,
 } from "../types";
@@ -458,6 +459,17 @@ export class BaileysProvider implements WhatsAppProvider {
     if (!sock || !this.connected) throw new Error("WhatsApp desconectado");
     const quoted = opts?.quotedExternalId ? this.quoteCache.get(opts.quotedExternalId) : undefined;
     const sent = await sock.sendMessage(chatId, { text }, quoted ? { quoted } : undefined);
+    const id = sent?.key?.id;
+    if (!id) throw new Error("O WhatsApp não confirmou o envio");
+    if (sent.message) this.sentCache.set(id, sent.message);
+    return { externalId: id };
+  }
+
+  async sendDocument(chatId: string, doc: OutboundDocument, opts?: SendTextOptions): Promise<{ externalId: string }> {
+    const sock = this.sock;
+    if (!sock || !this.connected) throw new Error("WhatsApp desconectado");
+    const quoted = opts?.quotedExternalId ? this.quoteCache.get(opts.quotedExternalId) : undefined;
+    const sent = await sock.sendMessage(chatId, { document: doc.buffer, mimetype: doc.mimeType, fileName: doc.fileName, caption: doc.caption }, quoted ? { quoted } : undefined);
     const id = sent?.key?.id;
     if (!id) throw new Error("O WhatsApp não confirmou o envio");
     if (sent.message) this.sentCache.set(id, sent.message);

@@ -34,6 +34,10 @@ class FakeBaileys implements WhatsAppProvider {
     this.sent.push({ chatId, text });
     return { externalId: `OUT-${this.sent.length}` };
   }
+  async sendDocument(chatId: string, doc: { caption: string }) {
+    this.sent.push({ chatId, text: doc.caption });
+    return { externalId: `OUT-${this.sent.length}` };
+  }
   async listGroups(): Promise<ProviderGroup[]> {
     return [];
   }

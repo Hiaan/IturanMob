@@ -9,9 +9,18 @@ export interface InboundMessageResult {
   intent?: string;
   /** Textos a enviar como resposta no chat (já formatados, sem prefixo do bot). */
   replies: string[];
+  /** Arquivos a enviar depois das respostas (relatório em PDF, planilha); `caption` acompanha. */
+  documents?: ReplyDocument[];
   transactionIds: string[];
   /** Detalhe técnico curto (sem conteúdo sensível) para o histórico. */
   detail?: string;
   /** Erro recuperável: o job deve ser tentado novamente. */
   retryable?: boolean;
+}
+
+export interface ReplyDocument {
+  storageKey: string;
+  mimeType: string;
+  fileName: string;
+  caption: string;
 }

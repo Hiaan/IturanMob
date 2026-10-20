@@ -67,3 +67,19 @@ export interface FixedExpensesOverview {
   projection: ProjectionMonth[];
   assumptions: string[];
 }
+
+/** Cobrança mensal encontrada nos lançamentos que não está nos gastos fixos (GET /api/v1/fixed-expenses/subscriptions). */
+export interface SubscriptionCandidateDTO {
+  id: string;
+  merchantName: string;
+  amountCents: number;
+  previousAmountCents: number | null;
+  priceRaised: boolean;
+  occurrences: number;
+  firstChargeDate: string;
+  lastChargeDate: string;
+  categoryId: string | null;
+  account: { id: string; name: string } | null;
+  creditCard: { id: string; name: string } | null;
+  status: "OPEN" | "IGNORED" | "ACCEPTED";
+}

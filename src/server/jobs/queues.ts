@@ -35,6 +35,8 @@ export interface OutboundJobData {
   dedupeHash: string;
   kind: OutboundKind;
   createdAt: string;
+  /** Arquivo a enviar (o texto vai como legenda). */
+  document?: { storageKey: string; mimeType: string; fileName: string } | null;
 }
 
 export interface PeriodicJobData {

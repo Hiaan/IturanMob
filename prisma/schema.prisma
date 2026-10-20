@@ -242,6 +242,10 @@ enum NotificationType {
   BILL_OVERDUE
   /// Fatura do cartão perto de vencer, vencendo hoje ou vencida sem pagamento.
   STATEMENT_DUE
+  /// Projeção de caixa: o saldo das contas vai ficar negativo nos próximos dias.
+  CASH_SHORTFALL
+  /// Cobrança que se repete todo mês e não está nos gastos fixos (ou que subiu de preço).
+  SUBSCRIPTION_FOUND
 }
 
 enum NotificationChannel {
@@ -500,50 +504,51 @@ model Household {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  settings              HouseholdSettings?
-  members               HouseholdMember[]
-  sessions              Session[]
-  invitations           Invitation[]
-  transcriptFixes       TranscriptFix[]
-  accounts              Account[]
-  investmentYields      InvestmentYield[]
-  creditCards           CreditCard[]
-  statements            CreditCardStatement[]
-  categories            Category[]
-  subcategories         Subcategory[]
-  merchants             Merchant[]
-  transactions          Transaction[]
-  ledgerEntries         LedgerEntry[]
-  installments          Installment[]
-  recurringTransactions RecurringTransaction[]
-  scheduledPayments     ScheduledPayment[]
-  budgets               Budget[]
-  goals                 FinancialGoal[]
-  goalContributions     GoalContribution[]
-  incomeGoals           IncomeGoal[]
-  alertMarks            AlertMark[]
-  whatsappConnection    WhatsAppConnection?
-  whatsappGroups        WhatsAppGroup[]
-  whatsappMessages      WhatsAppMessage[]
-  processingJobs        MessageProcessingJob[]
-  attachments           Attachment[]
-  notifications         Notification[]
-  pushSubscriptions     PushSubscription[]
-  auditLogs             AuditLog[]
-  rules                 FinancialRule[]
-  aiLogs                AIProcessingLog[]
-  aiCredentials         AIProviderCredential[]
-  aiTaskConfigs         AITaskConfig[]
-  importBatches         ImportBatch[]
-  spreadsheetMigrations SpreadsheetMigration[]
-  spreadsheetTemplates  SpreadsheetTemplate[]
-  importRows            ImportRow[]
-  pendingItems          PendingItem[]
-  clarifications        Clarification[]
-  assistantChats        AssistantConversation[]
-  reportSchedules       ReportSchedule[]
-  reports               Report[]
-  backups               BackupRecord[]
+  settings               HouseholdSettings?
+  members                HouseholdMember[]
+  sessions               Session[]
+  invitations            Invitation[]
+  transcriptFixes        TranscriptFix[]
+  accounts               Account[]
+  investmentYields       InvestmentYield[]
+  creditCards            CreditCard[]
+  statements             CreditCardStatement[]
+  categories             Category[]
+  subcategories          Subcategory[]
+  merchants              Merchant[]
+  transactions           Transaction[]
+  ledgerEntries          LedgerEntry[]
+  installments           Installment[]
+  recurringTransactions  RecurringTransaction[]
+  scheduledPayments      ScheduledPayment[]
+  budgets                Budget[]
+  goals                  FinancialGoal[]
+  goalContributions      GoalContribution[]
+  incomeGoals            IncomeGoal[]
+  alertMarks             AlertMark[]
+  subscriptionCandidates SubscriptionCandidate[]
+  whatsappConnection     WhatsAppConnection?
+  whatsappGroups         WhatsAppGroup[]
+  whatsappMessages       WhatsAppMessage[]
+  processingJobs         MessageProcessingJob[]
+  attachments            Attachment[]
+  notifications          Notification[]
+  pushSubscriptions      PushSubscription[]
+  auditLogs              AuditLog[]
+  rules                  FinancialRule[]
+  aiLogs                 AIProcessingLog[]
+  aiCredentials          AIProviderCredential[]
+  aiTaskConfigs          AITaskConfig[]
+  importBatches          ImportBatch[]
+  spreadsheetMigrations  SpreadsheetMigration[]
+  spreadsheetTemplates   SpreadsheetTemplate[]
+  importRows             ImportRow[]
+  pendingItems           PendingItem[]
+  clarifications         Clarification[]
+  assistantChats         AssistantConversation[]
+  reportSchedules        ReportSchedule[]
+  reports                Report[]
+  backups                BackupRecord[]
 }
 
 /// Preferências e políticas da família (validadas por Zod na aplicação).
@@ -1158,6 +1163,9 @@ model ScheduledPayment {
   paidAt                 DateTime?
   /// "Pagar depois": o lembrete de conta vencida fica adiado até esta data.
   reminderSnoozedUntil   DateTime?              @db.Date
+  /// Linha digitável do boleto (só dígitos), quando a conta veio de um boleto. Evita cadastrar o
+  /// mesmo boleto duas vezes e permite copiar o código na hora de pagar.
+  boletoLine             String?
   notes                  String?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
@@ -1170,6 +1178,7 @@ model ScheduledPayment {
   transaction Transaction?          @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@unique([recurringTransactionId, dueDate])
+  @@unique([householdId, boletoLine])
   @@index([householdId, status, dueDate])
 }
 
@@ -1249,6 +1258,44 @@ model IncomeGoal {
 }
 
 /// Avisos já disparados (faixa de meta por período, etc.): cada um uma única vez.
+enum SubscriptionCandidateStatus {
+  /// Aguardando a pessoa decidir (cadastrar nos gastos fixos ou ignorar).
+  OPEN
+  /// Virou gasto fixo.
+  ACCEPTED
+  /// A pessoa pediu para não avisar mais.
+  IGNORED
+}
+
+/// Cobrança mensal detectada nos lançamentos (mesmo estabelecimento, valor parecido, ~30 dias de
+/// intervalo) que não está nos gastos fixos. Só sugestão: nada é cadastrado sem a pessoa pedir.
+model SubscriptionCandidate {
+  id                     String                      @id @default(cuid())
+  householdId            String
+  /// Nome normalizado do estabelecimento (chave da detecção).
+  merchantKey            String
+  merchantName           String
+  /// Valor da última cobrança e da anterior (para avisar aumento de preço).
+  amountCents            Int
+  previousAmountCents    Int?
+  occurrences            Int
+  firstChargeDate        DateTime                    @db.Date
+  lastChargeDate         DateTime                    @db.Date
+  lastTransactionId      String?
+  categoryId             String?
+  accountId              String?
+  creditCardId           String?
+  status                 SubscriptionCandidateStatus @default(OPEN)
+  recurringTransactionId String?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, merchantKey])
+  @@index([householdId, status])
+}
+
 model AlertMark {
   id          String   @id @default(cuid())
   householdId String

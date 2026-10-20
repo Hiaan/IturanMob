@@ -24,6 +24,8 @@ export interface BillDTO {
   /** "Pagar depois": lembrete de conta vencida adiado até esta data (AAAA-MM-DD). */
   reminderSnoozedUntil: string | null;
   notes: string | null;
+  /** Linha digitável do boleto (só dígitos), quando a conta veio de um boleto. */
+  boletoLine: string | null;
   statement: { id: string; creditCardId: string; referenceMonth: string; closingDate: string; totalCents: number; paidCents: number; status: string } | null;
 }
 
@@ -45,4 +47,41 @@ export interface BillList {
   today: string;
   items: BillDTO[];
   totals: BillTotals;
+}
+
+/** Leitura de um boleto (POST /api/v1/bills/boleto/preview). */
+export interface BoletoPreview {
+  boleto: {
+    kind: "BANK" | "UTILITY";
+    digitableLine: string;
+    barcode: string;
+    amountCents: number | null;
+    dueDate: string | null;
+    bankCode: string | null;
+    bankName: string | null;
+    segment: string | null;
+  };
+  label: string;
+  /** Conta já cadastrada com este mesmo boleto. */
+  existingBillId: string | null;
+}
+
+/** Leitura de PDF/foto: além do código, o que está impresso no documento (só sugestão). */
+export interface BoletoFilePreview extends BoletoPreview {
+  hints: { beneficiary: string | null; dueDate: string | null; amountCents: number | null };
+}
+
+export interface BoletoBillInput {
+  line: string;
+  description: string;
+  amountCents?: number;
+  dueDate?: string;
+  categoryId?: string;
+  accountId?: string;
+}
+
+export interface BoletoBillResult {
+  bill: BillDTO;
+  boleto: BoletoPreview["boleto"];
+  duplicate: boolean;
 }

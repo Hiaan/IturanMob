@@ -6,6 +6,7 @@ import {
   type NormalizedInboundMessage,
   type ProviderCallbacks,
   type ProviderGroup,
+  type OutboundDocument,
   type SendTextOptions,
   type WhatsAppProvider,
 } from "../types";
@@ -54,6 +55,12 @@ export class SimulatorProvider implements WhatsAppProvider {
   async sendText(_chatId: string, _text: string, _opts?: SendTextOptions): Promise<{ externalId: string }> {
     if (!this.running) throw new Error("Simulador parado");
     // Nenhum envio real: o consumidor registra a mensagem OUTBOUND simulada no banco.
+    return { externalId: `SIM-OUT-${randomUUID()}` };
+  }
+
+  async sendDocument(_chatId: string, _doc: OutboundDocument, _opts?: SendTextOptions): Promise<{ externalId: string }> {
+    if (!this.running) throw new Error("Simulador parado");
+    // Nenhum envio real: o consumidor registra o envio simulado do arquivo no banco.
     return { externalId: `SIM-OUT-${randomUUID()}` };
   }
 

@@ -75,6 +75,7 @@ export async function enqueueOutboundMessage(input: OutboundMessageInput): Promi
     dedupeHash,
     kind: input.kind ?? "notification",
     createdAt: new Date().toISOString(),
+    ...(input.document ? { document: { storageKey: input.document.storageKey, mimeType: input.document.mimeType, fileName: input.document.fileName.slice(0, 120) } } : {}),
   };
   const res = await addJob(QUEUE_NAMES.outbound, data.kind, data, {
     jobId: outboundJobId(dedupeHash),
