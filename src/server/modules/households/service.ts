@@ -31,6 +31,8 @@ const DEFAULT_NOTIFICATION_PREFS: Array<{ type: NotificationType; inApp: boolean
   // "Vai faltar dinheiro": importante, no WhatsApp por padrão. Assinatura encontrada: só no app.
   { type: "CASH_SHORTFALL", inApp: true, whatsapp: true },
   { type: "SUBSCRIPTION_FOUND", inApp: true, whatsapp: false },
+  // Conexão com bancos: lançamentos novos para conferir / conexão com problema (só no app).
+  { type: "BANK_SYNC", inApp: true, whatsapp: false },
 ];
 
 export async function seedNotificationPreferences(db: Db, memberId: string) {

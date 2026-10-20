@@ -76,6 +76,7 @@ Para ver o sistema com dados fictícios de demonstração: `SEED_DEMO=true pnpm 
 | [docs/CONFIGURACAO.md](docs/CONFIGURACAO.md) | Manual de configuração (variáveis, IA, WhatsApp, notificações, retenção) |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Guia de deploy em produção, HTTPS, backups, atualização e monitoramento |
 | [docs/WHATSAPP.md](docs/WHATSAPP.md) | Integração com WhatsApp: modos, riscos do QR Code, comandos |
+| [docs/OPEN_FINANCE.md](docs/OPEN_FINANCE.md) | Conexão com bancos pelo Meu Pluggy: passo a passo, limites e privacidade |
 | [docs/IA.md](docs/IA.md) | Motor de IA, validação, consentimento e proteção contra prompt injection |
 | [docs/REGRAS_FINANCEIRAS.md](docs/REGRAS_FINANCEIRAS.md) | Regras de ledger, cartões, faturas, regimes, duplicidade e conciliação |
 | [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Arquitetura, pastas, modelo de dados e fluxo das mensagens |
@@ -98,6 +99,7 @@ PostgreSQL 16 · Redis 7 + BullMQ · pino · Vitest · Playwright · Docker Comp
 | IA de texto | Motor local em português | Anthropic, OpenAI ou servidor compatível |
 | Transcrição | Áudio vira pendência ("digite o lançamento") | OpenAI Whisper ou servidor local (`--profile whisper`) |
 | Leitura de comprovantes | Usa a legenda da foto; o resto vira pendência | Modelo com visão (Anthropic/OpenAI) |
+| Bancos (Open Finance) | Importação de arquivos (CSV, OFX, XLSX, PDF); simulador de desenvolvimento só com `OPEN_FINANCE_SIMULATOR=true`, identificado na interface | Meu Pluggy (gratuito para uso pessoal, até 5 bancos, atualiza 1x por dia): só leitura, pela prévia da importação |
 
 O uso de qualquer provedor externo depende de autorização explícita da família em
 **Configurações → Privacidade e IA**.

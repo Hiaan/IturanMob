@@ -1330,6 +1330,52 @@ export async function createMigrationBatch(
   return batch.id;
 }
 
+/**
+ * Prévia de lançamentos trazidos do banco (Open Finance): as linhas já chegam lidas, com o id do
+ * banco como identificador externo; a classificação (duplicados, já registrados, parcelas,
+ * pagamento de fatura, regras, natureza) é a mesma da importação de arquivos.
+ */
+export async function createOpenFinanceBatch(
+  ctx: ServiceContext,
+  input: { label: string; accountId: string | null; creditCardId: string | null; rows: ParsedImportRow[] },
+): Promise<string | null> {
+  assertCan(ctx, "data:import");
+  if (!input.rows.length) return null;
+  const scope = await resolveScope(ctx, input.accountId, input.creditCardId);
+  const parsed: ParseResult = {
+    rows: input.rows.map((r, i) => ({ ...r, rowIndex: i })),
+    ofxKind: null,
+    pdf: null,
+    meta: { mapping: null, headers: [], headerRowIndex: null, delimiter: null, sheetName: null, statement: null, warnings: [], pdfAi: null },
+  };
+  const { rows, meta } = await buildRows(ctx, scope, "CSV", Buffer.alloc(0), { parsed, invertSigns: false, fileName: input.label });
+  const overlap = await overlappingPreviews(ctx, scope, rows);
+  if (overlap) meta.warnings.push(overlap);
+  meta.storageKey = null;
+  const sha = sha256Hex(input.rows.map((r) => r.externalId ?? "").join("|"));
+  const batch = await withTransaction(async (db) => {
+    const created = await db.importBatch.create({
+      data: {
+        householdId: ctx.householdId,
+        format: "OPEN_FINANCE",
+        fileName: input.label.slice(0, 200),
+        fileSha256: sha,
+        accountId: scope.accountId,
+        creditCardId: scope.creditCardId,
+        status: "PREVIEW",
+        mapping: toJson(meta),
+        createdById: ctx.memberId,
+      },
+    });
+    await db.importRow.createMany({ data: rows.map((r) => rowCreateData(ctx.householdId, created.id, r)) });
+    await refreshCounters(db, created.id);
+    return created;
+  });
+  logger.info({ householdId: ctx.householdId, batchId: batch.id, rows: rows.length }, "imports: prévia do Open Finance criada");
+  await publishEvent(ctx.householdId, "import.changed", batch.id);
+  return batch.id;
+}
+
 /** Marca linhas de uma prévia da migração como duplicadas (ex.: a mesma transferência vista pelas duas contas). */
 export async function markMigrationRowsDuplicate(batchId: string, marks: Array<{ rowId: string; message: string }>) {
   if (!marks.length) return;
@@ -1696,6 +1742,7 @@ export async function previewMapping(ctx: ServiceContext, batchId: string, rawIn
   const meta = readMeta(batch.mapping);
   // Lotes da migração de planilha vêm de várias abas: colunas e abas se ajustam no assistente.
   if (batch.migrationId || batch.format === "XLS" || batch.format === "ODS") throw new ValidationError("Ajuste as colunas e as abas pelo assistente \"Migrar de planilha\".");
+  if (batch.format === "OPEN_FINANCE") throw new ValidationError("Lançamentos trazidos do banco não usam mapeamento de colunas.");
   const format: ImportFileFormat = batch.format;
   if ((format === "OFX" || format === "PDF") && input.mapping) throw new ValidationError(`Arquivos ${format} não usam mapeamento de colunas.`);
   if (!meta.storageKey || !(await storedFileExists(meta.storageKey))) throw new ValidationError("O arquivo original não está mais disponível. Envie o arquivo novamente.");

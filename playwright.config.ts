@@ -46,6 +46,7 @@ export default defineConfig({
         env: {
           DATABASE_URL: E2E_DATABASE_URL,
           ALLOW_REGISTRATION: "true",
+          OPEN_FINANCE_SIMULATOR: "true",
           AI_DEFAULT_PROVIDER: "LOCAL",
           TRANSCRIPTION_PROVIDER: "none",
           WHATSAPP_ENABLE_SIMULATOR: "true",

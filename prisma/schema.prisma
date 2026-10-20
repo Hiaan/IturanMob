@@ -246,6 +246,8 @@ enum NotificationType {
   CASH_SHORTFALL
   /// Cobrança que se repete todo mês e não está nos gastos fixos (ou que subiu de preço).
   SUBSCRIPTION_FOUND
+  /// Conexão com bancos: lançamentos novos para conferir ou conexão que precisa de atenção.
+  BANK_SYNC
 }
 
 enum NotificationChannel {
@@ -328,6 +330,8 @@ enum ImportFormat {
   XLS
   /// OpenDocument (LibreOffice/Google Planilhas) — migração de planilha.
   ODS
+  /// Lançamentos trazidos do banco pelo Open Finance (Meu Pluggy).
+  OPEN_FINANCE
 }
 
 /// Etapas da migração de planilha (assistente "Migrar de planilha").
@@ -527,6 +531,9 @@ model Household {
   incomeGoals            IncomeGoal[]
   alertMarks             AlertMark[]
   subscriptionCandidates SubscriptionCandidate[]
+  bankConnection         BankConnection?
+  bankItems              BankItem[]
+  bankAccountLinks       BankAccountLink[]
   whatsappConnection     WhatsAppConnection?
   whatsappGroups         WhatsAppGroup[]
   whatsappMessages       WhatsAppMessage[]
@@ -732,6 +739,7 @@ model Account {
   scheduledPayments     ScheduledPayment[]
   importBatches         ImportBatch[]
   rules                 FinancialRule[]        @relation("RuleAccount")
+  bankLinks             BankAccountLink[]
   transferRules         FinancialRule[]        @relation("RuleTransferAccount")
   matchRules            FinancialRule[]        @relation("RuleMatchAccount")
 
@@ -770,6 +778,7 @@ model CreditCard {
   statements            CreditCardStatement[]
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
+  bankLinks             BankAccountLink[]
   scheduledPayments     ScheduledPayment[]
   importBatches         ImportBatch[]
   matchRules            FinancialRule[]        @relation("RuleMatchCard")
@@ -1294,6 +1303,90 @@ model SubscriptionCandidate {
 
   @@unique([householdId, merchantKey])
   @@index([householdId, status])
+}
+
+enum OpenFinanceProvider {
+  /// Pluggy (Meu Pluggy: gratuito para uso pessoal, até 5 bancos por CPF, atualiza 1x por dia).
+  PLUGGY
+  /// Simulador para desenvolvimento (dados de exemplo, nenhum banco real). Só com OPEN_FINANCE_SIMULATOR=true.
+  SIMULATOR
+}
+
+/// Credenciais da aplicação Pluggy da família (cifradas) e como os lançamentos entram.
+model BankConnection {
+  id              String              @id @default(cuid())
+  householdId     String              @unique
+  provider        OpenFinanceProvider @default(PLUGGY)
+  /// Client ID e Client Secret cifrados (nunca expostos na API nem nos logs).
+  clientIdEnc     String?
+  clientSecretEnc String?
+  /// true = importa direto (duplicados e já registrados continuam de fora); false = prévia para conferir.
+  autoImport      Boolean             @default(false)
+  /// Dias para trás na primeira sincronização de cada conta.
+  initialDays     Int                 @default(30)
+  lastSyncAt      DateTime?
+  lastError       String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  household Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  items     BankItem[]
+}
+
+/// Conexão de um banco no Pluggy (item). O id é informado pela pessoa (a listagem de itens é paga).
+model BankItem {
+  id                String    @id @default(cuid())
+  householdId       String
+  connectionId      String
+  itemId            String
+  institutionName   String?
+  /// Situação no Pluggy (UPDATED, UPDATING, LOGIN_ERROR, OUTDATED, WAITING_USER_INPUT…).
+  status            String?
+  /// Última atualização dos dados pelo Pluggy.
+  providerUpdatedAt DateTime?
+  lastSyncAt        DateTime?
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  household  Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  connection BankConnection    @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  accounts   BankAccountLink[]
+
+  @@unique([householdId, itemId])
+}
+
+/// Conta ou cartão do banco ligado a uma conta/cartão do app.
+model BankAccountLink {
+  id                  String    @id @default(cuid())
+  householdId         String
+  bankItemId          String
+  externalAccountId   String
+  /// BANK (conta) ou CREDIT (cartão).
+  type                String
+  subtype             String?
+  name                String
+  /// Só os 4 últimos dígitos.
+  numberLast4         String?
+  currency            String    @default("BRL")
+  /// Saldo informado pelo banco (conta) ou fatura atual (cartão), para comparar com o app.
+  balanceCents        Int?
+  balanceAt           DateTime?
+  accountId           String?
+  creditCardId        String?
+  enabled             Boolean   @default(true)
+  /// Data do lançamento mais recente já trazido (a próxima busca começa alguns dias antes).
+  lastTransactionDate DateTime? @db.Date
+  lastSyncAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  household  Household   @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  item       BankItem    @relation(fields: [bankItemId], references: [id], onDelete: Cascade)
+  account    Account?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+
+  @@unique([householdId, externalAccountId])
 }
 
 model AlertMark {

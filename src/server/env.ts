@@ -59,6 +59,9 @@ const envSchema = z.object({
   TRANSCRIPTION_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   FFMPEG_PATH: z.string().default("ffmpeg"),
 
+  // Open Finance (Meu Pluggy). O simulador traz dados de exemplo, nunca de um banco real.
+  PLUGGY_API_URL: z.string().url().default("https://api.pluggy.ai"),
+  OPEN_FINANCE_SIMULATOR: bool(false),
   // WhatsApp
   WHATSAPP_DEFAULT_PROVIDER: z.enum(["SIMULATOR", "BAILEYS", "CLOUD_API"]).default("SIMULATOR"),
   WHATSAPP_ENABLE_SIMULATOR: bool(true),

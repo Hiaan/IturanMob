@@ -176,7 +176,10 @@ function PreviewFlow({ preview, onCommitted, onNewImport }: { preview: ImportPre
             )}
           </div>
         )}
-        {!tabular && (
+        {!tabular && preview.batch.format === "OPEN_FINANCE" && (
+          <p className="text-xs text-muted-foreground">Lançamentos trazidos direto do banco pelo Open Finance: confira e confirme os que quiser importar.</p>
+        )}
+        {!tabular && preview.batch.format !== "OPEN_FINANCE" && (
           <p className="text-xs text-muted-foreground">
             Sinais invertidos?{" "}
             <span className="text-foreground">Envie o arquivo de novo marcando “Inverter sinais”.</span> Arquivos {formatLabel(preview.batch.format)} não precisam de mapeamento de colunas.

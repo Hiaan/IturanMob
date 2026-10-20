@@ -6,7 +6,7 @@ export function needsScopeReview(preview: ImportPreview): boolean {
   return Boolean(preview.batch.scopeMismatch) && !preview.rows.some((r) => r.selected);
 }
 
-/** CSV e XLSX dependem do mapeamento de colunas; OFX e PDF não. */
+/** CSV e XLSX dependem do mapeamento de colunas; OFX, PDF e lotes do banco (Open Finance) não. */
 export function isTabularFormat(format: ImportFormat): boolean {
   return format === "CSV" || format === "XLSX";
 }

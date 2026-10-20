@@ -33,6 +33,8 @@ export const qk = {
   reports: (p?: unknown) => ["reports", p ?? {}] as const,
   imports: (p?: unknown) => ["imports", p ?? {}] as const,
   whatsapp: (p?: unknown) => ["whatsapp", p ?? {}] as const,
+  /** Integração com os bancos (Open Finance via Meu Pluggy). */
+  openFinance: ["integrations", "open-finance"] as const,
   ai: (p?: unknown) => ["ai", p ?? {}] as const,
   assistant: (p?: unknown) => ["assistant", p ?? {}] as const,
   audit: (p?: unknown) => ["audit", p ?? {}] as const,

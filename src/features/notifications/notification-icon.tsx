@@ -8,6 +8,7 @@ import {
   Gauge,
   Inbox,
   Info,
+  Landmark,
   MessageCircleWarning,
   PiggyBank,
   Receipt,
@@ -35,6 +36,7 @@ const ICONS: Record<string, LucideIcon> = {
   GOAL_PROGRESS: PiggyBank,
   CASH_SHORTFALL: TrendingDown,
   SUBSCRIPTION_FOUND: Repeat,
+  BANK_SYNC: Landmark,
   SYSTEM: Info,
 };
 

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { useWhatsAppStatus } from "@/features/whatsapp/hooks";
 import { ConnectionBadge, PROVIDER_SHORT } from "@/features/whatsapp/status-meta";
 import { formatPhone, timeAgo } from "@/features/whatsapp/utils";
+import { OpenFinanceCard } from "./open-finance-card";
 
 interface AIConfig {
   consent: { aiExternalAllowed: boolean; aiAudioAllowed: boolean; aiImageAllowed: boolean };
@@ -204,12 +205,15 @@ function ImportCard() {
 export function IntegrationsHub() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Integrações" description="Conecte o Finance AI ao WhatsApp, escolha os provedores de IA e importe extratos." />
+      <PageHeader title="Integrações" description="Conecte o Finance AI ao WhatsApp e aos seus bancos, escolha os provedores de IA e importe extratos." />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <WhatsAppCard />
         <AICard />
         <ImportCard />
       </div>
+      <section aria-label="Bancos (Open Finance)">
+        <OpenFinanceCard />
+      </section>
     </div>
   );
 }

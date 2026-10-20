@@ -53,6 +53,7 @@ export const FORMAT_META: Record<ImportFormat, { label: string; short: string; i
   XLS: { label: "Excel 97–2003 (XLS)", short: "XLS", icon: FileSpreadsheet, tone: "bg-positive/10 text-positive", tag: "text-positive" },
   ODS: { label: "OpenDocument (ODS)", short: "ODS", icon: FileSpreadsheet, tone: "bg-info/10 text-info", tag: "text-info" },
   PDF: { label: "PDF", short: "PDF", icon: FileText, tone: "bg-negative/10 text-negative", tag: "text-negative" },
+  OPEN_FINANCE: { label: "Banco (Open Finance)", short: "Banco", icon: Landmark, tone: "bg-brand/10 text-brand", tag: "text-brand" },
 };
 
 export function formatLabel(format: ImportFormat | string): string {

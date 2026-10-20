@@ -11,7 +11,7 @@ export interface PeriodicTask {
 }
 
 export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
-  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions] = await Promise.all([
+  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance] = await Promise.all([
     import("../modules/recurring/jobs"),
     import("../modules/budgets/jobs"),
     import("../modules/bills/jobs"),
@@ -26,6 +26,7 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     import("../modules/goals/alerts"),
     import("../modules/alerts/cash"),
     import("../modules/subscriptions/service"),
+    import("../modules/open-finance/service"),
   ]);
   return [
     { name: "recurring:generate", everySeconds: 15 * 60, run: () => recurring.runRecurringJobs() },
@@ -36,6 +37,8 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     // "Vai faltar dinheiro" (projeção de 30 dias) e assinaturas esquecidas / mais caras.
     { name: "alerts:cash", everySeconds: 3 * 60 * 60, run: () => cash.runCashShortfallAlerts() },
     { name: "alerts:subscriptions", everySeconds: 6 * 60 * 60, run: () => subscriptions.runSubscriptionJobs() },
+    // Bancos (Meu Pluggy): lançamentos novos a cada 6 horas (o Meu Pluggy atualiza 1x por dia).
+    { name: "open-finance:sync", everySeconds: 60 * 60, run: () => openFinance.runOpenFinanceJobs() },
     { name: "notifications:dispatch", everySeconds: 60, run: () => notifications.runNotificationDispatch() },
     { name: "reports:scheduled", everySeconds: 15 * 60, run: () => reports.runScheduledReports() },
     { name: "retention:purge", everySeconds: 6 * 60 * 60, run: () => retention.runRetentionJobs() },

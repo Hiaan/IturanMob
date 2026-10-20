@@ -2,8 +2,8 @@
 
 export type ImportRowStatus = "NEW" | "DUPLICATE" | "MATCHED" | "DIVERGENT" | "SKIPPED" | "IMPORTED" | "ERROR";
 export type ImportBatchStatus = "PREVIEW" | "IMPORTED" | "UNDONE" | "FAILED";
-/** XLS e ODS só chegam pela migração de planilha (lotes criados pelo assistente "Migrar de planilha"). */
-export type ImportFormat = "CSV" | "OFX" | "XLSX" | "XLS" | "ODS" | "PDF";
+/** XLS e ODS só chegam pela migração de planilha (lotes criados pelo assistente "Migrar de planilha"). OPEN_FINANCE: lotes trazidos do banco pela integração. */
+export type ImportFormat = "CSV" | "OFX" | "XLSX" | "XLS" | "ODS" | "PDF" | "OPEN_FINANCE";
 export type DateFormat = "auto" | "dmy" | "ymd" | "mdy";
 
 export interface ColumnMapping {

@@ -19,7 +19,8 @@ export type NotificationTypeKey =
   | "BILL_OVERDUE"
   | "STATEMENT_DUE"
   | "CASH_SHORTFALL"
-  | "SUBSCRIPTION_FOUND";
+  | "SUBSCRIPTION_FOUND"
+  | "BANK_SYNC";
 
 export const NOTIFICATION_TYPE_URL: Partial<Record<NotificationTypeKey, string>> = {
   BILL_DUE: "/contas-a-pagar",
@@ -30,6 +31,7 @@ export const NOTIFICATION_TYPE_URL: Partial<Record<NotificationTypeKey, string>>
   STATEMENT_DUE: "/cartoes",
   CASH_SHORTFALL: "/contas-a-pagar",
   SUBSCRIPTION_FOUND: "/gastos-fixos",
+  BANK_SYNC: "/importacao",
   INCOME_GOAL: "/metas",
   GOAL_PROGRESS: "/metas",
   WEEKLY_REPORT: "/relatorios",

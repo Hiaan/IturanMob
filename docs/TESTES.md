@@ -22,7 +22,7 @@ createdb -h localhost -U finance finance_ai_e2e       # uma vez
 pnpm test:e2e
 # com Chromium instalado em outro caminho: PW_CHROMIUM_PATH=/caminho/chromium pnpm test:e2e
 # contra um servidor já em execução (ex.: a imagem de produção), com ALLOW_REGISTRATION=true e
-# RATE_LIMIT_REGISTER_PER_HOUR alto: E2E_BASE_URL=http://localhost:3200 pnpm test:e2e
+# RATE_LIMIT_REGISTER_PER_HOUR alto e OPEN_FINANCE_SIMULATOR=true: E2E_BASE_URL=http://localhost:3200 pnpm test:e2e
 ```
 
 Os testes de integração e e2e precisam de PostgreSQL 16 e Redis 7 em execução (ex.:

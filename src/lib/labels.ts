@@ -121,6 +121,7 @@ export const NOTIFICATION_TYPE_LABELS = {
   STATEMENT_DUE: "Fatura perto de vencer",
   CASH_SHORTFALL: "Vai faltar dinheiro",
   SUBSCRIPTION_FOUND: "Assinatura encontrada ou mais cara",
+  BANK_SYNC: "Lançamentos do banco",
 } as const;
 
 export const WHATSAPP_STATUS_LABELS = {
