@@ -52,6 +52,8 @@ export interface CardDTO {
   availableLimitCents: number | null;
   closingDay: number;
   dueDay: number;
+  /** Lembrete da fatura N dias antes do vencimento (0 = só no dia). */
+  dueReminderDays: number;
   paymentAccountId: string | null;
   paymentAccountName: string | null;
   color: string;

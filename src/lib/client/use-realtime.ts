@@ -4,6 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { EVENT_INVALIDATIONS } from "./query-keys";
 
+/** Evento de janela disparado a cada mensagem do tempo real (`detail` = evento do servidor). */
+export const REALTIME_EVENT = "fa:realtime";
+
+export interface RealtimeMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** Escuta um tipo de evento do tempo real (ex.: "notification.created"); devolve a função de cancelar. */
+export function onRealtimeEvent(type: string, handler: (event: RealtimeMessage) => void): () => void {
+  const listener = (e: Event) => {
+    const detail = (e as CustomEvent<RealtimeMessage>).detail;
+    if (detail?.type === type) handler(detail);
+  };
+  window.addEventListener(REALTIME_EVENT, listener);
+  return () => window.removeEventListener(REALTIME_EVENT, listener);
+}
+
 /**
  * Assina os eventos em tempo real (SSE) e invalida somente as consultas afetadas.
  * Reconecta com backoff; se o tempo real cair, o app continua funcionando normalmente.
@@ -37,8 +55,10 @@ export function useRealtime() {
       es.addEventListener("degraded", () => setStatus("offline"));
       es.onmessage = (ev) => {
         try {
-          const event = JSON.parse(ev.data) as { type: string };
+          const event = JSON.parse(ev.data) as RealtimeMessage;
           for (const key of EVENT_INVALIDATIONS[event.type] ?? []) pending.current.add(JSON.stringify(key));
+          // Repassa o evento a quem precisa reagir além de recarregar dados (ex.: pop-ups de notificação).
+          window.dispatchEvent(new CustomEvent<RealtimeMessage>(REALTIME_EVENT, { detail: event }));
           // Agrupa rajadas de eventos em uma única atualização.
           if (timer.current) clearTimeout(timer.current);
           timer.current = setTimeout(flush, 300);

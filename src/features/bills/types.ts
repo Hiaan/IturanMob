@@ -21,6 +21,8 @@ export interface BillDTO {
   transaction: { id: string; amountCents: number; date: string; status: string; deletedAt: string | null } | null;
   paidAmountCents: number | null;
   paidAt: string | null;
+  /** "Pagar depois": lembrete de conta vencida adiado até esta data (AAAA-MM-DD). */
+  reminderSnoozedUntil: string | null;
   notes: string | null;
   statement: { id: string; creditCardId: string; referenceMonth: string; closingDate: string; totalCents: number; paidCents: number; status: string } | null;
 }

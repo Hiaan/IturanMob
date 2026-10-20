@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, CreditCard, ExternalLink, Landmark, MoreHorizontal, Pencil, Plus, Repeat, RotateCcw, SkipForward, Undo2, XCircle, Zap } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
+import { AlarmClockOff, CalendarClock, CreditCard, ExternalLink, Landmark, MoreHorizontal, Pencil, Plus, Repeat, RotateCcw, SkipForward, Undo2, XCircle, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,8 +23,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
+import { api, errorMessage } from "@/lib/client/api";
 import { formatBRL } from "@/lib/money";
-import { diffDays, formatDateBR, formatLongDateBR, formatMonthBR, monthKey, todayISO, weekday, WEEKDAY_NAMES } from "@/lib/dates";
+import { diffDays, formatDateBR, formatDayMonthBR, formatLongDateBR, formatMonthBR, monthKey, todayISO, weekday, WEEKDAY_NAMES } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useCan, useMe } from "@/features/me/use-me";
 import { MonthSwitcher } from "@/features/budgets/month-switcher";
@@ -31,7 +34,7 @@ import { BillFormDialog } from "./bill-form-dialog";
 import { BillStatusBadge } from "./bill-status-badge";
 import { PayBillDialog } from "./pay-bill-dialog";
 import type { BillDTO, BillStatus } from "./types";
-import { useBillMutations, useBills } from "./use-bills";
+import { SNOOZE_DAYS, useBillMutations, useBills } from "./use-bills";
 
 const FILTERS: Array<{ value: string; label: string; statuses?: BillStatus[] }> = [
   { value: "all", label: "Todas" },
@@ -58,7 +61,31 @@ function dueHint(bill: BillDTO): string | null {
   return null;
 }
 
+/** Conta vencida em aberto (não fatura): aceita "pagar depois", que adia só o lembrete. */
+function canSnooze(bill: BillDTO, today: string): boolean {
+  return bill.kind === "SCHEDULED" && bill.type === "EXPENSE" && bill.status === "OVERDUE" && bill.rawStatus === "PENDING" && !snoozedUntil(bill, today);
+}
+
+/** Data até a qual o lembrete está adiado, se ainda estiver no futuro. */
+function snoozedUntil(bill: BillDTO, today: string): string | null {
+  const open = bill.status === "PENDING" || bill.status === "OVERDUE";
+  return open && bill.reminderSnoozedUntil && bill.reminderSnoozedUntil > today ? bill.reminderSnoozedUntil : null;
+}
+
+function SnoozeHint({ bill, today }: { bill: BillDTO; today: string }) {
+  const until = snoozedUntil(bill, today);
+  if (!until) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <AlarmClockOff className="size-3" aria-hidden /> Lembrete adiado até {formatDayMonthBR(until)}
+    </span>
+  );
+}
+
 type Handlers = {
+  today: string;
+  snoozingId: string | null;
+  onSnooze: (b: BillDTO) => void;
   onPay: (b: BillDTO) => void;
   onEdit: (b: BillDTO) => void;
   onUndo: (b: BillDTO) => void;
@@ -139,7 +166,12 @@ function Actions({ bill, canEdit, h }: { bill: BillDTO; canEdit: boolean; h: Han
   const done = bill.status === "PAID" || bill.status === "POSTED";
   const closed = bill.status === "SKIPPED" || bill.status === "CANCELLED";
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      {canSnooze(bill, h.today) && (
+        <Button size="sm" variant="outline" onClick={() => h.onSnooze(bill)} loading={h.snoozingId === bill.id} title={`Adia o lembrete por ${SNOOZE_DAYS} dias; a conta continua em aberto`}>
+          Pagar depois
+        </Button>
+      )}
       {open && (
         <Button size="sm" variant={bill.status === "OVERDUE" ? "brand" : "outline"} onClick={() => h.onPay(bill)}>
           {bill.type === "INCOME" ? "Receber" : "Pagar"}
@@ -192,11 +224,34 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
   const [filter, setFilter] = useState("all");
   const statuses = FILTERS.find((f) => f.value === filter)?.statuses;
   const q = useBills({ month, statuses });
-  const { undoPay, cancel, skip, reopen } = useBillMutations();
+  const { undoPay, cancel, skip, snooze, reopen } = useBillMutations();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BillDTO | null>(null);
   const [paying, setPaying] = useState<BillDTO | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "undo" | "cancel"; bill: BillDTO } | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const payId = search.get("pay");
+  const ready = Boolean(me.data);
+
+  // ?pay=<id> (ex.: "Já paguei" do aviso de conta vencida): abre o pagamento dessa conta e limpa a URL.
+  useEffect(() => {
+    if (!payId || !ready) return;
+    const next = new URLSearchParams(search.toString());
+    next.delete("pay");
+    router.replace(next.size ? `${pathname}?${next.toString()}` : pathname, { scroll: false });
+    api
+      .get<BillDTO>(`/api/v1/bills/${encodeURIComponent(payId)}`)
+      .then((b) => {
+        setMonth(monthKey(b.dueDate));
+        if (b.kind !== "SCHEDULED" || (b.status !== "PENDING" && b.status !== "OVERDUE")) toast.info(`${b.description} não está mais em aberto`, { description: b.statusLabel });
+        else if (!canEdit) toast.info("Você não tem permissão para registrar pagamentos");
+        else setPaying(b);
+      })
+      .catch((err) => toast.error(errorMessage(err)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payId, ready]);
 
   const items = q.data?.items ?? [];
   const groups = useMemo(() => {
@@ -206,6 +261,9 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
   }, [items]);
   const totals = q.data?.totals;
   const h: Handlers = {
+    today,
+    snoozingId: snooze.isPending ? (snooze.variables?.id ?? null) : null,
+    onSnooze: (b) => snooze.mutate({ id: b.id }),
     onPay: setPaying,
     onEdit: (b) => {
       setEditing(b);
@@ -312,7 +370,7 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
                       <TableHead>Conta / cartão</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="w-44 text-right">
+                      <TableHead className="w-56 text-right">
                         <span className="sr-only">Ações</span>
                       </TableHead>
                     </TableRow>
@@ -349,6 +407,7 @@ export function BillsTab({ onGoToRecurring }: { onGoToRecurring: () => void }) {
                               <span className="text-muted-foreground">
                                 <Payer bill={b} hideEmpty />
                               </span>
+                              <SnoozeHint bill={b} today={today} />
                             </div>
                             {(canEdit || b.kind === "CARD_STATEMENT") && (
                               <div className="mt-3 border-t pt-3">
@@ -420,6 +479,7 @@ function GroupRows({ label, bills, canEdit, h }: { label: string; bills: BillDTO
           <TableCell>
             <BillStatusBadge status={b.status} label={b.statusLabel} />
             {dueHint(b) && <p className="mt-1 text-xs text-muted-foreground">{dueHint(b)}</p>}
+            <SnoozeHint bill={b} today={h.today} />
           </TableCell>
           <TableCell className="text-right">
             <Amount bill={b} />

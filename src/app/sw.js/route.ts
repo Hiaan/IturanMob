@@ -89,6 +89,9 @@ self.addEventListener("message", (event) => {
 });
 
 // ---- Notificações push ----
+// Safari/WebKit (iPhone, Mac) cancela a inscrição de push que não mostra notificação: lá, sempre mostra.
+const MUST_SHOW = /AppleWebKit/.test(self.navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|Android/.test(self.navigator.userAgent);
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -97,14 +100,26 @@ self.addEventListener("push", (event) => {
     data = { title: "Finanças", body: event.data ? event.data.text() : "" };
   }
   const title = data.title || "Finanças";
-  event.waitUntil(
+  const show = () =>
     self.registration.showNotification(title, {
       body: data.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-96.png",
       tag: data.tag || undefined,
       data: { url: data.url || "/" },
-    }),
+    });
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((list) => {
+        const mine = list.filter((c) => new URL(c.url).origin === self.location.origin);
+        // App aberto e visível: o pop-up no app mostra o aviso; avisa as janelas em vez de duplicar.
+        const foreground = mine.some((c) => c.visibilityState === "visible" || c.focused);
+        if (!foreground) return show();
+        for (const c of mine) c.postMessage({ type: "push", payload: data });
+        return MUST_SHOW ? show() : undefined;
+      })
+      .catch(() => show()),
   );
 });
 

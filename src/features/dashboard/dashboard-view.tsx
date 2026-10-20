@@ -24,6 +24,7 @@ import { FiltersBar } from "./filters-bar";
 import { filtersToParams, usePersistentFilters } from "./use-filters";
 import { KpiGrid, type DashboardSummary, type KpiFxNotes } from "./kpi-grid";
 import { OnboardingChecklist } from "./onboarding";
+import { IncomeGoalsCard } from "./income-goals-card";
 import {
   BalanceEvolution,
   BudgetVsActual,
@@ -135,6 +136,7 @@ export function DashboardView() {
       {summary.data?.business && summary.data.scope && summary.data.scope !== "BUSINESS" && (
         <BusinessResultCard business={summary.data.business} scope={summary.data.scope} period={summary.data.period} onShowBusiness={showBusiness} />
       )}
+      <IncomeGoalsCard />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">

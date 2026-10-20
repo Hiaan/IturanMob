@@ -13,6 +13,7 @@ import { GlobalSearch } from "./global-search";
 import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
 import { InstallHint } from "@/components/pwa/install-hint";
+import { NotificationPopups } from "@/features/notifications/notification-popups";
 
 export interface ShellUser {
   name: string;
@@ -112,6 +113,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
       <MobileNav onQuickAdd={() => setQuickAddOpen(true)} pendingCount={pendingCount} />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <QuickAddDialog open={quickAddOpen} onOpenChange={setQuickAddOpen} />
+      <NotificationPopups />
     </div>
   );
 }

@@ -22,8 +22,12 @@ export const qk = {
   pending: (p?: unknown) => ["pending", p ?? {}] as const,
   pendingCounts: ["pending", "counts"] as const,
   notifications: (p?: unknown) => ["notifications", p ?? {}] as const,
+  /** "Mostrar pop-ups no app" do membro logado (fora de "notifications": não recarrega a cada aviso lido). */
+  notificationPopups: ["notification-popups"] as const,
   budgets: (p?: unknown) => ["budgets", p ?? {}] as const,
   goals: (p?: unknown) => ["goals", p ?? {}] as const,
+  /** Metas de ganho com o progresso do mês (a receita muda com qualquer lançamento). */
+  incomeGoals: (p?: unknown) => ["income-goals", p ?? {}] as const,
   recurring: (p?: unknown) => ["recurring", p ?? {}] as const,
   bills: (p?: unknown) => ["bills", p ?? {}] as const,
   reports: (p?: unknown) => ["reports", p ?? {}] as const,
@@ -36,16 +40,16 @@ export const qk = {
 
 /** Para cada tipo de evento em tempo real, quais prefixos de consulta invalidar. */
 export const EVENT_INVALIDATIONS: Record<string, string[][]> = {
-  "transaction.changed": [["transactions"], ["accounts"], ["cards"], ["analytics"], ["budgets"], ["bills"], ["goals"], ["pending"], ["me"]],
+  "transaction.changed": [["transactions"], ["accounts"], ["cards"], ["analytics"], ["budgets"], ["bills"], ["goals"], ["income-goals"], ["pending"], ["me"]],
   "account.changed": [["accounts"], ["analytics"]],
   "card.changed": [["cards"], ["analytics"], ["bills"]],
   "budget.changed": [["budgets"], ["analytics"]],
-  "goal.changed": [["goals"], ["accounts"]],
+  "goal.changed": [["goals"], ["income-goals"], ["accounts"]],
   "bill.changed": [["bills"], ["analytics"]],
   "pending.changed": [["pending"], ["me"]],
   "notification.created": [["notifications"]],
   "whatsapp.status": [["whatsapp"]],
   "whatsapp.message": [["whatsapp"], ["pending"]],
-  "import.changed": [["imports"], ["transactions"], ["accounts"], ["analytics"]],
-  "category.changed": [["categories"], ["analytics"], ["budgets"]],
+  "import.changed": [["imports"], ["transactions"], ["accounts"], ["analytics"], ["income-goals"]],
+  "category.changed": [["categories"], ["analytics"], ["budgets"], ["income-goals"]],
 };

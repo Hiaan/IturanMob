@@ -54,3 +54,9 @@ export async function apiGet<T = unknown>(request: APIRequestContext, url: strin
   expect(res.ok(), `${url}: ${await res.text()}`).toBeTruthy();
   return ((await res.json()) as { data: T }).data;
 }
+
+export async function apiPut<T = unknown>(request: APIRequestContext, url: string, data: unknown): Promise<T> {
+  const res = await request.put(url, { data, headers: API_HEADERS });
+  expect(res.ok(), `${url}: ${await res.text()}`).toBeTruthy();
+  return ((await res.json()) as { data: T }).data;
+}

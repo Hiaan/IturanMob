@@ -5,7 +5,11 @@ import { toast } from "sonner";
 import { api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
+import { formatDayMonthBR } from "@/lib/dates";
 import type { BillDTO, BillList, BillStatus } from "./types";
+
+/** Adiamento padrão do "Pagar depois" (o servidor aceita de 1 a 15 dias). */
+export const SNOOZE_DAYS = 3;
 
 export function useBills(params: { month: string; statuses?: BillStatus[] }) {
   return useQuery({
@@ -97,6 +101,19 @@ export function useBillMutations() {
     onError,
   });
 
+  /** "Pagar depois": adia o lembrete de conta vencida (padrão 3 dias); a conta continua em aberto. */
+  const snooze = useMutation({
+    mutationFn: ({ id, days = SNOOZE_DAYS }: { id: string; days?: number }) => api.post<BillDTO>(`/api/v1/bills/${id}/snooze`, { days }),
+    onSuccess: (b, vars) => {
+      const days = vars.days ?? SNOOZE_DAYS;
+      toast.success(`Lembrete adiado por ${days} ${days === 1 ? "dia" : "dias"}`, {
+        description: b.reminderSnoozedUntil ? `${b.description} · até ${formatDayMonthBR(b.reminderSnoozedUntil)}` : b.description,
+      });
+      invalidate();
+    },
+    onError,
+  });
+
   const cancel = useMutation({
     mutationFn: (id: string) => api.post<BillDTO>(`/api/v1/bills/${id}/cancel`),
     onSuccess: (b) => {
@@ -106,5 +123,5 @@ export function useBillMutations() {
     onError,
   });
 
-  return { create, update, pay, undoPay, skip, cancel, reopen };
+  return { create, update, pay, undoPay, skip, snooze, cancel, reopen };
 }

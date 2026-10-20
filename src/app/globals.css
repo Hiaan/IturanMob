@@ -269,6 +269,20 @@ body::before {
   }
 }
 
+/* Pop-ups de notificação (toast.custom, sem o estilo padrão do sonner): na pilha recolhida, os de
+   trás mostram só a borda, como os avisos padrão — conteúdo oculto, cortado e sem receber toques. */
+[data-sonner-toast][data-expanded="false"][data-front="false"] .notification-popup {
+  max-height: var(--front-toast-height);
+  overflow: hidden;
+}
+[data-sonner-toast][data-expanded="false"][data-front="false"] .notification-popup > * {
+  opacity: 0;
+  pointer-events: none;
+}
+.notification-popup > * {
+  transition: opacity 0.4s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

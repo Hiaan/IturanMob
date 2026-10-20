@@ -50,3 +50,41 @@ export interface ContributeResult {
   created: boolean;
   completedNow: boolean;
 }
+
+/** Recorte da meta de ganho (mesmos valores do recorte de relatórios). */
+export type IncomeGoalScope = "ALL" | "PERSONAL" | "BUSINESS";
+
+/** Meta de ganho com o progresso do mês (espelha IncomeGoalProgress de src/server/modules/income-goals/service.ts). */
+export interface IncomeGoalProgress {
+  id: string;
+  scope: IncomeGoalScope;
+  scopeLabel: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  /** "Meta de ganho · Empresa" / "Meta de ganho · Clientes (Pessoa física)". */
+  label: string;
+  targetCents: number;
+  /** Faixas de aviso próprias; vazio = as mesmas do orçamento. */
+  alertThresholds: number[];
+  /** Faixas em uso (as próprias ou as do orçamento). */
+  effectiveThresholds: number[];
+  active: boolean;
+  month: string;
+  incomeCents: number;
+  /** Percentual inteiro (arredondado para baixo); pode passar de 100. */
+  percent: number;
+  remainingCents: number;
+  reached: boolean;
+  /** Projeção pelo ritmo do mês; só no mês corrente. */
+  projectedCents: number | null;
+  /** Dias que faltam no mês, incluindo hoje. */
+  daysLeft: number;
+}
+
+export interface IncomeGoalInput {
+  scope: IncomeGoalScope;
+  categoryId: string | null;
+  targetCents: number;
+  alertThresholds: number[];
+  active: boolean;
+}

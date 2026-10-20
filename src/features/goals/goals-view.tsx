@@ -26,6 +26,7 @@ import { ContributionDialog, type ContributionMode } from "./contribution-dialog
 import { ContributionsSheet } from "./contributions-sheet";
 import { GoalCard, type GoalAction } from "./goal-card";
 import { GoalFormDialog } from "./goal-form-dialog";
+import { IncomeGoalsSection } from "./income-goals-section";
 import type { GoalDTO } from "./types";
 import { useGoalMutations, useGoals } from "./use-goals";
 
@@ -80,11 +81,19 @@ export function GoalsView() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Metas"
-        description="Objetivos da família e quanto falta para alcançá-los"
-        actions={
-          <>
+      <PageHeader title="Metas" description="Quanto a família quer ganhar no mês e os objetivos de economia" />
+
+      <IncomeGoalsSection canEdit={canEdit} />
+
+      <section aria-labelledby="savings-goals-heading" className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 id="savings-goals-heading" className="text-lg font-semibold tracking-tight">
+              Metas de economia
+            </h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">Objetivos da família e quanto falta para alcançá-los.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <label className="flex h-10 items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground">
               <Switch checked={showArchived} onCheckedChange={setShowArchived} aria-label="Mostrar metas arquivadas" />
               Mostrar arquivadas
@@ -94,63 +103,63 @@ export function GoalsView() {
                 <Plus /> Nova meta
               </Button>
             )}
-          </>
-        }
-      />
+          </div>
+        </div>
 
-      {q.isLoading ? (
-        <div className="space-y-6" aria-busy="true" aria-label="Carregando metas">
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-24 rounded-xl" />
-            ))}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-80 rounded-xl" />
-            ))}
-          </div>
-        </div>
-      ) : q.error ? (
-        <ErrorState error={q.error} onRetry={() => q.refetch()} />
-      ) : !items.length ? (
-        <EmptyState
-          icon={Target}
-          title={showArchived ? "Nenhuma meta cadastrada" : "Nenhuma meta em andamento"}
-          description="Crie metas como uma viagem, a reserva de emergência ou a troca do carro e acompanhe o progresso a cada contribuição."
-          action={
-            canEdit ? (
-              <Button variant="brand" onClick={newGoal}>
-                <Plus /> Criar meta
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className={cn("space-y-6 transition-opacity", q.isFetching && "opacity-70")}>
-          {totals && (
+        {q.isLoading ? (
+          <div className="space-y-6" aria-busy="true" aria-label="Carregando metas">
             <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-              <SummaryTile label="Metas ativas" value={totals.activeCount}>
-                {completedCount > 0 ? `${completedCount} ${completedCount === 1 ? "concluída" : "concluídas"}` : "Em andamento"}
-              </SummaryTile>
-              <SummaryTile label="Acumulado nas metas ativas" value={formatBRL(totals.savedCents)}>
-                de {formatBRL(totals.targetCents)}
-              </SummaryTile>
-              <SummaryTile label="Falta juntar" value={formatBRL(Math.max(0, totals.targetCents - totals.savedCents))}>
-                Soma das metas ativas
-              </SummaryTile>
-              <SummaryTile label="Necessário por mês" value={formatBRL(totals.monthlyNeededCents)}>
-                Para cumprir os prazos definidos
-              </SummaryTile>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-24 rounded-xl" />
+              ))}
             </div>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {items.map((goal) => (
-              <GoalCard key={goal.id} goal={goal} canEdit={canEdit} onAction={onAction} />
-            ))}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-80 rounded-xl" />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        ) : q.error ? (
+          <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        ) : !items.length ? (
+          <EmptyState
+            icon={Target}
+            title={showArchived ? "Nenhuma meta cadastrada" : "Nenhuma meta em andamento"}
+            description="Crie metas como uma viagem, a reserva de emergência ou a troca do carro e acompanhe o progresso a cada contribuição."
+            action={
+              canEdit ? (
+                <Button variant="brand" onClick={newGoal}>
+                  <Plus /> Criar meta
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className={cn("space-y-6 transition-opacity", q.isFetching && "opacity-70")}>
+            {totals && (
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+                <SummaryTile label="Metas ativas" value={totals.activeCount}>
+                  {completedCount > 0 ? `${completedCount} ${completedCount === 1 ? "concluída" : "concluídas"}` : "Em andamento"}
+                </SummaryTile>
+                <SummaryTile label="Acumulado nas metas ativas" value={formatBRL(totals.savedCents)}>
+                  de {formatBRL(totals.targetCents)}
+                </SummaryTile>
+                <SummaryTile label="Falta juntar" value={formatBRL(Math.max(0, totals.targetCents - totals.savedCents))}>
+                  Soma das metas ativas
+                </SummaryTile>
+                <SummaryTile label="Necessário por mês" value={formatBRL(totals.monthlyNeededCents)}>
+                  Para cumprir os prazos definidos
+                </SummaryTile>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {items.map((goal) => (
+                <GoalCard key={goal.id} goal={goal} canEdit={canEdit} onAction={onAction} />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       <GoalFormDialog open={formOpen} onOpenChange={setFormOpen} goal={editing} />
       <ContributionDialog goal={byId(contribution?.id ?? null)} mode={contribution?.mode ?? "contribute"} onOpenChange={(o) => !o && setContribution(null)} />

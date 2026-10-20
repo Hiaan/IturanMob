@@ -14,6 +14,7 @@ import { ErrorState } from "@/components/shared/error-state";
 import { api, errorMessage } from "@/lib/client/api";
 import { NOTIFICATION_TYPE_LABELS } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import { InAppPopupsToggle } from "./popup-preference";
 
 type Frequency = "IMMEDIATE" | "DAILY_DIGEST" | "OFF";
 
@@ -85,7 +86,8 @@ export function NotificationPreferencesForm() {
           Escolha o que você quer receber no aplicativo, no celular (push) e no grupo do WhatsApp. As mensagens de WhatsApp vão para o grupo da família (compartilhado) e são limitadas a 6 por hora.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-4">
+        <InAppPopupsToggle />
         {q.isLoading || (!draft && !q.error) ? (
           <div className="grid gap-2" aria-busy="true" aria-label="Carregando preferências">
             {Array.from({ length: 6 }).map((_, i) => (

@@ -103,9 +103,18 @@ Passo a passo completo, comandos aceitos no grupo e detalhes de cada provedor em
 Em **Configurações → Notificações**, cada pessoa escolhe por tipo de aviso (contas a vencer, fatura,
 orçamento, metas, pendências, relatórios, falhas de integração):
 
-- canal: no app e/ou WhatsApp;
+- canal: no app, no celular (push) e/ou WhatsApp;
 - frequência: imediata, resumo diário ou desligada;
 - horário silencioso.
+
+Tipos: contas a vencer, **conta vencida não paga**, fatura fechada, **fatura perto de vencer**,
+orçamento, **meta de ganho**, **metas de economia**, pendências, relatórios e falhas de integração.
+Cada aviso sai uma vez por faixa/período (as execuções repetidas do worker não duplicam).
+
+**Pop-ups no app** ("Mostrar pop-ups no app", ligado por padrão): com o app aberto, uma notificação
+nova aparece como aviso na tela, com o botão para abrir o destino; com o app em primeiro plano, o
+celular não mostra o push repetido. Ao voltar ao app depois de um tempo, aparecem no máximo 3 dos não
+lidos mais importantes (vencidas → vence hoje → metas) e "ver todas" no sininho.
 
 ## Retenção e privacidade
 

@@ -65,6 +65,13 @@ Outras coberturas além dos 22 cenários:
   aplicações no meio do mês, IR/IOF) e `investment-yield.test.ts` (integração: Banco Central simulado,
   idempotência, BCB fora do ar, exclusão respeitada, ajuste ao saldo do banco);
 - edições parciais não reaplicam valores padrão: `partial-updates.test.ts`.
+- notificações e metas: `notifications-goals.test.ts` (relógio controlado: faixas da meta de ganho
+  — só a maior nova, 🎉 batida, ritmo no dia 25, repasse fora, por categoria, preferência desligada —,
+  metas de economia — faixas, prazo de 30/7 dias abaixo do esperado, conclusão, meta antiga sem aviso
+  atrasado —, conta vencida — dia seguinte, a cada 3 dias até 15, "pagar depois", "já paguei" —, fatura
+  perto de vencer / no dia / vencida, uma vez cada, WhatsApp ligado por padrão; WhatsApp "meta de ganho
+  da empresa 30 mil" e "quanto falta pra meta?"), `income-goal-commands.test.ts` (unitário) e e2e
+  `notifications-popups.spec.ts` (pop-ups ao abrir o app, no máximo 3, preferência respeitada);
 - confirmar fatura: `card-review.test.ts` (2 compras "Não importar", uma parcelada → total do arquivo ×
   app e diferença, saldo, ledger, faturas por mês, parcelas futuras e relatórios conferidos antes/depois;
   desfazer volta tudo; regra "sempre não importar" oferecida após 2 marcações, dispensar/aceitar, próxima

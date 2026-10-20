@@ -17,6 +17,8 @@ export interface CardInput {
   limitCents: number;
   closingDay: number;
   dueDay: number;
+  /** Lembrete da fatura N dias antes do vencimento (0 a 15; 0 = só no dia). */
+  dueReminderDays: number;
   paymentAccountId: string | null;
   color: string;
 }

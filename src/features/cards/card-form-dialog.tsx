@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CalendarDays, Lock, Users } from "lucide-react";
+import { BellRing, CalendarDays, Lock, Users } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -24,6 +24,8 @@ import { CARD_BRANDS } from "./types";
 import { useCardMutations } from "./use-card-mutations";
 
 const NONE = "__none__";
+/** Antecedência padrão do lembrete da fatura (igual à do servidor). */
+const DEFAULT_REMINDER_DAYS = 3;
 const CARD_COLORS = ["#1e3a5f", "#0b2545", "#7c3aed", "#820ad1", "#ec7000", "#cc092f", "#0f766e", "#059669", "#2563eb", "#111827", "#475569", "#b45309"];
 
 const day = z.number({ error: "Informe o dia" }).int("Dia inválido").min(1, "Entre 1 e 31").max(31, "Entre 1 e 31");
@@ -37,6 +39,7 @@ const schema = z.object({
   limitCents: z.number().int().min(0),
   closingDay: day,
   dueDay: day,
+  dueReminderDays: z.number({ error: "Informe os dias" }).int("Use um número inteiro").min(0, "Entre 0 e 15").max(15, "Entre 0 e 15"),
   paymentAccountId: z.string(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Cor inválida"),
 });
@@ -54,10 +57,11 @@ function defaults(card?: CardDTO | null): Values {
         limitCents: card.limitCents,
         closingDay: card.closingDay,
         dueDay: card.dueDay,
+        dueReminderDays: card.dueReminderDays ?? DEFAULT_REMINDER_DAYS,
         paymentAccountId: card.paymentAccountId ?? NONE,
         color: card.color,
       }
-    : { name: "", issuer: "", brand: NONE, last4: "", holderMemberId: NONE, visibility: "SHARED", limitCents: 0, closingDay: 1, dueDay: 10, paymentAccountId: NONE, color: CARD_COLORS[0]! };
+    : { name: "", issuer: "", brand: NONE, last4: "", holderMemberId: NONE, visibility: "SHARED", limitCents: 0, closingDay: 1, dueDay: 10, dueReminderDays: DEFAULT_REMINDER_DAYS, paymentAccountId: NONE, color: CARD_COLORS[0]! };
 }
 
 /** Exemplo concreto da regra de fechamento no mês atual: compra na véspera e no dia do fechamento. */
@@ -121,6 +125,7 @@ export function CardFormDialog({ open, onOpenChange, card }: { open: boolean; on
                   limitCents: v.limitCents,
                   closingDay: v.closingDay,
                   dueDay: v.dueDay,
+                  dueReminderDays: v.dueReminderDays,
                   paymentAccountId: v.paymentAccountId === NONE ? null : v.paymentAccountId,
                   color: v.color,
                 },
@@ -285,6 +290,24 @@ export function CardFormDialog({ open, onOpenChange, card }: { open: boolean; on
               </span>
             </p>
             {daysChanged && <p className="text-xs font-medium text-warning">Alterar os dias de fechamento/vencimento recalcula as faturas existentes deste cartão.</p>}
+            <Field htmlFor="card-reminder" error={e.dueReminderDays?.message} hint="0 = só no dia do vencimento">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <BellRing className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <label htmlFor="card-reminder">Lembrar da fatura</label>
+                <Input
+                  id="card-reminder"
+                  type="number"
+                  min={0}
+                  max={15}
+                  inputMode="numeric"
+                  className="h-9 w-20"
+                  {...register("dueReminderDays", { valueAsNumber: true })}
+                  aria-invalid={Boolean(e.dueReminderDays)}
+                  aria-describedby="card-reminder-suffix"
+                />
+                <span id="card-reminder-suffix">dias antes do vencimento</span>
+              </span>
+            </Field>
           </div>
 
           <Field label="Cor" error={e.color?.message}>
