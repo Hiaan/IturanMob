@@ -248,6 +248,10 @@ enum NotificationType {
   SUBSCRIPTION_FOUND
   /// Conexão com bancos: lançamentos novos para conferir ou conexão que precisa de atenção.
   BANK_SYNC
+  /// Lembrete de compromisso da agenda.
+  APPOINTMENT_REMINDER
+  /// Resumo do dia, toda manhã (compromissos, contas do dia, gastos de ontem).
+  MORNING_SUMMARY
 }
 
 enum NotificationChannel {
@@ -534,6 +538,9 @@ model Household {
   bankConnection         BankConnection?
   bankItems              BankItem[]
   bankAccountLinks       BankAccountLink[]
+  appointments           Appointment[]
+  googleOAuthApp         GoogleOAuthApp?
+  googleCalendars        GoogleCalendarConnection[]
   whatsappConnection     WhatsAppConnection?
   whatsappGroups         WhatsAppGroup[]
   whatsappMessages       WhatsAppMessage[]
@@ -584,6 +591,10 @@ model HouseholdSettings {
   defaultReportScope       ReportScope          @default(PERSONAL)
   /// Lançamento vindo de grupo sem natureza e sem indicação na mensagem: perguntar ou usar o padrão.
   whatsappUnassignedNature UnassignedNatureMode @default(ASK)
+  /// Resumo do dia toda manhã (no fuso da família).
+  morningSummaryEnabled    Boolean              @default(true)
+  /// Hora do resumo (0 a 23).
+  morningSummaryHour       Int                  @default(7)
   updatedAt                DateTime             @updatedAt
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -617,12 +628,12 @@ model HouseholdMember {
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
   user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  ownedAccounts        Account[]                @relation("AccountOwner")
-  heldCards            CreditCard[]             @relation("CardHolder")
-  paidTransactions     Transaction[]            @relation("TransactionPayer")
-  responsibleFor       Transaction[]            @relation("TransactionResponsible")
-  createdTransactions  Transaction[]            @relation("TransactionCreator")
-  excludedTransactions Transaction[]            @relation("TransactionExcluder")
+  ownedAccounts        Account[]                 @relation("AccountOwner")
+  heldCards            CreditCard[]              @relation("CardHolder")
+  paidTransactions     Transaction[]             @relation("TransactionPayer")
+  responsibleFor       Transaction[]             @relation("TransactionResponsible")
+  createdTransactions  Transaction[]             @relation("TransactionCreator")
+  excludedTransactions Transaction[]             @relation("TransactionExcluder")
   allocations          TransactionAllocation[]
   messages             WhatsAppMessage[]
   notifications        Notification[]
@@ -631,7 +642,9 @@ model HouseholdMember {
   goalContributions    GoalContribution[]
   assistantChats       AssistantConversation[]
   clarifications       Clarification[]
-  recurringResponsible RecurringTransaction[]   @relation("RecurringResponsible")
+  recurringResponsible RecurringTransaction[]    @relation("RecurringResponsible")
+  appointments         Appointment[]             @relation("AppointmentOwner")
+  googleCalendar       GoogleCalendarConnection?
 
   @@unique([householdId, userId])
   @@index([householdId])
@@ -1387,6 +1400,77 @@ model BankAccountLink {
   creditCard CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
 
   @@unique([householdId, externalAccountId])
+}
+
+enum AppointmentSource {
+  MANUAL
+  WHATSAPP
+  GOOGLE
+}
+
+/// Compromisso da agenda. PRIVATE = só a pessoa dona vê (e nunca vai para o grupo do WhatsApp).
+model Appointment {
+  id                 String            @id @default(cuid())
+  householdId        String
+  title              String
+  startsAt           DateTime
+  endsAt             DateTime?
+  allDay             Boolean           @default(false)
+  location           String?
+  notes              String?
+  visibility         Visibility        @default(SHARED)
+  ownerMemberId      String?
+  /// Minutos antes para o lembrete (null = sem lembrete).
+  reminderMinutes    Int?              @default(60)
+  source             AppointmentSource @default(MANUAL)
+  /// Evento do Google Agenda (id) — compromissos importados.
+  externalId         String?
+  googleConnectionId String?
+  createdById        String?
+  deletedAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  household        Household                 @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  owner            HouseholdMember?          @relation("AppointmentOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+  googleConnection GoogleCalendarConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([googleConnectionId, externalId])
+  @@index([householdId, startsAt])
+}
+
+/// Aplicação OAuth do Google (Client ID e Secret criados no Google Cloud pela família), cifrada.
+model GoogleOAuthApp {
+  householdId     String   @id
+  clientIdEnc     String
+  clientSecretEnc String
+  updatedAt       DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+/// Google Agenda de uma pessoa (somente leitura). Os eventos entram como compromissos PRIVADOS dela,
+/// a menos que ela escolha compartilhar com a família.
+model GoogleCalendarConnection {
+  id              String    @id @default(cuid())
+  householdId     String
+  memberId        String    @unique
+  /// true = simulador de desenvolvimento (eventos de exemplo, nenhuma conta Google real).
+  simulated       Boolean   @default(false)
+  email           String?
+  calendarId      String    @default("primary")
+  accessTokenEnc  String?
+  refreshTokenEnc String?
+  accessExpiresAt DateTime?
+  shareWithFamily Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  household    Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  member       HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
 }
 
 model AlertMark {

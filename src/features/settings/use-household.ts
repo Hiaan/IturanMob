@@ -26,6 +26,10 @@ export interface HouseholdSettingsDTO {
    * ASK = pergunta no grupo "1 PF / 2 Empresa"; FAMILY_DEFAULT = usa o padrão da família.
    */
   whatsappUnassignedNature: "ASK" | "FAMILY_DEFAULT";
+  /** Resumo do dia (compromissos, contas e gastos de ontem) no app e no grupo do WhatsApp. */
+  morningSummaryEnabled: boolean;
+  /** Hora do resumo da manhã (0–23, no fuso da família). */
+  morningSummaryHour: number;
 }
 
 export interface HouseholdDTO {

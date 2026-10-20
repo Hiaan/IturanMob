@@ -11,7 +11,7 @@ export interface PeriodicTask {
 }
 
 export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
-  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance] = await Promise.all([
+  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance, agenda, google] = await Promise.all([
     import("../modules/recurring/jobs"),
     import("../modules/budgets/jobs"),
     import("../modules/bills/jobs"),
@@ -27,6 +27,8 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     import("../modules/alerts/cash"),
     import("../modules/subscriptions/service"),
     import("../modules/open-finance/service"),
+    import("../modules/agenda/jobs"),
+    import("../modules/agenda/google"),
   ]);
   return [
     { name: "recurring:generate", everySeconds: 15 * 60, run: () => recurring.runRecurringJobs() },
@@ -39,6 +41,10 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     { name: "alerts:subscriptions", everySeconds: 6 * 60 * 60, run: () => subscriptions.runSubscriptionJobs() },
     // Bancos (Meu Pluggy): lançamentos novos a cada 6 horas (o Meu Pluggy atualiza 1x por dia).
     { name: "open-finance:sync", everySeconds: 60 * 60, run: () => openFinance.runOpenFinanceJobs() },
+    // Agenda: lembretes (5 min), resumo do dia na hora escolhida e Google Agenda (30 min).
+    { name: "agenda:reminders", everySeconds: 5 * 60, run: () => agenda.runAppointmentReminders() },
+    { name: "agenda:morning", everySeconds: 10 * 60, run: () => agenda.runMorningSummaries() },
+    { name: "agenda:google", everySeconds: 30 * 60, run: () => google.runGoogleCalendarJobs() },
     { name: "notifications:dispatch", everySeconds: 60, run: () => notifications.runNotificationDispatch() },
     { name: "reports:scheduled", everySeconds: 15 * 60, run: () => reports.runScheduledReports() },
     { name: "retention:purge", everySeconds: 6 * 60 * 60, run: () => retention.runRetentionJobs() },

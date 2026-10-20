@@ -17,7 +17,8 @@ export type RealtimeEventType =
   | "whatsapp.status"
   | "whatsapp.message"
   | "import.changed"
-  | "category.changed";
+  | "category.changed"
+  | "appointment.changed";
 
 export interface RealtimeEvent {
   type: RealtimeEventType;

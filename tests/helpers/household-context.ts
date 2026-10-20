@@ -40,6 +40,8 @@ export function makeHouseholdContext(overrides: Partial<HouseholdContext> = {}):
       defaultRegime: "ACCRUAL",
       defaultReportScope: "PERSONAL",
       whatsappUnassignedNature: "ASK",
+      morningSummaryEnabled: true,
+      morningSummaryHour: 7,
       confidenceHigh: 0.85,
       confidenceMedium: 0.6,
       budgetAlertThresholds: [50, 75, 90, 100],

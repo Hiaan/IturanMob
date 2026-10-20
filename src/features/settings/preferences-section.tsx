@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCan } from "@/features/me/use-me";
 import { useHousehold, useUpdateSettings } from "./use-household";
+import { MorningSummarySettings } from "./morning-summary-settings";
 
 export function PreferencesSection() {
   const household = useHousehold();
@@ -132,6 +133,7 @@ export function PreferencesSection() {
             </label>
           </CardContent>
         </Card>
+        <MorningSummarySettings idPrefix="settings-morning" />
       </div>
     </div>
   );

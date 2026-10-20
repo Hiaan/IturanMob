@@ -122,6 +122,8 @@ export const NOTIFICATION_TYPE_LABELS = {
   CASH_SHORTFALL: "Vai faltar dinheiro",
   SUBSCRIPTION_FOUND: "Assinatura encontrada ou mais cara",
   BANK_SYNC: "Lançamentos do banco",
+  APPOINTMENT_REMINDER: "Lembrete de compromisso",
+  MORNING_SUMMARY: "Resumo do dia (manhã)",
 } as const;
 
 export const WHATSAPP_STATUS_LABELS = {

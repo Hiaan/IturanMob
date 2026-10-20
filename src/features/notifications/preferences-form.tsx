@@ -39,6 +39,8 @@ const TYPE_HINTS: Partial<Record<PreferenceDTO["type"], string>> = {
   CASH_SHORTFALL: "Quando a projeção mostra o saldo das contas ficando negativo nos próximos 30 dias",
   SUBSCRIPTION_FOUND: "Cobrança que se repete todo mês e não está nos gastos fixos, ou que ficou mais cara",
   BANK_SYNC: "Lançamentos novos trazidos do banco ou conexão que precisa de atenção",
+  APPOINTMENT_REMINDER: "Aviso antes de cada compromisso (privados só no app, para a pessoa)",
+  MORNING_SUMMARY: "Resumo do dia na hora escolhida nas configurações",
 };
 
 function same(a: PreferenceDTO, b: PreferenceDTO) {

@@ -20,7 +20,9 @@ export type NotificationTypeKey =
   | "STATEMENT_DUE"
   | "CASH_SHORTFALL"
   | "SUBSCRIPTION_FOUND"
-  | "BANK_SYNC";
+  | "BANK_SYNC"
+  | "APPOINTMENT_REMINDER"
+  | "MORNING_SUMMARY";
 
 export const NOTIFICATION_TYPE_URL: Partial<Record<NotificationTypeKey, string>> = {
   BILL_DUE: "/contas-a-pagar",
@@ -32,6 +34,8 @@ export const NOTIFICATION_TYPE_URL: Partial<Record<NotificationTypeKey, string>>
   CASH_SHORTFALL: "/contas-a-pagar",
   SUBSCRIPTION_FOUND: "/gastos-fixos",
   BANK_SYNC: "/importacao",
+  APPOINTMENT_REMINDER: "/agenda",
+  MORNING_SUMMARY: "/agenda",
   INCOME_GOAL: "/metas",
   GOAL_PROGRESS: "/metas",
   WEEKLY_REPORT: "/relatorios",
@@ -56,6 +60,7 @@ export function notificationPriority(type: string, data?: unknown): number {
   const stage = data && typeof data === "object" && "stage" in data ? (data as { stage?: unknown }).stage : null;
   if (type === "BILL_OVERDUE" || type === "CASH_SHORTFALL" || (type === "STATEMENT_DUE" && stage === "OVERDUE")) return 0;
   if ((type === "STATEMENT_DUE" && stage === "TODAY") || (type === "BILL_DUE" && stage === "TODAY")) return 1;
+  if (type === "APPOINTMENT_REMINDER") return 1;
   if (type === "INCOME_GOAL" || type === "GOAL_PROGRESS") return 2;
   if (type === "BILL_DUE" || type === "STATEMENT_DUE" || type === "BUDGET_THRESHOLD") return 3;
   return 4;

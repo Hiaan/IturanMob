@@ -352,3 +352,23 @@ export function describePeriod(period: Period): string {
   }
   return `${formatDateBR(period.start)} a ${formatDateBR(period.end)}`;
 }
+
+/** Data local (AAAA-MM-DD) + hora "HH:MM" no fuso informado → instante (UTC). */
+export function zonedToInstant(iso: ISODate, time: string, timeZone: string = DEFAULT_TIMEZONE): Date {
+  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
+  const [hh, mm] = time.split(":").map(Number) as [number, number];
+  const target = Date.UTC(y, m - 1, d, hh, mm);
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const asLocal = (t: number) => {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+    return Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+  };
+  let guess = target;
+  for (let i = 0; i < 2; i++) guess += target - asLocal(guess);
+  return new Date(guess);
+}
+
+/** Hora local "HH:MM" de um instante no fuso informado. */
+export function timeInTimezone(instant: Date, timeZone: string = DEFAULT_TIMEZONE): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+}

@@ -62,6 +62,8 @@ const envSchema = z.object({
   // Open Finance (Meu Pluggy). O simulador traz dados de exemplo, nunca de um banco real.
   PLUGGY_API_URL: z.string().url().default("https://api.pluggy.ai"),
   OPEN_FINANCE_SIMULATOR: bool(false),
+  // Google Agenda: o simulador traz eventos de exemplo (nenhuma conta Google real).
+  GOOGLE_CALENDAR_SIMULATOR: bool(false),
   // WhatsApp
   WHATSAPP_DEFAULT_PROVIDER: z.enum(["SIMULATOR", "BAILEYS", "CLOUD_API"]).default("SIMULATOR"),
   WHATSAPP_ENABLE_SIMULATOR: bool(true),

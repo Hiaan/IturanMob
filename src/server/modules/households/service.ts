@@ -33,6 +33,9 @@ const DEFAULT_NOTIFICATION_PREFS: Array<{ type: NotificationType; inApp: boolean
   { type: "SUBSCRIPTION_FOUND", inApp: true, whatsapp: false },
   // Conexão com bancos: lançamentos novos para conferir / conexão com problema (só no app).
   { type: "BANK_SYNC", inApp: true, whatsapp: false },
+  // Agenda: lembrete e resumo do dia no grupo do WhatsApp (compromissos privados nunca vão ao grupo).
+  { type: "APPOINTMENT_REMINDER", inApp: true, whatsapp: true },
+  { type: "MORNING_SUMMARY", inApp: true, whatsapp: true },
 ];
 
 export async function seedNotificationPreferences(db: Db, memberId: string) {
@@ -166,6 +169,9 @@ export const settingsUpdateSchema = z
     defaultReportScope: z.enum(["PERSONAL", "BUSINESS", "ALL"]),
     /** Grupo do WhatsApp sem natureza + mensagem sem indicação: perguntar PF/Empresa ou usar o padrão. */
     whatsappUnassignedNature: z.enum(["ASK", "FAMILY_DEFAULT"]),
+    /** Resumo do dia toda manhã (agenda, contas do dia, gastos de ontem) e a hora do envio. */
+    morningSummaryEnabled: z.boolean(),
+    morningSummaryHour: z.number().int().min(0).max(23),
   })
   .partial();
 

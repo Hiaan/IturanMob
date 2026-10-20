@@ -13,6 +13,7 @@ import {
   PiggyBank,
   Receipt,
   Repeat,
+  Sun,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
@@ -37,6 +38,8 @@ const ICONS: Record<string, LucideIcon> = {
   CASH_SHORTFALL: TrendingDown,
   SUBSCRIPTION_FOUND: Repeat,
   BANK_SYNC: Landmark,
+  APPOINTMENT_REMINDER: CalendarClock,
+  MORNING_SUMMARY: Sun,
   SYSTEM: Info,
 };
 

@@ -20,6 +20,7 @@ import { normalizeTranscript } from "../nlu/transcript";
 import { extractReceipt } from "../vision/receipt";
 import { handleBoletoText, registerBoleto } from "../engine/boleto-commands";
 import { handleReportCommand, parseReportCommand } from "../engine/report-commands";
+import { handleAgendaCommand, parseAgendaCommand } from "../engine/agenda-commands";
 import { readBoletoFromPdf } from "../../modules/bills/boleto-reader";
 import { isBoleto, parseBoleto } from "@/lib/boleto";
 import { extractAmounts } from "../nlu/numbers";
@@ -158,6 +159,11 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   if (opts.source !== "WHATSAPP_IMAGE") {
     const reportCmd = parseReportCommand(text, todayISO(ctx.timezone));
     if (reportCmd) return handleReportCommand(ctx, reportCmd);
+  }
+  // "marca dentista amanhã às 15h", "agenda de hoje", "desmarcar dentista": agenda (sem IA).
+  if (opts.source !== "WHATSAPP_IMAGE") {
+    const agendaCmd = parseAgendaCommand(text, todayISO(ctx.timezone));
+    if (agendaCmd) return handleAgendaCommand(ctx, agendaCmd);
   }
   // "desconsidera esse" / "o pix do fulano é repasse": comando determinístico, sem IA.
   const exclusion = parseExclusionCommand(text);

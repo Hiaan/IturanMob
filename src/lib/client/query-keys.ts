@@ -35,6 +35,10 @@ export const qk = {
   whatsapp: (p?: unknown) => ["whatsapp", p ?? {}] as const,
   /** Integração com os bancos (Open Finance via Meu Pluggy). */
   openFinance: ["integrations", "open-finance"] as const,
+  /** Agenda da família (compromissos num intervalo de datas). */
+  agenda: (p?: unknown) => ["agenda", p ?? {}] as const,
+  /** Conexão com o Google Agenda (a da pessoa logada e quem da família conectou). */
+  google: ["integrations", "google"] as const,
   ai: (p?: unknown) => ["ai", p ?? {}] as const,
   assistant: (p?: unknown) => ["assistant", p ?? {}] as const,
   audit: (p?: unknown) => ["audit", p ?? {}] as const,
@@ -48,6 +52,7 @@ export const EVENT_INVALIDATIONS: Record<string, string[][]> = {
   "budget.changed": [["budgets"], ["analytics"]],
   "goal.changed": [["goals"], ["income-goals"], ["accounts"]],
   "bill.changed": [["bills"], ["analytics"]],
+  "appointment.changed": [["agenda"], ["integrations", "google"]],
   "pending.changed": [["pending"], ["me"]],
   "notification.created": [["notifications"]],
   "whatsapp.status": [["whatsapp"]],
