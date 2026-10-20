@@ -245,6 +245,31 @@ prefixado), taxa (ex.: 101,5% do CDI) e data de início.
 - Limites: 15 MB por arquivo, 5.000 lançamentos por arquivo, 60 páginas por PDF e 20 arquivos por
   confirmação em massa.
 
+### 10.4.0 Confirmar fatura (importar / não importar)
+
+Antes da importação final de uma **fatura de cartão**, a etapa "Confirmar fatura" pergunta "Alguma
+dessas compras não é sua ou está errada?" e lista as compras **novas** (ainda não registradas no app)
+em cartões, com busca e filtros (valor acima de X, estabelecimento, só parceladas, só
+internacionais/IOF). Cada compra fica como **Importar** (padrão) ou **Não importar** (ex.: passou o
+cartão para alguém, cobrança errada). Em extrato de conta a conferência das saídas é opcional.
+
+- **Conferência do total, sempre visível:** "Fatura no arquivo R$ A · vai entrar R$ B · diferença R$ C
+  (N não importadas)". A = compras do arquivo (novas, já registradas e repetidas); B = o que fica na
+  fatura do app; C = A − B. Pagamentos e créditos da fatura não entram na conta. Com C ≠ 0, um aviso
+  discreto lembra que a fatura no app vai ficar menor que a do banco — se a pessoa vai pagar a fatura
+  inteira, o caminho é importar e marcar a natureza **Repasse** (entra na fatura, não conta como gasto).
+- **Parcelada:** a escolha vale para a compra inteira — "Não importar" na 1/N não cria nenhuma parcela
+  (nem as futuras); a parcela 2/N da fatura seguinte não casa com nada e já vem desmarcada.
+- "Não importar" não grava nada: saldo, ledger, fatura e relatórios ficam como se a linha não
+  existisse. Desfazer a importação remove só o que foi importado. Desmarcar a linha na prévia é o mesmo
+  que "Não importar".
+- **Regra "sempre não importar":** quando a mesma descrição/estabelecimento é marcada "Não importar"
+  2 vezes (neste arquivo ou em faturas anteriores do mesmo cartão), o app oferece "Sempre não importar
+  compras de 'X' neste cartão?". Aceita, vira uma regra (`skipOnImport`, só para aquele cartão/conta)
+  que deixa a compra desmarcada nas próximas importações, com o selo "Regra" — a pessoa pode marcar de
+  novo. A regra não mexe em lançamentos já registrados nem nos lançados fora da importação, e não
+  combina com categoria, natureza ou transferência. "Agora não" dispensa a sugestão naquela importação.
+
 ### 10.4.1 Migrar de planilha
 
 Assistente próprio em Importar (`/importacao/migrar`) para quem controlava as finanças numa planilha.

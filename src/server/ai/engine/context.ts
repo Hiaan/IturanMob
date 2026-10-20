@@ -81,7 +81,7 @@ export async function loadHouseholdContext(ctx: ServiceContext, senderMemberId?:
       orderBy: [{ kind: "asc" }, { sortOrder: "asc" }],
     }),
     prisma.financialGoal.findMany({ where: { householdId: ctx.householdId, status: "ACTIVE" } }),
-    prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true } }),
+    prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, skipOnImport: false } }),
     getSettings(ctx.householdId),
   ]);
   const senderId = senderMemberId ?? ctx.memberId;

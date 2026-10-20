@@ -2,6 +2,12 @@ import { z } from "zod";
 import { parsePatch } from "../../validation";
 import { assertExclusionRuleCompatible } from "../transactions/report-exclusion";
 
+/** Regra "não importar" só desmarca a linha na importação; não combina com outros efeitos. */
+function assertSkipRuleCompatible(rule: { skipOnImport?: boolean | null; setExcludeFromReports?: boolean | null; setScope?: string | null; askNature?: boolean | null; setTransferAccountId?: string | null; setCategoryId?: string | null }) {
+  if (rule.skipOnImport && (rule.setExcludeFromReports || rule.setScope || rule.askNature || rule.setTransferAccountId || rule.setCategoryId)) {
+    throw new ValidationError("Regra \"não importar\" não define categoria, natureza nem transferência: a linha simplesmente não é importada.", { field: "skipOnImport" });
+  }
+}
 /** Uma regra define uma única natureza: Repasse (desconsiderar), Pessoal/Empresa ou perguntar. */
 function assertNatureRuleCompatible(rule: { setExcludeFromReports?: boolean | null; setScope?: string | null; askNature?: boolean | null; setTransferAccountId?: string | null }) {
   const count = [rule.setExcludeFromReports, rule.setScope, rule.askNature].filter(Boolean).length;
@@ -260,6 +266,8 @@ export const ruleSchema = z.object({
   /** Natureza definida pela regra (Pessoal/Empresa) ou pedir para escolher. */
   setScope: z.enum(["PERSONAL", "BUSINESS"]).nullish(),
   askNature: z.boolean().default(false),
+  /** "Não importar": nas próximas importações, a linha que casa vem desmarcada (Confirmar fatura). */
+  skipOnImport: z.boolean().default(false),
   /** Condições opcionais: só lançamentos desta conta / deste cartão. */
   matchAccountId: z.string().nullish(),
   matchCreditCardId: z.string().nullish(),
@@ -306,6 +314,7 @@ async function validateRuleRefs(ctx: ServiceContext, data: Partial<z.output<type
   }
   assertExclusionRuleCompatible(data);
   assertNatureRuleCompatible(data);
+  assertSkipRuleCompatible(data);
   if (data.setExcludeFromReports && !data.setExclusionReason) data.setExclusionReason = "CLIENT_PASSTHROUGH";
   if (data.setExcludeFromReports === false) {
     data.setExclusionReason = null;
@@ -348,9 +357,12 @@ export async function updateRule(ctx: ServiceContext, id: string, input: Partial
     setTransferAccountId: data.setTransferAccountId === undefined ? current.setTransferAccountId : data.setTransferAccountId,
     setScope: data.setScope === undefined ? current.setScope : data.setScope,
     askNature: data.askNature ?? current.askNature,
+    skipOnImport: data.skipOnImport ?? current.skipOnImport,
+    setCategoryId: data.setCategoryId === undefined ? current.setCategoryId : data.setCategoryId,
   };
   assertExclusionRuleCompatible(merged);
   assertNatureRuleCompatible(merged);
+  assertSkipRuleCompatible(merged);
   if (data.matchAccountId && current.matchCreditCardId && data.matchCreditCardId === undefined) data.matchCreditCardId = null;
   if (data.matchCreditCardId && current.matchAccountId && data.matchAccountId === undefined) data.matchAccountId = null;
   if (data.setTransferAccountId) {
@@ -375,6 +387,7 @@ export async function applyRuleRetroactively(ctx: ServiceContext, id: string, op
   assertCan(ctx, "transactions:write");
   const rule = await prisma.financialRule.findFirst({ where: { id, householdId: ctx.householdId } });
   if (!rule) throw new NotFoundError("Regra");
+  if (rule.skipOnImport) throw new ValidationError("Regra \"não importar\" vale nas próximas importações; não muda lançamentos já registrados.");
   if (rule.setTransferAccountId) {
     // Regra de transferência: converte receitas/despesas antigas que casam com o padrão.
     const { findMatchingRule } = await import("../rules/matcher");

@@ -65,6 +65,10 @@ Outras coberturas além dos 22 cenários:
   aplicações no meio do mês, IR/IOF) e `investment-yield.test.ts` (integração: Banco Central simulado,
   idempotência, BCB fora do ar, exclusão respeitada, ajuste ao saldo do banco);
 - edições parciais não reaplicam valores padrão: `partial-updates.test.ts`.
+- confirmar fatura: `card-review.test.ts` (2 compras "Não importar", uma parcelada → total do arquivo ×
+  app e diferença, saldo, ledger, faturas por mês, parcelas futuras e relatórios conferidos antes/depois;
+  desfazer volta tudo; regra "sempre não importar" oferecida após 2 marcações, dispensar/aceitar, próxima
+  fatura já desmarcada; conferência opcional das saídas de uma conta) e e2e `card-review.spec.ts`;
 - migrar de planilha: `spreadsheet-migration.test.ts` (planilha "bagunçada" com várias contas, cartão,
   natureza, parcelas 3/10 e 10x, linhas de total e nomes diferentes dos do app → De → Para → prévia por
   destino → importar, conferindo saldos, faturas, parcelas e contagens → desfazer e voltar exatamente ao

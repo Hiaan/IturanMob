@@ -875,6 +875,8 @@ model FinancialRule {
   setScope               TransactionScope?
   /// Perguntar a natureza (ex.: anúncios que podem ser da empresa, de cliente ou pessoais).
   askNature              Boolean                @default(false)
+  /// Na importação de extrato/fatura, a linha vem desmarcada ("não importar").
+  skipOnImport           Boolean                @default(false)
   /// Condições opcionais: só lançamentos desta conta / deste cartão.
   matchAccountId         String?
   matchCreditCardId      String?

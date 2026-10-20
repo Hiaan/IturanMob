@@ -96,6 +96,9 @@ describe("WhatsApp: extrato/fatura em PDF", () => {
 
     const captioned = await sendPdf(fam, await F.makePdf(F.NUBANK_FATURA), "fatura-uv.pdf", "fatura do cartão ultravioleta");
     expect(captioned.reply).toContain("Destino: cartão *Nubank Ultravioleta*");
+    // Fatura: pede para conferir compras que não são suas antes de confirmar (etapa "Confirmar fatura").
+    expect(captioned.reply).toMatch(/Confira se há compras que não são suas antes de confirmar: .*\/importacao\?batch=/);
+    expect(captioned.reply).toContain("Responda *confirmar* para importar ou *cancelar*.");
     const cancel = await sendMessage(fam, { text: "cancelar" });
     expect(cancel.reply).toContain("não importei nada");
     expect(await imported(fam.householdId)).toHaveLength(0);

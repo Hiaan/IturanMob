@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ImportRowStatus, PaymentMethod, Prisma } from "@prisma/client";
+import type { FinancialRule, ImportRowStatus, PaymentMethod, Prisma } from "@prisma/client";
 import { prisma, withTransaction } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
@@ -96,6 +96,10 @@ export type ImportMappingUpdate = z.input<typeof importMappingUpdateSchema>;
 
 type RowKind = "EXPENSE" | "INCOME" | "CARD_PAYMENT" | "TRANSFER";
 
+/** Confirmar fatura: cada compra nova é importada (padrão) ou não. */
+export const REVIEW_DECISIONS = ["IMPORT", "SKIP"] as const;
+export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
+
 interface ImportScope {
   accountId: string | null;
   creditCardId: string | null;
@@ -155,6 +159,8 @@ export interface ImportBatchMeta {
   origin?: { channel: "WHATSAPP"; chatId: string; messageId: string } | null;
   /** Natureza padrão das linhas sem regra (ex.: PDF enviado no grupo da empresa). */
   defaultNature?: "BUSINESS" | null;
+  /** Confirmar fatura: sugestões de regra dispensadas nesta importação. */
+  reviewDismissed?: string[];
   commit?: {
     created: number;
     matched: number;
@@ -195,6 +201,9 @@ interface RowRawData {
   payerMemberId?: string | null;
   installmentPlan?: { count: number; amountCents: number; firstNumber: number; ofTotal: number } | null;
   consolidated?: boolean;
+  /** Confirmar fatura: "não importar" escolhido pela pessoa (ou por uma regra, com skipRuleId). */
+  review?: "SKIP" | null;
+  skipRuleId?: string | null;
 }
 
 interface PreparedRow {
@@ -388,6 +397,25 @@ async function annotateNature(
     if (ask && r.status === "NEW") asks++;
   }
   if (asks) warnings.push(`${asks} lançamento(s) pedem a natureza (Pessoal, Empresa ou Repasse de cliente): escolha na prévia ou depois em Pendências.`);
+}
+
+/** Regras "não importar" (Confirmar fatura): a compra vem desmarcada, com o nome da regra. */
+async function annotateSkipRules(ctx: ServiceContext, rows: PreparedRow[], scope: { accountId: string | null; creditCardId: string | null }, warnings: string[]) {
+  const candidates = rows.filter((r) => r.raw.kind === "EXPENSE" && r.amountCents && r.status === "NEW" && r.selected);
+  if (!candidates.length) return;
+  const rules = await prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, skipOnImport: true } });
+  if (!rules.length) return;
+  let skipped = 0;
+  for (const r of candidates) {
+    const rule = findMatchingRule(rules, { description: r.description, merchant: null, amountCents: Math.abs(r.amountCents!), type: r.raw.kind, accountId: scope.accountId, creditCardId: scope.creditCardId });
+    if (!rule) continue;
+    r.selected = false;
+    r.raw.review = "SKIP";
+    r.raw.skipRuleId = rule.id;
+    r.message = `Regra "${rule.name}": não importar.${r.message ? ` ${r.message}` : ""}`;
+    skipped++;
+  }
+  if (skipped) warnings.push(`${skipped} compra(s) desmarcada(s) por regra "não importar". Confira em "Confirmar fatura".`);
 }
 
 async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[], scopeAccountId: string | null) {
@@ -1109,6 +1137,7 @@ async function buildRows(
   const rows = await classifyRows(ctx, scope, prepared.rows, opts.excludeBatchId);
   await annotateTransfers(ctx, rows, warnings, scope.accountId);
   await annotateNature(ctx, rows, scope, warnings, opts.defaultNature ?? null);
+  await annotateSkipRules(ctx, rows, scope, warnings);
   if (pdfMismatch) {
     warnings.unshift(pdfMismatch);
     for (const r of rows) r.selected = false;
@@ -1326,6 +1355,44 @@ const rowInclude = {
 
 type RowWithMatch = Prisma.ImportRowGetPayload<{ include: typeof rowInclude }>;
 
+const INTERNATIONAL = /\b(iof|usd|eur|gbp|internacional|international|exterior|intl)\b|us\$|u\$s|€/i;
+
+function rowFlags(description: string, raw: RowRawData) {
+  // Colunas de valor em moeda estrangeira contam só quando têm valor.
+  const cells = Object.entries(raw.cells ?? {})
+    .filter(([, v]) => v && !/^[\s0.,-]*$/.test(v))
+    .map(([k, v]) => `${k} ${v}`)
+    .join(" ");
+  return { installment: Boolean(raw.installment || raw.installmentPlan), international: INTERNATIONAL.test(`${description} ${cells}`) };
+}
+
+function merchantLabel(description: string): string {
+  const star = description.indexOf("*");
+  if (star >= 3) return description.slice(0, star).trim().slice(0, 40);
+  const words = description.replace(/[0-9/.,:-]+/g, " ").split(/\s+/).filter((w) => w.length >= 2);
+  return (words.slice(0, 2).join(" ") || description).slice(0, 40);
+}
+
+function wholePurchase(amountCents: number | null, raw: RowRawData): { installments: number; totalCents: number } | null {
+  if (raw.kind !== "EXPENSE" || amountCents === null) return null;
+  if (raw.installmentPlan) return { installments: raw.installmentPlan.ofTotal, totalCents: raw.installmentPlan.amountCents };
+  if (raw.installment && raw.installment.total > 1) return { installments: raw.installment.total, totalCents: Math.abs(amountCents) * raw.installment.total };
+  return null;
+}
+
+/** Linha da conferência: compra (saída) nova, ainda não importada. */
+function reviewable(r: { status: ImportRowStatus; amountCents: number | null }, raw: RowRawData) {
+  return raw.kind === "EXPENSE" && r.status === "NEW" && (r.amountCents ?? 0) < 0;
+}
+
+/** Importar ou não; "DEFAULT" = como veio da prévia (ex.: parcela de compra antiga já vem desmarcada). */
+function rowReview(r: { status: ImportRowStatus; selected: boolean; amountCents: number | null }, raw: RowRawData) {
+  if (!reviewable(r, raw)) return null;
+  const decision: ReviewDecision = r.selected ? "IMPORT" : "SKIP";
+  const source = raw.skipRuleId && !r.selected ? ("RULE" as const) : raw.review === "SKIP" && !r.selected ? ("MANUAL" as const) : ("DEFAULT" as const);
+  return { decision, source, skipRuleId: source === "RULE" ? raw.skipRuleId! : null };
+}
+
 function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency: string }> = new Map(), scopeCurrency = "BRL") {
   const raw = readRaw(r.rawData);
   const other = raw.transferAccountId ? accounts.get(raw.transferAccountId) : undefined;
@@ -1371,6 +1438,13 @@ function rowDTO(r: RowWithMatch, accounts: Map<string, { name: string; currency:
     installmentPlan: raw.installmentPlan ?? null,
     location: raw.location ?? null,
     consolidated: Boolean(raw.consolidated),
+    /** Confirmar fatura: importar ou não (null = linha que não é compra nova). */
+    review: rowReview(r, raw),
+    flags: rowFlags(r.description ?? "", raw),
+    /** Estabelecimento (filtro): o que vem antes do "*" ou o começo da descrição. */
+    merchantLabel: merchantLabel(r.description ?? ""),
+    /** Compra parcelada: a escolha vale para a compra inteira (todas as parcelas). */
+    wholePurchase: wholePurchase(r.amountCents, raw),
     cells: raw.cells,
     matchedTransaction: r.matchedTransaction
       ? {
@@ -1451,6 +1525,8 @@ export async function getImportPreview(ctx: ServiceContext, batchId: string) {
     headerRowIndex: meta.headerRowIndex,
     invertSigns: meta.invertSigns,
     cardPurchasesPositive: meta.cardPurchasesPositive,
+    /** Confirmar fatura: totais (arquivo × app) e sugestões de regra "não importar". */
+    review: { ...reviewSummary(rows, Boolean(batch.creditCardId)), suggestions: batch.status === "PREVIEW" ? await ruleSuggestions(ctx, batch, rows) : [] },
     rows: rows.map((r) => rowDTO(r, transferAccounts, batch.account?.currency ?? "BRL")),
   };
 }
@@ -1486,6 +1562,9 @@ export async function updateImportRows(ctx: ServiceContext, batchId: string, raw
           throw new ValidationError("Esta linha não pode ser selecionada (duplicada, ignorada ou com erro).", { rowId: row.id });
         }
         data.selected = u.selected;
+        // Confirmar fatura: desmarcar = "não importar" escolhido pela pessoa; marcar desfaz (inclusive a regra).
+        const raw = readRaw(row.rawData);
+        if (reviewable(row, raw)) data.rawData = toJson(applyDecision(raw, u.selected ? "IMPORT" : "SKIP").raw);
       }
       if (u.categoryId !== undefined) {
         if (u.categoryId) {
@@ -1927,6 +2006,14 @@ export async function commitImport(ctx: ServiceContext, batchId: string, opts: {
       }
     }
 
+    // Regras "não importar" que desmarcaram compras: contam como aplicadas.
+    const skipRuleUses = new Map<string, number>();
+    for (const r of await prisma.importRow.findMany({ where: { batchId, selected: false, status: "NEW" }, select: { rawData: true } })) {
+      const id = readRaw(r.rawData).skipRuleId;
+      if (id) skipRuleUses.set(id, (skipRuleUses.get(id) ?? 0) + 1);
+    }
+    for (const [id, n] of skipRuleUses) await prisma.financialRule.updateMany({ where: { id, householdId: ctx.householdId }, data: { timesApplied: { increment: n } } });
+
     // Já registrados (conciliados) com natureza escolhida na prévia: aplica no lançamento existente.
     const natureByChoice = new Map<Nature, string[]>();
     for (const row of rows) {
@@ -2254,4 +2341,259 @@ export async function setImportRowsNature(ctx: ServiceContext, batchId: string, 
   });
   await publishEvent(ctx.householdId, "import.changed", batchId);
   return { ...(await getImportPreview(ctx, batchId)), updatedRows: targets.length };
+}
+
+// -----------------------------------------------------------------------------
+// Confirmar fatura: importar ou não cada compra nova antes da importação final
+// -----------------------------------------------------------------------------
+
+type ReviewRow = { id: string; status: ImportRowStatus; selected: boolean; amountCents: number | null; description: string | null; rawData: Prisma.JsonValue };
+
+/** Linhas que estão (ou vão estar) no app: novas selecionadas, já registradas, divergentes e repetidas. */
+const IN_APP_STATUSES: ImportRowStatus[] = ["NEW", "MATCHED", "DIVERGENT", "DUPLICATE", "IMPORTED"];
+
+/** Conferência do total: compras no arquivo × o que vai entrar no app; o "não importar" vira diferença. */
+function reviewSummary(rows: ReviewRow[], isCard: boolean) {
+  const decisions = Object.fromEntries(REVIEW_DECISIONS.map((d) => [d, { count: 0, cents: 0 }])) as Record<ReviewDecision, { count: number; cents: number }>;
+  let fileTotalCents = 0;
+  let appTotalCents = 0;
+  let notImportedCount = 0;
+  let purchases = 0;
+  const ignoredCredits = { count: 0, cents: 0 };
+  for (const r of rows) {
+    const raw = readRaw(r.rawData);
+    const amount = r.amountCents ?? 0;
+    // Fatura: pagamentos e créditos não são compras (ficam fora da conferência).
+    if (isCard && r.status === "SKIPPED" && amount > 0) {
+      ignoredCredits.count++;
+      ignoredCredits.cents += amount;
+      continue;
+    }
+    if (raw.kind !== "EXPENSE" || amount >= 0 || !IN_APP_STATUSES.includes(r.status)) continue;
+    const abs = -amount;
+    fileTotalCents += abs;
+    if (r.status === "NEW" && !r.selected) notImportedCount++;
+    else appTotalCents += abs;
+    const review = rowReview(r, raw);
+    if (review) {
+      purchases++;
+      decisions[review.decision].count++;
+      decisions[review.decision].cents += abs;
+    }
+  }
+  const differenceCents = fileTotalCents - appTotalCents;
+  return {
+    scope: isCard ? ("CARD" as const) : ("ACCOUNT" as const),
+    /** Compras novas para conferir. */
+    purchases,
+    fileTotalCents,
+    appTotalCents,
+    differenceCents,
+    notImportedCount,
+    decisions,
+    /** Pagamentos e créditos da fatura que não entram (não são compras). */
+    ignoredCredits,
+    warning: differenceCents
+      ? isCard
+        ? `A fatura no app vai ficar ${formatBRL(differenceCents)} menor que a do banco. Se você vai pagar a fatura inteira, importe a compra e marque a natureza como Repasse: ela entra na fatura, mas não conta como gasto seu.`
+        : `As saídas no app vão ficar ${formatBRL(differenceCents)} menores que as do extrato e o saldo não vai bater com o banco.`
+      : null,
+  };
+}
+
+function pseudoRule(p: { matchType: "STARTS_WITH" | "CONTAINS"; pattern: string; creditCardId: string | null; accountId: string | null }): FinancialRule {
+  return {
+    id: "suggestion",
+    active: true,
+    priority: 0,
+    createdAt: new Date(0),
+    transactionType: "EXPENSE",
+    minAmountCents: null,
+    maxAmountCents: null,
+    matchAccountId: p.accountId,
+    matchCreditCardId: p.creditCardId,
+    matchField: "DESCRIPTION",
+    matchType: p.matchType,
+    pattern: p.pattern,
+  } as unknown as FinancialRule;
+}
+
+export interface ReviewRuleSuggestion {
+  key: string;
+  matchType: "STARTS_WITH" | "CONTAINS";
+  pattern: string;
+  /** Como mostrar o padrão ("FACEBK *"). */
+  patternLabel: string;
+  /** Vezes que a pessoa marcou "não importar" em compras parecidas (este arquivo + importações anteriores do mesmo cartão/conta). */
+  timesMarked: number;
+  /** Outras compras deste arquivo que a regra também desmarcaria. */
+  alsoApplies: number;
+  label: string;
+}
+
+/**
+ * Mesma descrição/estabelecimento marcada "não importar" 2 vezes (neste arquivo ou em faturas
+ * anteriores do mesmo cartão/conta): oferece a regra "sempre não importar".
+ */
+async function ruleSuggestions(
+  ctx: ServiceContext,
+  batch: { id: string; creditCardId: string | null; accountId: string | null; mapping: Prisma.JsonValue },
+  rows: ReviewRow[],
+): Promise<ReviewRuleSuggestion[]> {
+  type Mark = { key: string; description: string; current: boolean };
+  const isMark = (raw: RowRawData, selected: boolean) => raw.review === "SKIP" && !raw.skipRuleId && !selected;
+  const marks: Mark[] = [];
+  for (const r of rows) {
+    const raw = readRaw(r.rawData);
+    const key = reviewable(r, raw) && isMark(raw, r.selected) ? natureSimilarityKey(r.description) : null;
+    if (key) marks.push({ key, description: r.description ?? "", current: true });
+  }
+  if (!marks.length) return [];
+  const previous = await prisma.importRow.findMany({
+    where: {
+      householdId: ctx.householdId,
+      batchId: { not: batch.id },
+      status: "NEW",
+      selected: false,
+      batch: { status: "IMPORTED", creditCardId: batch.creditCardId, accountId: batch.accountId },
+      rawData: { path: ["review"], equals: "SKIP" },
+    },
+    orderBy: { batch: { createdAt: "desc" } },
+    take: 1000,
+    select: { description: true, rawData: true },
+  });
+  for (const p of previous) {
+    const key = isMark(readRaw(p.rawData), false) ? natureSimilarityKey(p.description) : null;
+    if (key) marks.push({ key, description: p.description ?? "", current: false });
+  }
+
+  const dismissed = new Set(readMeta(batch.mapping).reviewDismissed ?? []);
+  const groups = new Map<string, Mark[]>();
+  for (const m of marks) groups.set(m.key, [...(groups.get(m.key) ?? []), m]);
+  const existing = await prisma.financialRule.findMany({ where: { householdId: ctx.householdId, active: true, skipOnImport: true } });
+  const subject = (description: string, amountCents: number) => ({ description, merchant: null, amountCents, type: "EXPENSE", accountId: batch.accountId, creditCardId: batch.creditCardId });
+  const where = batch.creditCardId ? "neste cartão" : "nesta conta";
+
+  const out: ReviewRuleSuggestion[] = [];
+  for (const [key, group] of groups) {
+    const current = group.filter((m) => m.current);
+    if (group.length < 2 || !current.length || dismissed.has(key)) continue;
+    // Padrão: o que vem antes do "*" (começa com), o começo da descrição ou a primeira palavra (contém).
+    const first = current[0]!;
+    const star = first.description.indexOf("*");
+    const plain = key.replace(/^\*/, "");
+    const options: Array<{ matchType: "STARTS_WITH" | "CONTAINS"; pattern: string; label: string }> = [];
+    if (key.startsWith("*") && star >= 3) options.push({ matchType: "STARTS_WITH", pattern: first.description.slice(0, star).trim(), label: `${first.description.slice(0, star).trim()} *` });
+    options.push({ matchType: "CONTAINS", pattern: plain, label: plain.toUpperCase() });
+    const firstWord = plain.split(" ")[0] ?? "";
+    if (firstWord.length >= 4 && firstWord !== plain) options.push({ matchType: "CONTAINS", pattern: firstWord, label: firstWord.toUpperCase() });
+    const option = options.find((o) => group.every((m) => findMatchingRule([pseudoRule({ ...o, creditCardId: batch.creditCardId, accountId: batch.accountId })], subject(m.description, 1))));
+    if (!option) continue;
+    // Já existe regra "não importar" que pega essas compras: não sugere de novo.
+    if (current.every((m) => findMatchingRule(existing, subject(m.description, 1)))) continue;
+    const rule = pseudoRule({ ...option, creditCardId: batch.creditCardId, accountId: batch.accountId });
+    const alsoApplies = rows.filter((r) => {
+      const raw = readRaw(r.rawData);
+      return rowReview(r, raw)?.decision === "IMPORT" && findMatchingRule([rule], subject(r.description ?? "", Math.abs(r.amountCents!)));
+    }).length;
+    out.push({
+      key,
+      matchType: option.matchType,
+      pattern: option.pattern,
+      patternLabel: option.label,
+      timesMarked: group.length,
+      alsoApplies,
+      label: `Sempre não importar ${batch.creditCardId ? "compras" : "saídas"} de "${option.label}" ${where}?`,
+    });
+  }
+  return out.slice(0, 5);
+}
+
+export const importReviewSchema = z.object({
+  rows: z
+    .array(z.object({ rowId: idSchema, decision: z.enum(REVIEW_DECISIONS) }))
+    .min(1)
+    .max(IMPORT_MAX_ROWS),
+});
+export type ImportReviewInput = z.input<typeof importReviewSchema>;
+
+/** Raw e seleção da linha depois da escolha (escolher de novo desfaz a regra que tinha desmarcado). */
+function applyDecision(raw: RowRawData, decision: ReviewDecision): { raw: RowRawData; selected: boolean } {
+  return decision === "SKIP" ? { raw: { ...raw, review: "SKIP", skipRuleId: null }, selected: false } : { raw: { ...raw, review: null, skipRuleId: null }, selected: true };
+}
+
+/** Confirmar fatura: grava "Importar" ou "Não importar" de cada compra nova. */
+export async function reviewImportRows(ctx: ServiceContext, batchId: string, rawInput: ImportReviewInput) {
+  assertCan(ctx, "data:import");
+  const input = importReviewSchema.parse(rawInput);
+  const batch = await loadBatch(ctx, batchId);
+  if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída e não pode mais ser alterada.");
+  const rows = await prisma.importRow.findMany({ where: { batchId, id: { in: input.rows.map((u) => u.rowId) } } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  for (const u of input.rows) {
+    const row = byId.get(u.rowId);
+    if (!row) throw new NotFoundError("Linha da importação");
+    if (!reviewable(row, readRaw(row.rawData))) throw new ValidationError("Só compras novas (ainda não registradas no app) recebem essa escolha.", { rowId: row.id });
+  }
+  await withTransaction(async (db) => {
+    for (const u of input.rows) {
+      const row = byId.get(u.rowId)!;
+      const next = applyDecision(readRaw(row.rawData), u.decision);
+      await db.importRow.update({ where: { id: row.id }, data: { rawData: toJson(next.raw), selected: next.selected } });
+    }
+    await refreshCounters(db, batchId);
+  });
+  await publishEvent(ctx.householdId, "import.changed", batchId);
+  return getImportPreview(ctx, batchId);
+}
+
+export const reviewRuleSchema = z.object({
+  key: z.string().min(1).max(300),
+  /** false: não sugerir de novo nesta importação. */
+  accept: z.boolean(),
+});
+
+/** Aceita (cria a regra "não importar" e desmarca as compras parecidas deste arquivo) ou dispensa a sugestão. */
+export async function resolveReviewRule(ctx: ServiceContext, batchId: string, rawInput: z.input<typeof reviewRuleSchema>) {
+  assertCan(ctx, "data:import");
+  const input = reviewRuleSchema.parse(rawInput);
+  const batch = await loadBatch(ctx, batchId);
+  if (batch.status !== "PREVIEW") throw new ValidationError("Esta importação já foi concluída.");
+  const preview = await getImportPreview(ctx, batchId);
+  const suggestion = preview.review.suggestions.find((s) => s.key === input.key);
+  if (!suggestion) throw new NotFoundError("Sugestão de regra");
+  if (!input.accept) {
+    const meta = readMeta(batch.mapping);
+    meta.reviewDismissed = [...(meta.reviewDismissed ?? []), input.key].slice(-100);
+    await prisma.importBatch.update({ where: { id: batchId }, data: { mapping: toJson(meta) } });
+    return { ...(await getImportPreview(ctx, batchId)), rule: null, appliedRows: 0 };
+  }
+  const scopeName = preview.batch.creditCard?.name ?? preview.batch.account?.name ?? "";
+  const rule = await createRule(ctx, {
+    name: `Não importar: "${suggestion.patternLabel}"${scopeName ? ` — ${scopeName}` : ""}`.slice(0, 80),
+    matchField: "DESCRIPTION",
+    matchType: suggestion.matchType,
+    pattern: suggestion.pattern,
+    transactionType: "EXPENSE",
+    matchCreditCardId: batch.creditCardId,
+    matchAccountId: batch.accountId,
+    skipOnImport: true,
+  });
+  // Compras parecidas deste arquivo ainda marcadas para importar também ficam de fora.
+  const rows = await prisma.importRow.findMany({ where: { batchId, status: "NEW", selected: true } });
+  let appliedRows = 0;
+  await withTransaction(async (db) => {
+    for (const r of rows) {
+      const raw = readRaw(r.rawData);
+      if (!reviewable(r, raw)) continue;
+      const subject = { description: r.description ?? "", merchant: null, amountCents: Math.abs(r.amountCents ?? 0), type: "EXPENSE", accountId: batch.accountId, creditCardId: batch.creditCardId };
+      if (!findMatchingRule([rule], subject)) continue;
+      await db.importRow.update({ where: { id: r.id }, data: { rawData: toJson({ ...raw, review: "SKIP", skipRuleId: rule.id }), selected: false } });
+      appliedRows++;
+    }
+    await refreshCounters(db, batchId);
+  });
+  await publishEvent(ctx.householdId, "import.changed", batchId);
+  await publishEvent(ctx.householdId, "category.changed");
+  return { ...(await getImportPreview(ctx, batchId)), rule: { id: rule.id, name: rule.name }, appliedRows };
 }

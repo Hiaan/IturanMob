@@ -145,6 +145,10 @@ export async function processPdfStatement(
     lines.push(`Os outros ${others} arquivo(s) enviados antes continuam aguardando: responda *confirmar* para importá-los ou *cancelar*.`);
   } else if (ready.length > 1) {
     lines.push(`\nHá *${ready.length} arquivos* aguardando. Responda *confirmar* para importar todos (o que se repete entre eles entra uma vez só) ou *cancelar*. Para revisar: ${importLink()}`);
+  } else if (isCard && preview.review.purchases) {
+    // Fatura: antes de confirmar, conferir compras que não são suas (cartão emprestado, cobrança errada).
+    lines.push(`\n👀 Confira se há compras que não são suas antes de confirmar: ${importLink(batch.id)}`);
+    lines.push("Responda *confirmar* para importar ou *cancelar*.");
   } else {
     lines.push(`\nResponda *confirmar* para importar ou *cancelar*. Para revisar linha a linha: ${importLink(batch.id)}`);
   }

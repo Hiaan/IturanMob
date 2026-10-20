@@ -243,7 +243,8 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
 2. A conta/cartão vem da legenda ("fatura do cartão ultravioleta") ou do banco identificado no PDF,
    quando há uma única opção. Na dúvida, o bot manda o link da prévia no site para escolher o destino.
 3. O bot responde com o resumo (novos, já registrados, repetidos, pagamentos de fatura) e pergunta
-   *confirmar* / *cancelar*. Vários PDFs enviados em sequência entram na **mesma confirmação**, e o que se
+   *confirmar* / *cancelar*. Em fatura de cartão, a resposta pede para conferir antes ("confira se há
+   compras que não são suas antes de confirmar", com o link da etapa "Confirmar fatura" no site). Vários PDFs enviados em sequência entram na **mesma confirmação**, e o que se
    repete entre eles entra uma vez só. "confirmar importação" funciona mesmo depois de outra pergunta.
 4. PDF com senha → pede o arquivo sem senha. PDF que parece comprovante → segue a regra de comprovantes
    (lidos em imagem). PDF sem lançamentos reconhecíveis → pendência com o motivo.
