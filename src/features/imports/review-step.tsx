@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Briefcase, CheckCheck, ChevronDown, CircleSlash, CreditCard, HelpCircle, Link2, MoreHorizontal, Search, Sparkles, TriangleAlert, Undo2, Upload, Wand2 } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, Briefcase, CheckCheck, ChevronDown, CircleSlash, CreditCard, HelpCircle, Link2, MoreHorizontal, Search, Sparkles, TriangleAlert, Undo2, Upload, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { errorMessage } from "@/lib/client/api";
 import { formatMoney } from "@/lib/money";
 import { formatDateBR } from "@/lib/dates";
@@ -22,10 +21,11 @@ import { isInvestmentAccount } from "@/features/accounts/transfer-account-field"
 import { ROW_STATUS, ROW_STATUS_ORDER, RowStatusBadge } from "./status";
 import { NATURES, NATURE_LABELS } from "@/features/transactions/nature";
 import { NATURE_ICONS } from "@/features/transactions/nature-control";
-import { asksNature, canMarkTransfer, canSetNature, isUnresolvedTransfer, needsCounterpartAmount, transferTotals } from "./helpers";
+import { asksNature, canMarkTransfer, canSetNature, commitSummary, isUnresolvedTransfer, needsCounterpartAmount } from "./helpers";
 import { TransferTag } from "./transfer-tag";
 import { TransferRowsDialog } from "./transfer-rows-dialog";
-import { useCommitImport, useSetRowsNature, useSetRowsTransfer, useUpdateRows } from "./use-imports";
+import { CommitImportDialog } from "./commit-dialog";
+import { useCommitImport, useReviewSaving, useSetRowsNature, useSetRowsTransfer, useUpdateRows } from "./use-imports";
 import type { ImportPreview, ImportRowDTO, ImportRowNature, ImportRowStatus } from "./types";
 
 const PAGE_SIZE = 50;
@@ -218,8 +218,19 @@ function showMessage(row: ImportRowDTO): boolean {
 /**
  * Etapa de revisão: contadores, filtros por status, seleção, categoria por linha e confirmação.
  * `embedded`: sem a barra de confirmação (lotes da migração de planilha, confirmados todos juntos pelo assistente).
+ * `onContinue`: a importação final fica na etapa seguinte ("Confirmar fatura", nas faturas de cartão).
  */
-export function ReviewStep({ preview, onCommitted, embedded = false }: { preview: ImportPreview; onCommitted?: (data: ImportPreview) => void; embedded?: boolean }) {
+export function ReviewStep({
+  preview,
+  onCommitted,
+  onContinue,
+  embedded = false,
+}: {
+  preview: ImportPreview;
+  onCommitted?: (data: ImportPreview) => void;
+  onContinue?: () => void;
+  embedded?: boolean;
+}) {
   const [filter, setFilter] = useState<ImportRowStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [transfersOnly, setTransfersOnly] = useState(false);
@@ -235,6 +246,8 @@ export function ReviewStep({ preview, onCommitted, embedded = false }: { preview
   const setTransfer = useSetRowsTransfer(preview.batch.id);
   const setNature = useSetRowsNature(preview.batch.id);
   const commit = useCommitImport(preview.batch.id, onCommitted);
+  // Escolhas da conferência de saídas (extrato de conta) ainda sendo gravadas: a confirmação espera.
+  const reviewSaving = useReviewSaving(preview.batch.id);
   const accounts = useAccounts();
   const rows = preview.rows;
   const busy = update.isPending || setTransfer.isPending || setNature.isPending;
@@ -273,30 +286,12 @@ export function ReviewStep({ preview, onCommitted, embedded = false }: { preview
   const current = Math.min(page, pages);
   const visible = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
 
-  const selected = rows.filter((r) => r.selected);
-  const toCreate = selected.filter((r) => r.status === "NEW");
-  const toLink = selected.filter((r) => r.status === "MATCHED");
-  const toReview = selected.filter((r) => r.status === "DIVERGENT");
-  const regular = toCreate.filter((r) => r.kind !== "TRANSFER");
-  const inflow = regular.reduce((s, r) => s + Math.max(0, r.amountCents ?? 0), 0);
-  const outflow = regular.reduce((s, r) => s + Math.min(0, r.amountCents ?? 0), 0);
-  const transfers = transferTotals(toCreate);
-  const toConvert = toLink.filter((r) => r.kind === "TRANSFER" && r.transfer?.accountId && (r.matchedTransaction?.type === "INCOME" || r.matchedTransaction?.type === "EXPENSE"));
+  // O que entra ao confirmar (novas selecionadas, vínculos, divergências, transferências e naturezas).
+  const { selected, toCreate, toLink, toReview, inflowCents: inflow, outflowCents: outflow, transfers, toConvert, natureCounts } = commitSummary(rows);
   // Ação em lote: linhas selecionadas do filtro/busca atual que podem virar transferência.
   const bulkTargets = filtered.filter((r) => r.selected && transferable(r));
   // Natureza em lote: linhas selecionadas do filtro/busca atual que são receita/despesa.
   const natureTargets = filtered.filter((r) => r.selected && natureEditable(r));
-  // Resumo das naturezas do que entra (novas selecionadas).
-  const natureCounts = toCreate.reduce(
-    (acc, r) => {
-      if (!r.nature) return acc;
-      if (r.nature.ask) acc.ask++;
-      else if (r.nature.value === "BUSINESS") acc.business++;
-      else if (r.nature.value === "PASSTHROUGH") acc.passthrough++;
-      return acc;
-    },
-    { business: 0, passthrough: 0, ask: 0 },
-  );
 
   const setNewSelection = (value: boolean) => {
     const changes = rows.filter((r) => r.status === "NEW" && r.selected !== value && !(value && blocked(r))).map((r) => ({ rowId: r.id, selected: value }));
@@ -690,7 +685,7 @@ export function ReviewStep({ preview, onCommitted, embedded = false }: { preview
               {toCreate.length > 0 && (
                 <span className="hidden font-normal text-muted-foreground sm:inline">
                   {" "}
-                  · receitas <span className="tabular">{money(inflow)}</span> · despesas <span className="tabular">{money(Math.abs(outflow))}</span>
+                  · receitas <span className="tabular">{money(inflow)}</span> · despesas <span className="tabular">{money(outflow)}</span>
                   {transfers.count > 0 && (
                     <>
                       {" "}
@@ -721,72 +716,21 @@ export function ReviewStep({ preview, onCommitted, embedded = false }: { preview
               {natureCounts.ask ? ` · ${natureCounts.ask} pedem natureza` : ""}.
             </p>
           </div>
-          <Button variant="brand" onClick={() => setConfirmOpen(true)} disabled={!selected.length} loading={commit.isPending} className="shrink-0">
-            <Upload /> <span className="sm:hidden">Importar</span>
-            <span className="hidden sm:inline">Confirmar importação</span>
-          </Button>
+          {onContinue ? (
+            <Button variant="brand" onClick={onContinue} className="shrink-0">
+              <span className="sm:hidden">Continuar</span>
+              <span className="hidden sm:inline">Continuar: Confirmar fatura</span> <ArrowRight />
+            </Button>
+          ) : (
+            <Button variant="brand" onClick={() => setConfirmOpen(true)} disabled={!selected.length} loading={commit.isPending} className="shrink-0">
+              <Upload /> <span className="sm:hidden">Importar</span>
+              <span className="hidden sm:inline">Confirmar importação</span>
+            </Button>
+          )}
         </Card>
       )}
 
-      {!embedded && (
-        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmar importação?</AlertDialogTitle>
-              <AlertDialogDescription asChild>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>
-                    Serão criados <strong className="text-foreground">{toCreate.length}</strong> lançamento(s)
-                    {preview.batch.account ? ` na conta ${preview.batch.account.name}` : preview.batch.creditCard ? ` no cartão ${preview.batch.creditCard.name}` : ""}, vinculadas{" "}
-                    <strong className="text-foreground">{toLink.length}</strong> correspondência(s) e abertas <strong className="text-foreground">{toReview.length}</strong> pendência(s) de divergência.
-                  </p>
-                  {(transfers.count > 0 || toConvert.length > 0) && (
-                    <p>
-                      {transfers.count > 0 && (
-                        <>
-                          <strong className="text-foreground">{transfers.count}</strong> deles entram como transferência entre contas próprias (aplicação/resgate).{" "}
-                        </>
-                      )}
-                      {toConvert.length > 0 && (
-                        <>
-                          <strong className="text-foreground">{toConvert.length}</strong> lançamento(s) já registrado(s) como receita/despesa vão virar transferência.{" "}
-                        </>
-                      )}
-                      Transferências não contam como receita nem despesa.
-                    </p>
-                  )}
-                  {(natureCounts.business > 0 || natureCounts.passthrough > 0 || natureCounts.ask > 0) && (
-                    <p>
-                      Natureza:{" "}
-                      {[
-                        natureCounts.business ? `${natureCounts.business} como Empresa` : null,
-                        natureCounts.passthrough ? `${natureCounts.passthrough} como Repasse (fora dos relatórios)` : null,
-                        natureCounts.ask ? `${natureCounts.ask} sem escolha: entram como Pessoal e ficam em Pendências para você escolher` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                      . Saldo e fatura não mudam.
-                    </p>
-                  )}
-                  <p>Você poderá desfazer a importação depois: os lançamentos criados vão para a lixeira e os saldos voltam ao que eram.</p>
-                </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Voltar</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault();
-                  commit.mutate(undefined, { onSettled: () => setConfirmOpen(false) });
-                }}
-                disabled={commit.isPending}
-              >
-                {commit.isPending ? "Importando…" : "Importar"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
+      {!embedded && !onContinue && <CommitImportDialog preview={preview} open={confirmOpen} onOpenChange={setConfirmOpen} commit={commit} saving={reviewSaving} />}
 
       <TransferRowsDialog open={transferOpen} onOpenChange={setTransferOpen} preview={preview} rows={transferRows} />
     </div>

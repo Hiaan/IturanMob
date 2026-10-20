@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, Columns3, CreditCard, Landmark, Layers, Plus, Sparkles } from "lucide-react";
+import { ChevronDown, Columns3, CreditCard, Landmark, Layers, ListChecks, Plus, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState } from "@/components/shared/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import { UploadStep } from "./upload-step";
 import { MappingPanel } from "./mapping-panel";
 import { ReviewStep } from "./review-step";
 import { ReconciliationStep } from "./reconciliation-step";
+import { AccountCheckSheet, ConfirmStatementStep } from "./confirm-statement-step";
 import { ImportHistory } from "./import-history";
 import { BulkImport } from "./bulk-import";
 import { clearBulkSession, isBulkUploading, useBulkSession } from "./bulk-store";
@@ -27,19 +28,49 @@ import { useImportPreview } from "./use-imports";
 import { MigrationEntryCard } from "@/features/migration/entry-card";
 import type { ImportPreview } from "./types";
 
-type StepId = "upload" | "mapping" | "review" | "reconcile";
+type StepId = "upload" | "mapping" | "review" | "confirm" | "reconcile";
 
-function singleSteps(hasMapping: boolean): StepDef[] {
+/** Fatura de cartão ganha a etapa "Confirmar fatura" entre a revisão e a conciliação (é nela que se importa). */
+function singleSteps(hasMapping: boolean, card: boolean): StepDef[] {
   return [
     { id: "upload", label: "Enviar arquivo" },
     ...(hasMapping ? [{ id: "mapping", label: "Mapear colunas" }] : []),
     { id: "review", label: "Revisar" },
+    ...(card ? [{ id: "confirm", label: "Confirmar fatura" }] : []),
     { id: "reconcile", label: "Conciliar" },
   ];
 }
 
-function SingleStepper({ current, hasMapping }: { current: StepId; hasMapping: boolean }) {
-  return <Stepper steps={singleSteps(hasMapping)} current={current} />;
+function SingleStepper({ current, hasMapping, card = false }: { current: StepId; hasMapping: boolean; card?: boolean }) {
+  return <Stepper steps={singleSteps(hasMapping, card)} current={current} />;
+}
+
+/** Extrato de conta: atalho para a conferência opcional das saídas (mesmo painel do "Confirmar fatura"). */
+function AccountCheckEntry({ preview }: { preview: ImportPreview }) {
+  const [open, setOpen] = useState(false);
+  const r = preview.review;
+  return (
+    <>
+      <Card className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+            <ListChecks className="size-4" aria-hidden />
+          </span>
+          <div className="min-w-0 text-sm">
+            <p className="font-medium">Alguma saída não é sua ou está errada?</p>
+            <p className="text-xs text-muted-foreground">
+              Confira {r.purchases === 1 ? "a saída nova" : `as ${r.purchases} saídas novas`} uma a uma e deixe de fora o que não deve entrar
+              {r.notImportedCount > 0 ? ` (${r.notImportedCount} com “Não importar” agora)` : ""}.
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setOpen(true)}>
+          <ListChecks /> Conferir saídas antes de importar
+        </Button>
+      </Card>
+      <AccountCheckSheet preview={preview} open={open} onOpenChange={setOpen} />
+    </>
+  );
 }
 
 function BatchHeader({ preview }: { preview: ImportPreview }) {
@@ -91,14 +122,22 @@ function BatchHeader({ preview }: { preview: ImportPreview }) {
 
 function PreviewFlow({ preview, onCommitted, onNewImport }: { preview: ImportPreview; onCommitted: () => void; onNewImport: () => void }) {
   const tabular = isTabularFormat(preview.batch.format);
+  const card = Boolean(preview.batch.creditCard);
   const mappingBroken = needsMappingReview(preview);
   const [showMapping, setShowMapping] = useState(mappingBroken);
+  /** Fatura de cartão: revisão → "Confirmar fatura" (onde fica o botão final de importar). */
+  const [stage, setStage] = useState<"review" | "confirm">("review");
   const mappingKey = JSON.stringify([preview.mapping, preview.headerRowIndex, preview.invertSigns, preview.headers]);
+  const warnings = preview.batch.warnings.filter((w) => !isTransferWarning(w) && !(preview.batch.status === "PREVIEW" && isNatureWarning(w)));
+  const goTo = (next: "review" | "confirm") => {
+    setStage(next);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   if (preview.batch.status !== "PREVIEW") {
     return (
       <>
-        <SingleStepper current="reconcile" hasMapping={tabular} />
+        <SingleStepper current="reconcile" hasMapping={tabular} card={card} />
         <div className="space-y-4">
           <BatchHeader preview={preview} />
           <ReconciliationStep preview={preview} onNewImport={onNewImport} />
@@ -107,12 +146,25 @@ function PreviewFlow({ preview, onCommitted, onNewImport }: { preview: ImportPre
     );
   }
 
+  if (card && stage === "confirm" && !mappingBroken) {
+    return (
+      <>
+        <SingleStepper current="confirm" hasMapping={tabular} card />
+        <div className="space-y-4">
+          <BatchHeader preview={preview} />
+          <Warnings warnings={warnings} />
+          <ConfirmStatementStep preview={preview} onBack={() => goTo("review")} onCommitted={onCommitted} />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <SingleStepper current={showMapping || mappingBroken ? "mapping" : "review"} hasMapping={tabular} />
+      <SingleStepper current={showMapping || mappingBroken ? "mapping" : "review"} hasMapping={tabular} card={card} />
       <div className="space-y-4">
         <BatchHeader preview={preview} />
-        <Warnings warnings={preview.batch.warnings.filter((w) => !isTransferWarning(w) && !(preview.batch.status === "PREVIEW" && isNatureWarning(w)))} />
+        <Warnings warnings={warnings} />
         {tabular && (
           <div>
             {!showMapping && !mappingBroken ? (
@@ -130,7 +182,8 @@ function PreviewFlow({ preview, onCommitted, onNewImport }: { preview: ImportPre
             <span className="text-foreground">Envie o arquivo de novo marcando “Inverter sinais”.</span> Arquivos {formatLabel(preview.batch.format)} não precisam de mapeamento de colunas.
           </p>
         )}
-        {!mappingBroken && <ReviewStep preview={preview} onCommitted={onCommitted} />}
+        {!mappingBroken && !card && preview.review.purchases > 0 && <AccountCheckEntry preview={preview} />}
+        {!mappingBroken && <ReviewStep preview={preview} onCommitted={onCommitted} onContinue={card ? () => goTo("confirm") : undefined} />}
       </div>
     </>
   );

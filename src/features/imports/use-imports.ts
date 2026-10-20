@@ -1,10 +1,25 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
+import { useIsMutating, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
-import type { BulkCommitResponse, ColumnMapping, ImportBatchDTO, ImportFormat, ImportPreview, Reconciliation, RowUpdate, RowsNatureInput, RowsNatureResult, RowsTransferInput, RowsTransferResult } from "./types";
+import type {
+  BulkCommitResponse,
+  ColumnMapping,
+  ImportBatchDTO,
+  ImportFormat,
+  ImportPreview,
+  Reconciliation,
+  ReviewRuleResult,
+  RowReviewInput,
+  RowUpdate,
+  RowsNatureInput,
+  RowsNatureResult,
+  RowsTransferInput,
+  RowsTransferResult,
+} from "./types";
 
 /** Espelha IMPORT_MAX_BYTES do servidor (15 MB por arquivo). */
 export const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
@@ -170,6 +185,101 @@ export function useSetRowsNature(batchId: string) {
         toast.success(`${rows} como ${NATURE_NAMES[vars.nature]}`, {
           description: `${vars.applyToSimilar && n > vars.rowIds.length ? "Inclui as parecidas deste arquivo. " : ""}Vale ao importar. Saldo e fatura não mudam.`,
         });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+}
+
+/**
+ * Aplica na hora as escolhas "Importar"/"Não importar" às linhas e aos totais da conferência
+ * (a resposta do servidor traz os valores definitivos e o aviso atualizado).
+ */
+function withReviewChanges(preview: ImportPreview, changes: RowReviewInput[]): ImportPreview {
+  const next = new Map(changes.map((c) => [c.rowId, c.decision]));
+  const decisions = { IMPORT: { ...preview.review.decisions.IMPORT }, SKIP: { ...preview.review.decisions.SKIP } };
+  let appTotalCents = preview.review.appTotalCents;
+  let notImportedCount = preview.review.notImportedCount;
+  const rows = preview.rows.map((r) => {
+    const decision = next.get(r.id);
+    if (!decision || !r.review || r.review.decision === decision) return r;
+    const cents = Math.abs(r.amountCents ?? 0);
+    const sign = decision === "SKIP" ? -1 : 1;
+    appTotalCents += sign * cents;
+    notImportedCount -= sign;
+    decisions[r.review.decision] = { count: decisions[r.review.decision].count - 1, cents: decisions[r.review.decision].cents - cents };
+    decisions[decision] = { count: decisions[decision].count + 1, cents: decisions[decision].cents + cents };
+    return { ...r, selected: decision === "IMPORT", review: { decision, source: decision === "SKIP" ? ("MANUAL" as const) : ("DEFAULT" as const), skipRuleId: null } };
+  });
+  return {
+    ...preview,
+    rows,
+    review: { ...preview.review, appTotalCents, differenceCents: preview.review.fileTotalCents - appTotalCents, notImportedCount, decisions },
+  };
+}
+
+/** Chaves das mutações da conferência (escolhas e sugestões de regra) de um lote. */
+const reviewMutationKey = (batchId: string, kind?: "rows" | "rule") => (kind ? ["imports", "review", batchId, kind] : ["imports", "review", batchId]);
+
+/** Alguma escolha ou sugestão de regra ainda sendo gravada (a importação final espera). */
+export function useReviewSaving(batchId: string) {
+  return useIsMutating({ mutationKey: reviewMutationKey(batchId) }) > 0;
+}
+
+/**
+ * Confirmar fatura: "Importar" ou "Não importar" de cada compra nova (otimista). Com vários cliques
+ * seguidos, só a última resposta atualiza a prévia (e, se houve sobreposição, ela é recarregada).
+ */
+export function useReviewRows(batchId: string) {
+  const qc = useQueryClient();
+  const key = qk.imports({ batch: batchId });
+  const mutationKey = reviewMutationKey(batchId, "rows");
+  const overlapped = useRef(false);
+  return useMutation({
+    mutationKey,
+    mutationFn: (rows: RowReviewInput[]) => api.post<ImportPreview>(`/api/v1/imports/${batchId}/review`, { rows }),
+    onMutate: async (rows) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<ImportPreview>(key);
+      if (previous) qc.setQueryData<ImportPreview>(key, withReviewChanges(previous, rows));
+      return { previous };
+    },
+    onSuccess: (data) => {
+      // A mutação atual ainda conta como pendente aqui: 1 = nenhuma outra em andamento.
+      if (qc.isMutating({ mutationKey }) > 1) {
+        overlapped.current = true;
+        return;
+      }
+      qc.setQueryData(key, data);
+      if (overlapped.current) {
+        overlapped.current = false;
+        qc.invalidateQueries({ queryKey: key });
+      }
+    },
+    onError: (e, _v, ctx) => {
+      if (qc.isMutating({ mutationKey }) > 1) overlapped.current = true;
+      else if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+      if (overlapped.current) qc.invalidateQueries({ queryKey: key });
+      toast.error(errorMessage(e));
+    },
+  });
+}
+
+/** Sugestão "Sempre não importar…": cria a regra (e desmarca as parecidas deste arquivo) ou dispensa nesta importação. */
+export function useResolveReviewRule(batchId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: reviewMutationKey(batchId, "rule"),
+    mutationFn: (body: { key: string; accept: boolean }) => api.post<ReviewRuleResult>(`/api/v1/imports/${batchId}/review/rules`, body),
+    onSuccess: (data, vars) => {
+      const { rule, appliedRows, ...preview } = data;
+      qc.setQueryData(qk.imports({ batch: batchId }), preview);
+      if (!vars.accept || !rule) return;
+      qc.invalidateQueries({ queryKey: qk.rules });
+      toast.success(`Regra criada: ${rule.name}`, {
+        description: appliedRows
+          ? `${appliedRows} ${appliedRows === 1 ? "outra compra deste arquivo também ficou desmarcada" : "outras compras deste arquivo também ficaram desmarcadas"}. Nas próximas importações, elas já vêm desmarcadas.`
+          : "Nas próximas importações, as compras que atenderem à regra já vêm desmarcadas.",
+      });
     },
     onError: (e) => toast.error(errorMessage(e)),
   });

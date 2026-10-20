@@ -107,6 +107,29 @@ export function canMarkTransfer(preview: Pick<ImportPreview, "batch">, row: Impo
   );
 }
 
+/**
+ * O que a confirmação vai gravar (linhas selecionadas): lançamentos a criar, vínculos, divergências,
+ * receitas/despesas, transferências, conversões em transferência e naturezas do que entra.
+ */
+export function commitSummary(rows: ImportRowDTO[]) {
+  const selected = rows.filter((r) => r.selected);
+  const toCreate = selected.filter((r) => r.status === "NEW");
+  const toLink = selected.filter((r) => r.status === "MATCHED");
+  const toReview = selected.filter((r) => r.status === "DIVERGENT");
+  const regular = toCreate.filter((r) => r.kind !== "TRANSFER");
+  const inflowCents = regular.reduce((s, r) => s + Math.max(0, r.amountCents ?? 0), 0);
+  const outflowCents = regular.reduce((s, r) => s + Math.max(0, -(r.amountCents ?? 0)), 0);
+  const toConvert = toLink.filter((r) => r.kind === "TRANSFER" && r.transfer?.accountId && (r.matchedTransaction?.type === "INCOME" || r.matchedTransaction?.type === "EXPENSE"));
+  const natureCounts = { business: 0, passthrough: 0, ask: 0 };
+  for (const r of toCreate) {
+    if (!r.nature) continue;
+    if (r.nature.ask) natureCounts.ask++;
+    else if (r.nature.value === "BUSINESS") natureCounts.business++;
+    else if (r.nature.value === "PASSTHROUGH") natureCounts.passthrough++;
+  }
+  return { selected, toCreate, toLink, toReview, inflowCents, outflowCents, transfers: transferTotals(toCreate), toConvert, natureCounts };
+}
+
 /** Linhas de transferência com a conta definida que entram na importação (novas selecionadas). */
 export function transferTotals(rows: ImportRowDTO[]) {
   let count = 0;

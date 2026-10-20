@@ -77,6 +77,47 @@ export interface ImportRowNature {
   ask: boolean;
 }
 
+/** Confirmar fatura: cada compra nova entra ("Importar", padrão) ou fica de fora ("Não importar"). */
+export type ReviewDecision = "IMPORT" | "SKIP";
+
+export interface ImportRowReview {
+  decision: ReviewDecision;
+  /** MANUAL: escolhida pela pessoa; RULE: regra "não importar"; DEFAULT: como veio da prévia (ex.: parcela de compra antiga, desmarcada). */
+  source: "MANUAL" | "RULE" | "DEFAULT";
+  skipRuleId: string | null;
+}
+
+/** Sugestão de regra "sempre não importar" (mesma compra marcada "Não importar" mais de uma vez). */
+export interface ReviewRuleSuggestion {
+  key: string;
+  matchType: "STARTS_WITH" | "CONTAINS";
+  pattern: string;
+  /** Como mostrar o padrão ("FACEBK *"). */
+  patternLabel: string;
+  /** Vezes que compras parecidas foram marcadas "Não importar" (este arquivo e importações anteriores). */
+  timesMarked: number;
+  /** Outras compras deste arquivo que a regra também desmarcaria. */
+  alsoApplies: number;
+  label: string;
+}
+
+/** Conferência do total: compras no arquivo × o que vai entrar no app. */
+export interface ImportReviewSummary {
+  scope: "CARD" | "ACCOUNT";
+  /** Compras novas para conferir (linhas com `review`). */
+  purchases: number;
+  fileTotalCents: number;
+  appTotalCents: number;
+  differenceCents: number;
+  notImportedCount: number;
+  decisions: Record<ReviewDecision, { count: number; cents: number }>;
+  /** Pagamentos e créditos da fatura: não são compras, ficam fora da conferência. */
+  ignoredCredits: { count: number; cents: number };
+  /** Aviso quando o app vai ficar diferente do banco (algo não importado). */
+  warning: string | null;
+  suggestions: ReviewRuleSuggestion[];
+}
+
 export interface ImportRowDTO {
   id: string;
   /** Só em linhas TRANSFER; accountId null = falta escolher a conta do outro lado (a linha vem desmarcada). */
@@ -95,6 +136,13 @@ export interface ImportRowDTO {
   nature: ImportRowNature | null;
   categoryName: string | null;
   installment: { number: number; total: number } | null;
+  /** Confirmar fatura: null = a linha não é compra nova (não recebe a escolha). */
+  review: ImportRowReview | null;
+  flags: { installment: boolean; international: boolean };
+  /** Estabelecimento (filtro): o que vem antes do "*" ou o começo da descrição. */
+  merchantLabel: string;
+  /** Compra parcelada: a escolha vale para a compra inteira. */
+  wholePurchase: { installments: number; totalCents: number } | null;
   cells: Record<string, string>;
   matchedTransaction: { id: string; description: string; amountCents: number; date: string; type: string; status: string; source: string; deleted: boolean } | null;
   createdTransactionId: string | null;
@@ -108,6 +156,8 @@ export interface ImportPreview {
   headerRowIndex: number | null;
   invertSigns: boolean;
   cardPurchasesPositive: boolean | null;
+  /** Confirmar fatura: totais (arquivo × app), escolhas e sugestões de regra. */
+  review: ImportReviewSummary;
   rows: ImportRowDTO[];
   result?: { alreadyImported?: boolean; alreadyUndone?: boolean; created?: number; matched?: number; divergent?: number; errors?: number; removed?: number };
 }
@@ -146,6 +196,15 @@ export interface RowsNatureInput {
 }
 
 export type RowsNatureResult = ImportPreview & { updatedRows: number };
+
+/** Item de POST /api/v1/imports/:id/review (só linhas com `review`). */
+export interface RowReviewInput {
+  rowId: string;
+  decision: ReviewDecision;
+}
+
+/** Resultado de POST /api/v1/imports/:id/review/rules (rule null = sugestão dispensada). */
+export type ReviewRuleResult = ImportPreview & { rule: { id: string; name: string } | null; appliedRows: number };
 
 export interface RowUpdate {
   rowId: string;

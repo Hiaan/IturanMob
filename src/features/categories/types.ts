@@ -24,6 +24,8 @@ export interface RuleDTO {
   setScope: "PERSONAL" | "BUSINESS" | null;
   /** Pedir para escolher a natureza (Pessoal, Empresa ou Repasse): marca o lançamento e abre uma pendência. */
   askNature: boolean;
+  /** "Não importar": nas importações, a compra que atende à regra vem desmarcada. Não combina com outros efeitos. */
+  skipOnImport: boolean;
   /** Condições opcionais: só lançamentos desta conta / deste cartão (no máximo uma das duas). */
   matchAccountId: string | null;
   matchCreditCardId: string | null;

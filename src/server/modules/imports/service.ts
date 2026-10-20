@@ -415,7 +415,7 @@ async function annotateSkipRules(ctx: ServiceContext, rows: PreparedRow[], scope
     r.message = `Regra "${rule.name}": não importar.${r.message ? ` ${r.message}` : ""}`;
     skipped++;
   }
-  if (skipped) warnings.push(`${skipped} compra(s) desmarcada(s) por regra "não importar". Confira em "Confirmar fatura".`);
+  if (skipped) warnings.push(`${skipped} ${scope.creditCardId ? "compra(s)" : "saída(s)"} desmarcada(s) por regra "não importar". Confira em "${scope.creditCardId ? "Confirmar fatura" : "Conferir saídas"}".`);
 }
 
 async function annotateTransfers(ctx: ServiceContext, rows: PreparedRow[], warnings: string[], scopeAccountId: string | null) {
