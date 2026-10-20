@@ -115,6 +115,10 @@ export const NOTIFICATION_TYPE_LABELS = {
   MONTHLY_REPORT: "Relatório mensal disponível",
   WHATSAPP_CONNECTION_FAILED: "Falha na conexão do WhatsApp",
   SYSTEM: "Sistema",
+  INCOME_GOAL: "Meta de ganho",
+  GOAL_PROGRESS: "Metas de economia",
+  BILL_OVERDUE: "Conta vencida não paga",
+  STATEMENT_DUE: "Fatura perto de vencer",
 } as const;
 
 export const WHATSAPP_STATUS_LABELS = {

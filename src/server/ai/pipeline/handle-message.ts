@@ -26,6 +26,7 @@ import { expensesByCategory } from "../../modules/analytics/service";
 import { answerImportConfirmation, EXPLICIT_IMPORT_CONFIRM, isPdfAttachment, processPdfStatement } from "../engine/statement-import";
 import { isSpreadsheetAttachment, processSpreadsheet } from "../engine/spreadsheet-import";
 import { handleCategoryCommand, parseCategoryCommand } from "../engine/category-commands";
+import { handleIncomeGoalCommand, parseIncomeGoalCommand } from "../engine/income-goal-commands";
 import { parseLastTxCommand } from "../nlu/last-tx";
 import { handleLastTxCommand } from "../engine/last-transaction";
 import { applyExclusion, handleExclusionCommand, hasExclusionMarker, parseExclusionCommand, stripExclusionMarker, type QuotedRef } from "../engine/report-exclusion";
@@ -150,6 +151,12 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   // "cria categoria Pet", "nova categoria Escola dentro de Educação": comando determinístico.
   const categoryCommand = parseCategoryCommand(text, hc);
   if (categoryCommand) return handleCategoryCommand(ctx, hc, categoryCommand);
+  // "meta de ganho da empresa 30 mil", "quanto falta pra meta?": meta de ganho (sem IA).
+  const incomeGoal = parseIncomeGoalCommand(text);
+  if (incomeGoal) {
+    const done = await handleIncomeGoalCommand(ctx, incomeGoal, { groupScope: opts.nature?.fallback ?? null });
+    if (done) return done;
+  }
   // "cancela", "é refrigerante", "foram 15", "foi no crédito": sobre o último lançamento (sem IA).
   const lastCommand = parseLastTxCommand(text, hc);
   if (lastCommand) {

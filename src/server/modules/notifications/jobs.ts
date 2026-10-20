@@ -144,7 +144,7 @@ async function dispatchPush(now: Date, summary: DispatchSummary) {
       continue;
     }
     try {
-      const res = await sendPushToMember(n.recipientMemberId, { title: n.title, body: n.body, type: n.type, notificationId: n.id });
+      const res = await sendPushToMember(n.recipientMemberId, { title: n.title, body: n.body, type: n.type, notificationId: n.id, data: n.data });
       if (res.sent) {
         await finalize(n, "SENT", null, now);
         summary.sent++;

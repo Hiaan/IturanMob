@@ -236,6 +236,12 @@ pausar o processamento use `processingEnabled=false`; "Desconectar" interrompe a
    PROCESSED` ou `FAILED` com o motivo), aplica o prefixo do bot e o limite de 1 msg/s e 30 msg/h por
    família (excedente é adiado, não descartado).
 
+**Meta de ganho.** "meta de ganho da empresa 30 mil" (ou "meta de faturamento PJ 45k", "minha meta
+de renda pessoal é 12 mil") cria ou atualiza a meta mensal de receita do recorte; sem recorte na
+mensagem, vale o do grupo (ou Tudo). "qual minha meta de ganho?" e "quanto falta pra meta?" respondem
+com o recebido no mês, %, quanto falta, dias restantes e a projeção pelo ritmo. Comando determinístico,
+sem IA (`src/server/ai/engine/income-goal-commands.ts`).
+
 **Extratos e faturas em PDF.** Um PDF enviado no grupo é lido como extrato/fatura
 (`src/server/ai/engine/statement-import.ts`):
 

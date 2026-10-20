@@ -23,6 +23,11 @@ const DEFAULT_NOTIFICATION_PREFS: Array<{ type: NotificationType; inApp: boolean
   { type: "WEEKLY_REPORT", inApp: true, whatsapp: false },
   { type: "MONTHLY_REPORT", inApp: true, whatsapp: false },
   { type: "WHATSAPP_CONNECTION_FAILED", inApp: true, whatsapp: false },
+  { type: "INCOME_GOAL", inApp: true, whatsapp: true },
+  { type: "GOAL_PROGRESS", inApp: true, whatsapp: true },
+  { type: "BILL_OVERDUE", inApp: true, whatsapp: true },
+  // Fatura perto de vencer / vencida: no WhatsApp por padrão (o "fatura fechou" continua desligado).
+  { type: "STATEMENT_DUE", inApp: true, whatsapp: true },
 ];
 
 export async function seedNotificationPreferences(db: Db, memberId: string) {

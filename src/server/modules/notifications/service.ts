@@ -36,6 +36,10 @@ export const NOTIFICATION_TYPES = [
   "MONTHLY_REPORT",
   "WHATSAPP_CONNECTION_FAILED",
   "SYSTEM",
+  "INCOME_GOAL",
+  "GOAL_PROGRESS",
+  "BILL_OVERDUE",
+  "STATEMENT_DUE",
 ] as const satisfies readonly NotificationType[];
 
 export const NOTIFICATION_FREQUENCIES = ["IMMEDIATE", "DAILY_DIGEST", "OFF"] as const satisfies readonly NotificationFrequency[];
@@ -418,6 +422,26 @@ export async function updatePreferences(ctx: ServiceContext, rawItems: Preferenc
     after: after.filter((a) => items.some((i) => i.type === a.type)),
   });
   return after;
+}
+
+export const popupPreferenceSchema = z.object({ inAppPopups: z.boolean() });
+
+/** "Mostrar pop-ups no app": notificações novas aparecem como aviso na tela com o app aberto (padrão ligado). */
+export async function getPopupPreference(ctx: ServiceContext): Promise<{ inAppPopups: boolean }> {
+  const memberId = requireMember(ctx);
+  const member = await prisma.householdMember.findUnique({ where: { id: memberId }, select: { inAppPopups: true } });
+  return { inAppPopups: member?.inAppPopups ?? true };
+}
+
+export async function setPopupPreference(ctx: ServiceContext, raw: z.input<typeof popupPreferenceSchema>): Promise<{ inAppPopups: boolean }> {
+  const memberId = requireMember(ctx);
+  const { inAppPopups } = popupPreferenceSchema.parse(raw);
+  const before = await getPopupPreference(ctx);
+  if (before.inAppPopups !== inAppPopups) {
+    await prisma.householdMember.update({ where: { id: memberId }, data: { inAppPopups } });
+    await audit(ctx, { action: "SETTINGS_CHANGE", entityType: "HouseholdMember", entityId: memberId, before, after: { inAppPopups } });
+  }
+  return { inAppPopups };
 }
 
 // -----------------------------------------------------------------------------

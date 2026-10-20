@@ -27,6 +27,8 @@ export const cardSchema = z.object({
   limitCents: z.number().int().min(0).max(1_000_000_000).default(0),
   closingDay: z.number().int().min(1).max(31),
   dueDay: z.number().int().min(1).max(31),
+  /** Lembrete da fatura N dias antes do vencimento (0 = só no dia). */
+  dueReminderDays: z.number().int().min(0).max(15).default(3),
   paymentAccountId: z.string().nullish(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#1e3a5f"),
   icon: z.string().max(40).default("credit-card"),
@@ -71,6 +73,7 @@ export async function listCards(ctx: ServiceContext, opts: { includeArchived?: b
       availableLimitCents: card.limitCents ? Math.max(0, card.limitCents - outstanding) : null,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
+      dueReminderDays: card.dueReminderDays,
       paymentAccountId: card.paymentAccountId,
       paymentAccountName: card.paymentAccount?.name ?? null,
       color: card.color,

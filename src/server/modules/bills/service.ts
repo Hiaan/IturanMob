@@ -113,6 +113,8 @@ export interface BillDTO {
   /** Valor efetivamente pago (transação vinculada), quando houver. */
   paidAmountCents: number | null;
   paidAt: string | null;
+  /** "Pagar depois": lembrete de conta vencida adiado até esta data. */
+  reminderSnoozedUntil: string | null;
   notes: string | null;
   statement: { id: string; creditCardId: string; referenceMonth: string; closingDate: string; totalCents: number; paidCents: number; status: string } | null;
 }
@@ -162,6 +164,7 @@ function toBillDTO(sp: BillRow, today: ISODate): BillDTO {
       : null,
     paidAmountCents: tx && (sp.status === "PAID" || sp.status === "POSTED") ? tx.amountCents : null,
     paidAt: sp.paidAt?.toISOString() ?? null,
+    reminderSnoozedUntil: sp.reminderSnoozedUntil ? dateToISO(sp.reminderSnoozedUntil) : null,
     notes: sp.notes,
     statement: null,
   };
@@ -264,6 +267,7 @@ export async function listBills(ctx: ServiceContext, filters: BillListFilters = 
           transaction: null,
           paidAmountCents: null,
           paidAt: null,
+          reminderSnoozedUntil: null,
           notes: null,
           statement: {
             id: st.id,
@@ -471,6 +475,24 @@ async function setBillStatus(ctx: ServiceContext, id: string, status: "SKIPPED" 
 /** Ignora uma ocorrência (ex.: mês sem cobrança). Não gera transação. */
 export function skipBill(ctx: ServiceContext, id: string): Promise<BillDTO> {
   return setBillStatus(ctx, id, "SKIPPED");
+}
+
+export const billSnoozeSchema = z.object({ days: z.number().int().min(1).max(15).default(3) });
+
+/**
+ * "Pagar depois": adia o lembrete de conta vencida por alguns dias (padrão 3). Não muda a conta nem
+ * o vencimento; ao pagar/conciliar, os lembretes param de vez.
+ */
+export async function snoozeBillReminder(ctx: ServiceContext, id: string, raw: z.input<typeof billSnoozeSchema> = {}): Promise<BillDTO> {
+  assertCan(ctx, "bills:write");
+  const { days } = billSnoozeSchema.parse(raw ?? {});
+  const current = await loadBill(ctx, id, prisma);
+  if (current.status !== "PENDING") throw new ValidationError("Esta conta não está em aberto.");
+  const until = addDays(todayISO(ctx.timezone), days);
+  await prisma.scheduledPayment.update({ where: { id }, data: { reminderSnoozedUntil: isoToDate(until) } });
+  await audit(ctx, { action: "UPDATE", entityType: "ScheduledPayment", entityId: id, before: { reminderSnoozedUntil: current.reminderSnoozedUntil }, after: { reminderSnoozedUntil: until }, source: "Pagar depois" });
+  await publishEvent(ctx.householdId, "bill.changed", id);
+  return getBill(ctx, id);
 }
 
 /** Cancela a conta prevista. Não gera transação. */

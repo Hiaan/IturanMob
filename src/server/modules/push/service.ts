@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notificationUrl } from "@/lib/notification-meta";
 import type { NotificationType } from "@prisma/client";
 import { prisma } from "../../db";
 import type { ServiceContext } from "../../auth/context";
@@ -77,23 +78,15 @@ export async function unsubscribePush(ctx: ServiceContext, input: { endpoint?: s
 // Envio
 // -----------------------------------------------------------------------------
 
-const TYPE_URL: Partial<Record<NotificationType, string>> = {
-  BILL_DUE: "/contas-a-pagar",
-  BUDGET_THRESHOLD: "/orcamentos",
-  CONFIRMATION_REQUIRED: "/pendencias",
-  STATEMENT_AVAILABLE: "/cartoes",
-  WEEKLY_REPORT: "/relatorios",
-  MONTHLY_REPORT: "/relatorios",
-  WHATSAPP_CONNECTION_FAILED: "/integracoes",
-  TRANSACTION_CREATED: "/transacoes",
-  INCOME_CREATED: "/transacoes",
-};
+
 
 export interface PushMessage {
   title: string;
   body: string;
   type: NotificationType | "TEST";
   notificationId?: string;
+  /** `data` da notificação (destino específico em `data.url`). */
+  data?: unknown;
 }
 
 type Sender = (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: string) => Promise<{ statusCode: number }>;
@@ -121,7 +114,7 @@ export async function sendPushToMember(memberId: string, msg: PushMessage): Prom
   const payload = JSON.stringify({
     title: msg.title.slice(0, 120),
     body: msg.body.slice(0, 400),
-    url: msg.type === "TEST" ? "/configuracoes" : TYPE_URL[msg.type] ?? "/",
+    url: msg.type === "TEST" ? "/configuracoes" : notificationUrl(msg.type, msg.data),
     tag: msg.type,
     notificationId: msg.notificationId ?? null,
   });

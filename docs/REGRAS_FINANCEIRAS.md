@@ -78,6 +78,25 @@ A família escolhe o regime padrão em Configurações. Todos os relatórios ace
   - com valor negativo: é um resgate.
 
   Nenhum desses casos conta como despesa.
+- **Avisos das metas de economia** (tipo "Metas de economia"): ao chegar a 50%, 75%, 90% e 100% do
+  valor-alvo, cada faixa uma vez (várias de uma vez → avisa só a maior). Com prazo, 30 e 7 dias antes,
+  se o guardado está abaixo do ritmo esperado (linear desde a criação da meta): "faltam R$ X e N dias
+  para 'Viagem'; precisaria guardar R$ Y/dia". Ao atingir o valor: parabéns e a meta fica concluída.
+
+### 5.1 Meta de ganho (receita)
+
+- Meta **mensal** de receita, por recorte (Pessoa física / Empresa / Tudo) e, opcionalmente, por
+  categoria de receita. Vale todo mês até ser desativada; uma meta ativa por recorte + categoria.
+- Conta a receita reconhecida no regime padrão da família (a mesma dos relatórios). **Repasses**
+  (desconsiderados nos relatórios) nunca contam.
+- Progresso: recebido, %, quanto falta, dias restantes e a projeção pelo ritmo do mês (recebido até
+  hoje ÷ dias decorridos × dias do mês — estimativa).
+- Avisos (tipo "Meta de ganho"): nas faixas da meta ou, sem elas, nas do orçamento (50/75/90/100%),
+  cada faixa uma vez por mês; ao bater 100%: "🎉 Meta de ganho de outubro batida: R$ 31.200 de
+  R$ 30.000". A partir do dia 25, se a receita está abaixo de 75%, um único aviso "faltam R$ X em N
+  dias".
+- WhatsApp: "meta de ganho da empresa 30 mil" cria/atualiza; "qual minha meta de ganho?" e "quanto
+  falta pra meta?" respondem (no recorte dito na mensagem, senão no do grupo).
 
 ## 6. Duplicidade
 
@@ -120,6 +139,14 @@ A família escolhe o regime padrão em Configurações. Todos os relatórios ace
 - Mensagens como "paguei a conta de luz" são associadas à ocorrência prevista correspondente
   (`findMatchingScheduledPayment`) em vez de criar uma despesa nova.
 - Valor variável (energia, água): o valor da regra é uma estimativa. Vale o valor pago.
+- **Lembretes:** antes do vencimento (antecedência da recorrência; padrão 3 dias) e no dia. Conta
+  **vencida e não paga**: no dia seguinte ("⚠️ Aluguel venceu ontem (10/11) e não foi marcada como
+  paga") e a cada 3 dias, até 15 dias depois do vencimento — cada etapa uma vez. Para quando a conta é
+  paga ou conciliada; "pagar depois" adia o lembrete por 3 dias (no app).
+- **Fatura do cartão:** além do "fatura fechou", lembra N dias antes do vencimento (por cartão; padrão
+  3, 0 = só no dia), no dia ("vence hoje") e, se venceu com saldo em aberto, uma vez ("venceu e não foi
+  paga", até 15 dias depois). Esse tipo vai ao WhatsApp por padrão. Registrar o pagamento da fatura
+  encerra os avisos.
 
 ### 9.1 Gastos fixos e projeção
 

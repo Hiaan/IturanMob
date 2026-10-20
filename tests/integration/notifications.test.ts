@@ -88,7 +88,7 @@ describe("notificações", () => {
 
     const res = await notify({ householdId: fam.householdId, type: "BUDGET_THRESHOLD", title: "Orçamento", body: "Alimentação atingiu 50%.", dedupeKey: "budget:x:50" });
     expect(res.created).toBe(3); // in-app marido + in-app esposa + 1 WhatsApp (grupo)
-    expect(await prisma.notificationPreference.count({ where: { memberId: fam.wifeId } })).toBe(10);
+    expect(await prisma.notificationPreference.count({ where: { memberId: fam.wifeId } })).toBe(14);
 
     const inApp = await prisma.notification.findMany({ where: { householdId: fam.householdId, channel: "IN_APP" } });
     expect(inApp.map((n) => n.recipientMemberId).sort()).toEqual([fam.husbandId, fam.wifeId].sort());
@@ -184,7 +184,7 @@ describe("notificações", () => {
   it("preferências: leitura, atualização parcial e validação do horário silencioso", async () => {
     const fam = await createFamily();
     const prefs = await getPreferences(fam.wifeCtx);
-    expect(prefs).toHaveLength(10);
+    expect(prefs).toHaveLength(14);
     expect(prefs.find((p) => p.type === "BUDGET_THRESHOLD")).toMatchObject({ inApp: true, whatsapp: true, frequency: "IMMEDIATE" });
     const updated = await updatePreferences(fam.wifeCtx, [{ type: "BUDGET_THRESHOLD", quietStart: "22:00", quietEnd: "07:00", frequency: "DAILY_DIGEST" }]);
     expect(updated.find((p) => p.type === "BUDGET_THRESHOLD")).toMatchObject({ inApp: true, whatsapp: true, frequency: "DAILY_DIGEST", quietStart: "22:00", quietEnd: "07:00" });
@@ -311,7 +311,7 @@ describe("notificações", () => {
     expect((await api(readAllRoute.POST, { token, path: "/api/v1/notifications/read-all", method: "POST" })).body.data).toEqual({ updated: 1 });
 
     const prefs = await api(prefsRoute.GET, { token, path: "/api/v1/notifications/preferences" });
-    expect(prefs.body.data).toHaveLength(10);
+    expect(prefs.body.data).toHaveLength(14);
     const put = await api(prefsRoute.PUT, { token, path: "/api/v1/notifications/preferences", method: "PUT", body: { items: [{ type: "BILL_DUE", whatsapp: false, quietStart: "22:00", quietEnd: "07:00" }] } });
     expect(put.status).toBe(200);
     expect(put.body.data.find((p: { type: string }) => p.type === "BILL_DUE")).toMatchObject({ whatsapp: false, quietStart: "22:00", quietEnd: "07:00" });
