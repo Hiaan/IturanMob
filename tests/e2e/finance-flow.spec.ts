@@ -40,7 +40,7 @@ test.describe("fluxo financeiro no painel", () => {
     await page.goto("/");
     await addByNaturalLanguage(page, "gastei 45,90 no mercado no pix");
     await page.goto("/assistente");
-    await page.getByLabel("Pergunta para o assistente").fill("quanto gastamos com supermercado este mês?");
+    await page.getByLabel("Pergunta para a Isa").fill("quanto gastamos com supermercado este mês?");
     await page.getByRole("button", { name: "Enviar" }).click();
     await expect(page.getByText(/45,90/).last()).toBeVisible();
   });

@@ -54,7 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Inteligência",
     items: [
-      { href: "/assistente", label: "Assistente IA", icon: Sparkles },
+      { href: "/assistente", label: "Isa (assistente)", icon: Sparkles },
       { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
     ],
   },

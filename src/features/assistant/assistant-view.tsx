@@ -114,7 +114,7 @@ export function AssistantView() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Assistente financeiro" description="Pergunte em português sobre as finanças da família. As respostas usam apenas os dados registrados." />
+      <PageHeader title="Isa, sua assistente" description="Pergunte do seu jeito sobre as finanças da família. A Isa responde só com os dados registrados." />
       {/* No celular a lista lateral fica oculta: as conversas anteriores ficam neste seletor. */}
       {Boolean(conversations.data?.length) && (
         <div className="lg:hidden">
@@ -234,13 +234,13 @@ export function AssistantView() {
                     submit();
                   }
                 }}
-                aria-label="Pergunta para o assistente"
+                aria-label="Pergunta para a Isa"
               />
               <Button type="submit" variant="brand" size="icon" className="size-11 shrink-0" loading={ask.isPending} disabled={!question.trim()} aria-label="Enviar">
                 {!ask.isPending && <Send />}
               </Button>
             </div>
-            <p className="mx-auto mt-2 max-w-3xl text-[11px] text-muted-foreground">O assistente apenas consulta dados; registros e correções são feitos pelo WhatsApp ou pelo painel.</p>
+            <p className="mx-auto mt-2 max-w-3xl text-[11px] text-muted-foreground">A Isa aqui no painel apenas consulta dados; registros e correções são feitos pelo WhatsApp ou pelo painel.</p>
           </form>
         </Card>
       </div>
