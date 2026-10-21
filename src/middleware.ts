@@ -15,6 +15,8 @@ const PUBLIC_PREFIXES = [
   "/icons/",
   "/apple-icon",
   "/offline",
+  // Site de vendas (público).
+  "/site",
 ];
 
 /**
@@ -25,6 +27,12 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
   if (pathname.startsWith("/api/")) return NextResponse.next();
+  // Visitante sem sessão na página inicial: mostra o site de vendas (o endereço continua "/").
+  if (pathname === "/" && !req.cookies.get("fa_session")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/site";
+    return NextResponse.rewrite(url);
+  }
   if (!req.cookies.get("fa_session")) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";

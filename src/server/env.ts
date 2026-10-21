@@ -64,6 +64,11 @@ const envSchema = z.object({
   OPEN_FINANCE_SIMULATOR: bool(false),
   // Google Agenda: o simulador traz eventos de exemplo (nenhuma conta Google real).
   GOOGLE_CALENDAR_SIMULATOR: bool(false),
+  // Site de vendas (página pública em "/" para quem não está logado).
+  /** WhatsApp de vendas, só números com DDI (ex.: 5581999999999). Sem ele, o site não mostra "Quero contratar". */
+  SITE_CONTACT_WHATSAPP: z.string().regex(/^\d{12,13}$/, "Use só números com DDI e DDD").optional(),
+  /** Preço mensal exibido no site (ex.: "29,90"). Sem ele, o site mostra "Fale com a gente". */
+  SITE_PLAN_PRICE: z.string().regex(/^\d{1,4}(,\d{2})?$/).optional(),
   // WhatsApp
   WHATSAPP_DEFAULT_PROVIDER: z.enum(["SIMULATOR", "BAILEYS", "CLOUD_API"]).default("SIMULATOR"),
   WHATSAPP_ENABLE_SIMULATOR: bool(true),
