@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { env } from "@/server/env";
+import { Plans } from "./plans";
 
 export const dynamic = "force-dynamic";
 
@@ -196,7 +197,6 @@ function Phone() {
 
 export default function SitePage() {
   const contact = contactLink();
-  const price = env().SITE_PLAN_PRICE ?? null;
   const primaryHref = contact ?? "#planos";
 
   return (
@@ -370,47 +370,10 @@ export default function SitePage() {
           <div className="relative mx-auto max-w-6xl px-4 py-24 text-center sm:px-6">
             <Eyebrow>Planos</Eyebrow>
             <h2 style={HEADING} className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Um plano, tudo incluído
+              Escolha o seu pacote
             </h2>
-            <div className="mx-auto mt-12 max-w-md rounded-3xl border border-[var(--t9-red)]/30 bg-[var(--t9-card)]/90 p-8 text-left shadow-[0_0_60px_rgba(255,45,56,0.15)]">
-              <p style={HEADING} className="text-xl font-bold text-white">
-                Finance AI Família
-              </p>
-              {price ? (
-                <p className="mt-3">
-                  <span style={HEADING} className="text-5xl font-extrabold text-white">
-                    R$ {price}
-                  </span>
-                  <span className="text-[var(--t9-muted)]"> /mês</span>
-                </p>
-              ) : (
-                <p className="mt-3 text-[var(--t9-muted)]">Fale com a gente para saber o valor.</p>
-              )}
-              <ul className="mt-7 space-y-3 text-sm text-white/85">
-                {[
-                  "Lançamentos pelo WhatsApp (texto, áudio e foto)",
-                  "Boletos, contas a pagar e lembretes",
-                  "Cartões, parcelas e faturas",
-                  "Relatórios em PDF e planilha",
-                  "Avisos de falta de dinheiro e de assinaturas",
-                  "Agenda, Google Agenda e resumo do dia",
-                  "Para toda a família, com contas privadas",
-                ].map((t) => (
-                  <li key={t} className="flex gap-2.5">
-                    <Check className="mt-0.5 size-4 shrink-0 text-[var(--t9-red-soft)]" aria-hidden /> {t}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-8 flex">
-                {contact ? (
-                  <CTA href={contact}>
-                    Quero contratar <ArrowRight className="size-4" aria-hidden />
-                  </CTA>
-                ) : (
-                  <CTA href="/login">Já sou cliente: entrar</CTA>
-                )}
-              </div>
-            </div>
+            <p className="mx-auto mt-4 max-w-xl font-light text-[var(--t9-muted)]">No plano anual, você paga 10 meses e usa 12.</p>
+            <Plans contactHref={contact} headingStyle={HEADING} />
           </div>
         </section>
 
