@@ -207,3 +207,22 @@ estas regras:
 | `TRANSCRIPTION_MODEL` | `whisper-1` | Em servidores locais, use o nome do modelo carregado |
 
 O modelo de cada tarefa pode ser trocado na interface sem reiniciar o sistema.
+
+## Assistente conversacional do WhatsApp
+
+Com o envio para IA autorizado pela família (Configurações → Privacidade e IA) e uma chave de
+provedor configurada, as mensagens de texto e os áudios transcritos do grupo são respondidos por um
+assistente conversacional (Claude com ferramentas), em vez das respostas prontas do motor de regras:
+
+- entende vários lançamentos na mesma mensagem, receitas × despesas pelo contexto e correções soltas
+  ("a Ariane foi receita", "cancela a da Rosineide"), usando o histórico recente da conversa (6 horas);
+- responde perguntas com as mesmas ferramentas de consulta do assistente do painel (no grupo, no
+  recorte da família: contas e cartões privados ficam de fora);
+- age só por ferramentas do servidor, que validam tudo: o valor precisa constar nas mensagens de quem
+  escreve (nada inventado), categoria/conta/cartão precisam existir, nome de pessoa não vira
+  categoria, apagar vai para a lixeira (reversível); nunca SQL;
+- teto mensal por família (`AGENT_MONTHLY_LIMIT`, padrão 300 pedidos, somando WhatsApp e painel);
+  acima dele, sem consentimento ou se o provedor falhar, o motor local responde como antes.
+
+Comandos com resposta pronta e sem custo continuam valendo antes do assistente: código de boleto,
+"manda o relatório", agenda ("marca…", "agenda de hoje"), confirmação de extrato em PDF.

@@ -21,6 +21,8 @@ import { extractReceipt } from "../vision/receipt";
 import { handleBoletoText, registerBoleto } from "../engine/boleto-commands";
 import { handleReportCommand, parseReportCommand } from "../engine/report-commands";
 import { handleAgendaCommand, parseAgendaCommand } from "../engine/agenda-commands";
+import { agentAvailable, runWhatsAppAgent } from "../agent/whatsapp-agent";
+import { closeClarification, findOpenClarification } from "../engine/clarifications";
 import { readBoletoFromPdf } from "../../modules/bills/boleto-reader";
 import { isBoleto, parseBoleto } from "@/lib/boleto";
 import { extractAmounts } from "../nlu/numbers";
@@ -144,6 +146,15 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
     text,
     nature: groupNature,
   };
+  // Assistente conversacional (Claude): com consentimento e dentro do teto do mês, ele entende a
+  // mensagem inteira, correções soltas e perguntas. Perguntas antigas do motor de regras (categoria,
+  // "confirma?") não prendem a conversa: o assistente entende a resposta pelo histórico.
+  const agentOn = (opts.source === "WHATSAPP_TEXT" || opts.source === "WHATSAPP_AUDIO") && (await agentAvailable(ctx));
+  if (agentOn) {
+    const open = await findOpenClarification(ctx.householdId, opts.chatId, ctx.memberId);
+    const keep = open && (open.kind === "CONFIRM_IMPORT" || (open.kind === "MISSING_FIELDS" && (open.payload as { action?: string } | null)?.action === "boleto"));
+    if (open && !keep) await closeClarification(open.id, "CANCELLED");
+  }
   const answered = await tryAnswerClarification(ctx, hc, exec);
   if (answered) return answered;
   if (opts.source === "WHATSAPP_TEXT" && EXPLICIT_IMPORT_CONFIRM.test(normalizeForNlu(text))) {
@@ -176,6 +187,17 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   if (incomeGoal) {
     const done = await handleIncomeGoalCommand(ctx, incomeGoal, { groupScope: opts.nature?.fallback ?? null });
     if (done) return done;
+  }
+  if (agentOn) {
+    const agent = await runWhatsAppAgent(ctx, {
+      chatId: opts.chatId,
+      messageId: opts.messageId,
+      text,
+      source: opts.source === "WHATSAPP_AUDIO" ? "WHATSAPP_AUDIO" : "WHATSAPP_TEXT",
+      isGroup: opts.nature !== null,
+      nature: opts.nature ? { fallback: opts.nature.fallback ?? null, ask: Boolean(opts.nature.ask) } : null,
+    });
+    if (agent) return agent;
   }
   // "cancela", "é refrigerante", "foram 15", "foi no crédito": sobre o último lançamento (sem IA).
   const lastCommand = parseLastTxCommand(text, hc);

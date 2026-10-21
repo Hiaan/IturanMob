@@ -70,7 +70,7 @@ type DraftPayload = ResolvedDraft[];
 // Criação de lançamentos
 // -----------------------------------------------------------------------------
 
-interface CreatedInfo {
+export interface CreatedInfo {
   draft: ResolvedDraft;
   transactionId: string | null;
   status: "CONFIRMED" | "PENDING";
@@ -81,7 +81,7 @@ interface CreatedInfo {
   note?: string;
 }
 
-async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: ExecuteOptions, hc: HouseholdContext, forceStatus?: "CONFIRMED" | "PENDING"): Promise<CreatedInfo> {
+export async function createFromDraft(ctx: ServiceContext, d: ResolvedDraft, opts: ExecuteOptions, hc: HouseholdContext, forceStatus?: "CONFIRMED" | "PENDING"): Promise<CreatedInfo> {
   const status = forceStatus ?? (d.decision === "AUTO" ? "CONFIRMED" : "PENDING");
   const aiMetadata = { warnings: d.warnings, decision: d.decision, ruleId: d.ruleId } as Prisma.InputJsonValue;
 

@@ -32,6 +32,8 @@ const envSchema = z.object({
   PG_RESTORE_PATH: z.string().default("pg_restore"),
 
   // IA
+  /** Teto mensal de pedidos ao assistente conversacional (WhatsApp + app) por família. 0 desliga o assistente. */
+  AGENT_MONTHLY_LIMIT: z.coerce.number().int().min(0).default(300),
   AI_DEFAULT_PROVIDER: z.enum(["LOCAL", "ANTHROPIC", "OPENAI", "OPENAI_COMPATIBLE"]).default("LOCAL"),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-opus-5-5"),
