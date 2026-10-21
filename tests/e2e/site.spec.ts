@@ -4,8 +4,8 @@ import { expect, test } from "@playwright/test";
 test("site de vendas para quem não está logado", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Mande uma mensagem.");
-  await expect(page.getByRole("heading", { name: "Organizar o dinheiro em 3 passos" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Sua vida financeira organizada");
+  await expect(page.getByRole("heading", { name: "Três passos. Nenhuma planilha." })).toBeVisible();
   await page.getByText("O Finance AI lê as minhas outras conversas?").click();
   await expect(page.getByText("Ele só processa o grupo que vocês autorizarem")).toBeVisible();
   await page.setViewportSize({ width: 375, height: 800 });
