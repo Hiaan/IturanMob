@@ -224,7 +224,9 @@ assistente conversacional (Claude com ferramentas), em vez das respostas prontas
 - além de lançamentos, informa saldo de conta/caixa ("tenho 1.500 no caixa 1" → ajuste de saldo,
   que não conta como receita nem despesa), cria conta (só quando pedem ou aceitam), transfere entre
   contas e cadastra contas a pagar/receber; conta citada pelo apelido que serve para mais de uma
-  ("caixa" com Caixa 1 e Caixa 2) faz a assistente perguntar qual;
+  ("caixa" com Caixa 1 e Caixa 2) faz a assistente perguntar qual; "ajustar saldo" (a mesma função do
+  app) aceita o saldo dito pela pessoa ou um saldo que a assistente propôs e alguém confirmou
+  ("sim") logo em seguida; "zera tudo" zera os saldos depois de uma confirmação;
 - a mesma assistente (mesmas ferramentas e validações) atende na tela "Isa" do app; sem IA autorizada,
   essa tela continua só consultando, com o assistente local;
 - teto mensal por família (`AGENT_MONTHLY_LIMIT`, padrão 300 pedidos, somando WhatsApp e painel);

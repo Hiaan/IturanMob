@@ -135,9 +135,11 @@ COMO AGIR
 - Correções soltas ("a Ariane foi receita", "foram 15", "foi no crédito", "muda pra mercado", "cancela a da Rosineide") referem-se aos lançamentos acima ou aos que você acabou de fazer: use corrigir_lancamento ou apagar_lancamento no lançamento certo.
 - Compra parcelada: "valor" é o número que a pessoa disse. "TV de 3000 em 10x" → valor 3000, parcelas 10. "Tênis em 5x de 100" → valor 100, parcelas 5, valor_da_parcela true. Ao responder, diga o total e a parcela (ex.: "R$ 500,00 em 5x de R$ 100,00").
 - "Paguei a conta de luz / o aluguel / a escola…": primeiro veja contas_a_pagar_abertas. Se houver a conta, marque como paga com marcar_conta_paga (o valor vem do cadastro da conta). Só se não houver conta cadastrada, registre como despesa (e aí o valor precisa ter sido dito).
-- Saldo de conta/caixa: "tenho 1.500 no caixa 1", "o caixa 2 ficou com 800", "o saldo do Itaú é 3 mil" = informar_saldo (ajusta o saldo da conta para o valor dito; não é receita nem despesa). "Quanto tem no caixa?" é pergunta: use a consulta de saldos.
+- Saldo de conta/caixa: "tenho 1.500 no caixa 1", "o caixa 2 ficou com 800", "o saldo do Itaú é 3 mil" = ajustar_saldo (ajusta o saldo da conta para o valor dito; não é receita nem despesa). "Quanto tem no caixa?" é pergunta: use a consulta de saldos.
 - "Entrou 500 no caixa 1" / "recebi 300 no Itaú" = receita nessa conta (registrar_lancamentos com conta). "Saiu 80 do caixa" = despesa nessa conta.
 - "Passei 200 do caixa 1 pro caixa 2", "transferi 1.000 do Itaú pro Nubank", "guardei 300 na poupança" = transferir (não é gasto nem receita).
+- Zerar ("zera o caixa", "zera tudo", "quero começar do zero"): use zerar_saldos (as contas citadas, ou null para todas). Se for "tudo"/várias contas, diga quais contas e saldos vão a zero e peça confirmação uma vez; com o "sim", chame zerar_saldos.
+- NUNCA calcule entradas ou saídas para chegar a um saldo: para mudar o saldo use ajustar_saldo (com o saldo FINAL) ou zerar_saldos. Pode propor um saldo final (ex.: o saldo atual de outra conta) e, com o "sim" da pessoa, ajustar para ele.
 - Conta que não existe: diga que não achou e pergunte se é para criar. Criar só quando pedirem ou aceitarem: criar_conta (caixa, carteira e dinheiro vivo = tipo "dinheiro"), com o saldo inicial dito.
 - "Tenho a conta de luz de 180 pra dia 10", "boleto da escola de 900 vence dia 5" = cadastrar_conta_a_pagar (vencimento e valor ditos). "Vou receber 2 mil do cliente dia 20" = cadastrar_conta_a_pagar com tipo receber.
 - Nunca diga que anotou, corrigiu, apagou ou marcou algo sem ter chamado a ferramenta e recebido sucesso.
@@ -227,8 +229,8 @@ const ACTION_TOOLS = {
     description: "Desmarca um compromisso (código A# da ferramenta agenda).",
     schema: z.object({ codigo: z.string() }),
   },
-  informar_saldo: {
-    description: "Ajusta o saldo de uma conta/caixa para o valor que a pessoa disse ('tenho 1.500 no caixa 1'). Gera um ajuste de saldo (não é receita nem despesa).",
+  ajustar_saldo: {
+    description: "Ajusta o saldo de uma conta/caixa (a mesma função 'Ajustar saldo' do app): 'tenho 1.500 no caixa 1', 'ajusta o Itaú para 3 mil'. Gera um ajuste de saldo (não é receita nem despesa). O saldo vem do que a pessoa disse, ou do que você propôs e ela confirmou ('sim').",
     schema: z.object({
       conta: z.string().min(1).describe("Nome da conta/caixa como está no cadastro."),
       saldo: z.number().describe("Saldo atual dito pela pessoa, em reais (pode ser negativo se ela disser)."),
@@ -251,6 +253,12 @@ const ACTION_TOOLS = {
       valor: z.number().positive(),
       data: z.string().nullable(),
       descricao: z.string().max(120).nullable(),
+    }),
+  },
+  zerar_saldos: {
+    description: "Zera o saldo de contas/caixas ('zera o caixa', 'zera tudo pra começar de novo'). Gera ajustes de saldo; os lançamentos já feitos continuam no histórico.",
+    schema: z.object({
+      contas: z.array(z.string().min(1)).nullable().describe("Nomes das contas a zerar; null = todas as contas."),
     }),
   },
   cadastrar_conta_a_pagar: {
@@ -278,9 +286,14 @@ function findAccount(hc: HouseholdContext, name: string) {
   throw new Error(`Não achei a conta "${name}". Contas: ${hc.accounts.map((a) => a.name).join(", ") || "nenhuma"}. Pergunte se é para criar.`);
 }
 
+/** Pediram para zerar ("zera tudo", "zerar o caixa", "começar do zero", "ficou zerado"). */
+function saidZero(state: RunState): boolean {
+  return /\bzer(a|ar|ando|o|ou|ad)/.test(normalizeText(state.userText));
+}
+
 /** Valor dito na conversa (aceita "zerou" para saldo zero). */
 function assertSaid(state: RunState, cents: number) {
-  if (cents === 0 && /\bzer(o|ou|ad)/.test(normalizeText(state.userText))) return;
+  if (cents === 0 && saidZero(state)) return;
   if (!amountMentioned(state.userText, Math.abs(cents))) throw new Error(`O valor ${formatBRL(Math.abs(cents))} não aparece nas mensagens. Pergunte o valor.`);
 }
 
@@ -302,6 +315,8 @@ interface RunState {
   transactionIds: string[];
   /** Alguma ação que não gera lançamento (conta criada, conta a pagar, saldo) foi feita. */
   changed?: boolean;
+  /** A mensagem atual confirma ("sim") a última proposta da Isa: o texto dessa proposta. */
+  confirmedProposal?: string;
 }
 
 function findTx(state: RunState, codigo: string): string {
@@ -524,11 +539,13 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       await deleteAppointment(ctx, id);
       return { desmarcado: true };
     }
-    case "informar_saldo": {
+    case "ajustar_saldo": {
       const d = data as { conta: string; saldo: number; data: string | null };
       const acc = findAccount(hc, d.conta);
       const cents = toCents(d.saldo);
-      assertSaid(state, cents);
+      // Saldo proposto pela Isa (ex.: o saldo atual mostrado) e confirmado com "sim" também vale.
+      const confirmed = state.confirmedProposal && cents !== 0 && amountMentioned(state.confirmedProposal, Math.abs(cents));
+      if (!confirmed) assertSaid(state, cents);
       const date = d.data && isISODate(d.data) && d.data <= hc.today ? d.data : undefined;
       const before = await getAccount(ctx, acc.id);
       const res = await adjustBalance(ctx, acc.id, { targetBalanceCents: cents, date, note: "Saldo informado à Isa" });
@@ -567,6 +584,24 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       );
       state.transactionIds.push(transaction.id);
       return { transferido: true, de: from.name, para: to.name, valor: formatBRL(cents), data: formatDateBR(date) };
+    }
+    case "zerar_saldos": {
+      const d = data as { contas: string[] | null };
+      if (!saidZero(state)) throw new Error("Ninguém pediu para zerar nas mensagens. Pergunte antes.");
+      const targets = d.contas?.length ? d.contas.map((n) => findAccount(hc, n)) : hc.accounts;
+      if (!targets.length) throw new Error("Não há contas para zerar.");
+      const out: Array<{ conta: string; saldo_anterior: string; saldo_agora: string }> = [];
+      for (const acc of targets) {
+        const res = await adjustBalance(ctx, acc.id, { targetBalanceCents: 0, note: "Saldo zerado a pedido (Isa)" });
+        if (!res.adjusted) continue;
+        // Saldo anterior pelo próprio ajuste: saída da conta = estava positivo; entrada = estava negativo.
+        const adj = await prisma.transaction.findFirst({ where: { householdId: ctx.householdId, type: "ADJUSTMENT", OR: [{ accountId: acc.id }, { destinationAccountId: acc.id }] }, orderBy: { createdAt: "desc" }, select: { id: true, amountCents: true, accountId: true } });
+        if (adj) state.transactionIds.push(adj.id);
+        const previous = adj ? (adj.accountId === acc.id ? adj.amountCents : -adj.amountCents) : 0;
+        out.push({ conta: acc.name, saldo_anterior: formatBRL(previous), saldo_agora: formatBRL(0) });
+      }
+      state.changed = true;
+      return { zeradas: out, ja_estavam_zeradas: targets.length - out.length, observacao: "Ajustes de saldo (não contam como receita nem despesa). Os lançamentos antigos continuam no histórico; se quiser apagá-los, é pelo app." };
     }
     case "cadastrar_conta_a_pagar": {
       const d = data as { descricao: string; valor: number; vencimento: string; tipo: "pagar" | "receber"; conta: string | null };
@@ -649,6 +684,11 @@ async function runAgent(
     nextIndex: 0,
     transactionIds: [],
   };
+  // "sim", "pode", "confirmo"… logo depois de uma proposta da Isa: a proposta vale como dita.
+  const lastAssistant = [...history].reverse().find((h) => h.role === "assistant");
+  if (lastAssistant && /^(sim|s|pode|pode sim|confirmo|confirma|isso|isso mesmo|ok|okay|beleza|manda|faz|fechado|correto|certo)\b[\s!.]*$/.test(normalizeText(text))) {
+    state.confirmedProposal = lastAssistant.content;
+  }
   const readTools = toolDefinitions();
   const actionNames = new Set<string>(Object.keys(ACTION_TOOLS));
   const started = Date.now();
