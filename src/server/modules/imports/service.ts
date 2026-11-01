@@ -1939,7 +1939,13 @@ export async function commitImport(ctx: ServiceContext, batchId: string, opts: {
                   paymentMethod: raw.suggestedPaymentMethod && raw.suggestedPaymentMethod !== "DEBIT_CARD" && raw.suggestedPaymentMethod !== "CASH" ? raw.suggestedPaymentMethod : "BANK_TRANSFER",
                 }
             : scope.creditCardId
-              ? { type: "EXPENSE" as const, creditCardId: scope.creditCardId, installmentCount: plan?.count ?? 1, payerMemberId: raw.payerMemberId ?? scope.cardHolderId ?? undefined }
+              ? {
+                  type: "EXPENSE" as const,
+                  creditCardId: scope.creditCardId,
+                  installmentCount: plan?.count ?? 1,
+                  // Migração a partir de uma parcela do meio ("parcelas 3 a 10"): mantém a numeração original.
+                  installmentOffset: plan && "firstNumber" in plan && plan.firstNumber > 1 && plan.ofTotal - plan.firstNumber + 1 === plan.count ? plan.firstNumber - 1 : 0,
+                  payerMemberId: raw.payerMemberId ?? scope.cardHolderId ?? undefined }
               : {
                   type: outflow ? ("EXPENSE" as const) : ("INCOME" as const),
                   accountId: scope.accountId,

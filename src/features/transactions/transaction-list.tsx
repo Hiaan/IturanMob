@@ -13,7 +13,7 @@ import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
 import { capitalize, cn } from "@/lib/utils";
 import type { CardDTO, TransactionDTO, TransactionNature } from "@/features/finance/types";
 import { AmountText, ExcludedBadge, PendingBadge, SourceTag, TransactionIcon, categoryLabel, personLabel, whereLabel } from "./transaction-visuals";
-import { currentInstallmentLabel } from "./installments";
+import { currentInstallmentLabel, listDate, periodAmount } from "./installments";
 import { canExcludeFromReports } from "./report-exclusion";
 import { NATURES, NATURE_LABELS, natureOf } from "./nature";
 import { NATURE_ICONS, NatureBadge, NatureQuickMenu, NatureReviewBadge } from "./nature-control";
@@ -46,13 +46,17 @@ function dayLabel(iso: string, today: string): string {
 function groupItems(items: TransactionDTO[], grouped: boolean, today: string): Group[] {
   if (!grouped) return [{ key: "all", label: "", items, incomeCents: 0, expenseCents: 0 }];
   const groups: Group[] = [];
-  for (const tx of items) {
+  // Parcelas de compras anteriores aparecem no dia da parcela (mantém a ordem da página por dia).
+  const ordered = items.some((t) => t.periodInstallment) ? [...items].sort((a, b) => listDate(b).localeCompare(listDate(a))) : items;
+  for (const row of ordered) {
+    const tx = periodAmount(row);
+    const day = listDate(row);
     let g = groups[groups.length - 1];
-    if (!g || g.key !== tx.date) {
-      g = { key: tx.date, label: dayLabel(tx.date, today), items: [], incomeCents: 0, expenseCents: 0 };
+    if (!g || g.key !== day) {
+      g = { key: day, label: dayLabel(day, today), items: [], incomeCents: 0, expenseCents: 0 };
       groups.push(g);
     }
-    g.items.push(tx);
+    g.items.push(row);
     // Desconsiderados nos relatórios não entram nos totais do dia (como nos totais do topo).
     if (tx.status === "CONFIRMED" && !tx.deletedAt && !tx.excludedFromReports) {
       // Totais do dia em reais: moeda estrangeira pela PTAX da data (sem cotação ainda, fica de fora).
@@ -62,6 +66,17 @@ function groupItems(items: TransactionDTO[], grouped: boolean, today: string): G
     }
   }
   return groups;
+}
+
+/** Valor da linha: numa compra parcelada listada por período, a parcela do período e o total embaixo. */
+function PeriodAmount({ tx, accountId, className }: { tx: TransactionDTO; accountId?: string; className?: string }) {
+  if (!tx.periodInstallment) return <AmountText tx={tx} accountId={accountId} className={className} />;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <AmountText tx={periodAmount(tx)} accountId={accountId} className={className} secondary={false} />
+      <span className="whitespace-nowrap text-[11px] font-normal text-muted-foreground tabular">total {formatMoney(tx.amountCents, tx.currency ?? "BRL")}</span>
+    </span>
+  );
 }
 
 function DayTotals({ g }: { g: Group }) {
@@ -137,7 +152,12 @@ function RowMenu({ tx, trash, onAction, canWrite, canDelete }: { tx: Transaction
 
 /** `onNature`: o selo "Escolher natureza" vira um menu rápido (só onde não está dentro de outro botão). */
 function MetaBadges({ tx, cardsById, onNature }: { tx: TransactionDTO; cardsById: Map<string, CardDTO>; onNature?: (n: TransactionNature) => void }) {
-  const inst = currentInstallmentLabel(tx, tx.creditCard ? cardsById.get(tx.creditCard.id) : undefined);
+  const p = tx.periodInstallment;
+  const inst = p
+    ? p.number
+      ? { label: `${p.number}/${p.total}`, title: `Parcela ${p.number} de ${p.total} neste período` }
+      : { label: `${p.count} parcelas`, title: `${p.count} parcelas de ${p.total} neste período` }
+    : currentInstallmentLabel(tx, tx.creditCard ? cardsById.get(tx.creditCard.id) : undefined);
   const review = tx.natureReview && !tx.deletedAt;
   return (
     <>
@@ -277,7 +297,7 @@ export function TransactionList({
                         {person.payer && <p className="truncate text-xs text-muted-foreground">pago por {person.payer.split(" ")[0]}</p>}
                       </TableCell>
                       <TableCell className="text-right">
-                        <AmountText tx={tx} accountId={accountId} className={excludedAmount(tx)} />
+                        <PeriodAmount tx={tx} accountId={accountId} className={excludedAmount(tx)} />
                       </TableCell>
                       <TableCell className="pr-3" onClick={(e) => e.stopPropagation()}>
                         <RowMenu tx={tx} trash={trash} onAction={onAction} canWrite={canWrite} canDelete={canDelete} />
@@ -319,7 +339,7 @@ export function TransactionList({
                       <span className="min-w-0 flex-1">
                         <span className="flex items-start justify-between gap-2">
                           <span className="truncate text-sm font-medium">{tx.description}</span>
-                          <AmountText tx={tx} accountId={accountId} className={cn("text-sm", excludedAmount(tx))} />
+                          <PeriodAmount tx={tx} accountId={accountId} className={cn("text-sm", excludedAmount(tx))} />
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {categoryLabel(tx)}

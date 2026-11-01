@@ -18,6 +18,15 @@ export const transactionInclude = {
 
 export type TransactionWithRelations = Prisma.TransactionGetPayload<{ include: typeof transactionInclude }>;
 
+/** Parcela(s) de uma compra parcelada que caem no período listado; number null = mais de uma. */
+export interface PeriodInstallment {
+  number: number | null;
+  total: number;
+  amountCents: number;
+  date: string;
+  count: number;
+}
+
 export interface TransactionDTO {
   id: string;
   type: string;
@@ -35,6 +44,10 @@ export interface TransactionDTO {
   competenceDate: string;
   paymentMethod: string | null;
   installmentCount: number;
+  /** Parcelas pagas antes deste registro: a numeração exibida é k + offset de N + offset. */
+  installmentOffset: number;
+  /** Lista por período: parcela(s) desta compra parcelada que caem no período (o que conta no mês). */
+  periodInstallment?: PeriodInstallment;
   ownership: string;
   source: string;
   sourceMessageId: string | null;
@@ -92,6 +105,7 @@ export function serializeTransaction(tx: TransactionWithRelations): TransactionD
     competenceDate: dateToISO(tx.competenceDate),
     paymentMethod: tx.paymentMethod,
     installmentCount: tx.installmentCount,
+    installmentOffset: tx.installmentOffset,
     ownership: tx.ownership,
     source: tx.source,
     sourceMessageId: tx.sourceMessageId,

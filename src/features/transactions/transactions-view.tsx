@@ -336,7 +336,7 @@ export function TransactionsView() {
           ) : (
             <>
               <TotalTile label={`Receitas${scopeLabel}`} value={totals.incomeCents} icon={TrendingUp} tone="positive" hint="Receitas confirmadas que atendem aos filtros (sem as desconsideradas nos relatórios)" />
-              <TotalTile label={`Despesas${scopeLabel}`} value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras no cartão pelo valor total; sem as desconsideradas nos relatórios)" />
+              <TotalTile label={`Despesas${scopeLabel}`} value={totals.expenseCents} icon={TrendingDown} tone="negative" hint="Despesas confirmadas que atendem aos filtros (compras parceladas no cartão pela parcela de cada mês; sem as desconsideradas nos relatórios)" />
               <TotalTile label="Resultado" value={totals.incomeCents - totals.expenseCents} icon={Scale} signed hint="Receitas menos despesas. Transferências e pagamentos de fatura não entram no cálculo." />
               <TotalTile label="Lançamentos" value={total.toLocaleString("pt-BR")} icon={ArrowLeftRight} hint="Total de lançamentos encontrados (inclui pendentes)" />
             </>

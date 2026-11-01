@@ -28,11 +28,13 @@ function monthIndex(key: string): number {
  * Retorna null para compras à vista ou sem dados do cartão.
  */
 export function currentInstallmentLabel(
-  tx: { date: string; installmentCount: number; creditCard: { id: string } | null },
+  tx: { date: string; installmentCount: number; installmentOffset?: number; creditCard: { id: string } | null },
   card: { closingDay: number; dueDay: number; currentStatement: { referenceMonth: string } } | undefined,
 ): { label: string; title: string } | null {
   if (tx.installmentCount <= 1) return null;
-  if (!card || !tx.creditCard) return { label: `${tx.installmentCount}x`, title: `Parcelado em ${tx.installmentCount} vezes` };
+  const offset = tx.installmentOffset ?? 0;
+  const total = tx.installmentCount + offset;
+  if (!card || !tx.creditCard) return { label: `${total}x`, title: `Parcelado em ${total} vezes` };
   const first = purchaseReferenceMonth(tx.date, card);
   const n = monthIndex(card.currentStatement.referenceMonth) - monthIndex(first) + 1;
   const k = Math.max(1, Math.min(tx.installmentCount, n));
@@ -40,7 +42,22 @@ export function currentInstallmentLabel(
     n < 1
       ? `Primeira de ${tx.installmentCount} parcelas cai em fatura futura`
       : n > tx.installmentCount
-        ? `Todas as ${tx.installmentCount} parcelas já foram faturadas`
-        : `Parcela ${k} de ${tx.installmentCount} na fatura atual`;
-  return { label: `${k}/${tx.installmentCount}`, title };
+        ? `Todas as ${total} parcelas já foram faturadas`
+        : `Parcela ${k + offset} de ${total} na fatura atual`;
+  return { label: `${k + offset}/${total}`, title };
+}
+
+type PeriodTx = { date: string; amountCents: number; amountBrlCents: number | null; periodInstallment?: { amountCents: number; date: string } };
+
+/** Data em que a linha aparece na lista por período: a da parcela (compra parcelada) ou a do lançamento. */
+export function listDate(tx: PeriodTx): string {
+  return tx.periodInstallment?.date ?? tx.date;
+}
+
+/** O valor que conta no período: a parcela (compra parcelada no cartão) ou o valor do lançamento. */
+export function periodAmount<T extends PeriodTx>(tx: T): T {
+  const p = tx.periodInstallment;
+  if (!p) return tx;
+  const brl = tx.amountBrlCents != null && tx.amountCents ? Math.round((p.amountCents * tx.amountBrlCents) / tx.amountCents) : tx.amountBrlCents;
+  return { ...tx, amountCents: p.amountCents, amountBrlCents: brl };
 }

@@ -1006,6 +1006,9 @@ model Transaction {
   /// Fatura paga (somente CARD_PAYMENT).
   statementId            String?
   installmentCount       Int                    @default(1)
+  /// Parcelas da compra pagas antes deste registro (ex.: "parcelas 3 a 10" → 2). As parcelas
+  /// guardadas usam a numeração original (3/10 … 10/10); installmentCount continua sendo as que faltam.
+  installmentOffset      Int                    @default(0)
   /// Quem efetivamente pagou/recebeu.
   payerMemberId          String?
   /// Quem é economicamente responsável (INDIVIDUAL) ou família (SHARED).

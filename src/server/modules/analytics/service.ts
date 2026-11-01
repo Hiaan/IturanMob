@@ -128,7 +128,7 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
     // Compra parcelada no cartão: uma parcela por mês a partir do mês da competência (a 1ª no
     // próprio mês da compra), nunca o valor inteiro de uma vez.
     const split = Prisma.sql`(t.type = 'EXPENSE' AND t."creditCardId" IS NOT NULL AND t."installmentCount" > 1)`;
-    const instDate = Prisma.sql`(t."competenceDate" + (i.number - 1) * INTERVAL '1 month')::date`;
+    const instDate = Prisma.sql`(t."competenceDate" + (i.number - 1 - t."installmentOffset") * INTERVAL '1 month')::date`;
     rows = await prisma.$queryRaw<RawRow[]>`
       SELECT ${cols}, t."competenceDate" AS rdate, ${amountBrl} AS amount, NULL::int AS "installmentNumber"
       FROM "Transaction" t

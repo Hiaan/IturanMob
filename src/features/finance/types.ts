@@ -137,6 +137,10 @@ export interface TransactionDTO {
   competenceDate: string;
   paymentMethod: string | null;
   installmentCount: number;
+  /** Parcelas pagas antes deste registro (numeração exibida: k + offset de N + offset). */
+  installmentOffset?: number;
+  /** Lista por período: parcela(s) desta compra parcelada que caem no período (o que conta no mês). */
+  periodInstallment?: { number: number | null; total: number; amountCents: number; date: string; count: number };
   ownership: "SHARED" | "INDIVIDUAL";
   source: string;
   sourceMessageId: string | null;

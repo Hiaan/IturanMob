@@ -6,7 +6,7 @@ import type { ServiceContext } from "../../auth/context";
 import { assertCan } from "../../auth/permissions";
 import { ConflictError, NotFoundError, ValidationError } from "../../errors";
 import { publishEvent } from "../../events";
-import { dateToISO, isoToDate, todayISO } from "@/lib/dates";
+import { addMonths, dateToISO, isoToDate, todayISO } from "@/lib/dates";
 import { splitByWeights } from "@/lib/money";
 import { audit } from "../audit/service";
 import { findOrCreateMerchant } from "../merchants/service";
@@ -29,7 +29,7 @@ import {
   type TransactionListFilters,
   type TransactionUpdateInput,
 } from "./schemas";
-import { serializeTransaction, transactionInclude, type TransactionDTO } from "./serialize";
+import { serializeTransaction, transactionInclude, type PeriodInstallment, type TransactionDTO } from "./serialize";
 
 export interface CreateTransactionOptions {
   source?: TransactionSource;
@@ -351,8 +351,9 @@ export async function repostTransaction(db: Db, transactionId: string): Promise<
           householdId: tx.householdId,
           transactionId: tx.id,
           statementId: statement.id,
-          number: item.number,
-          totalInstallments: item.totalInstallments,
+          // Numeração original da compra (ex.: 3/10 … 10/10 quando trazida a partir da 3ª parcela).
+          number: item.number + tx.installmentOffset,
+          totalInstallments: item.totalInstallments + tx.installmentOffset,
           amountCents: item.amountCents,
           dueDate: isoToDate(item.dueDate),
         },
@@ -517,6 +518,8 @@ export async function createTransaction(
         creditCardId: data.creditCardId,
         statementId: data.statementId,
         installmentCount: data.installmentCount,
+        // Só faz sentido em compra parcelada no cartão.
+        installmentOffset: data.creditCardId && data.installmentCount > 1 ? data.installmentOffset : 0,
         payerMemberId: data.payerMemberId,
         ownership: data.ownership,
         responsibleMemberId: data.responsibleMemberId,
@@ -709,6 +712,7 @@ export async function updateTransaction(
       creditCardId: patch.creditCardId !== undefined ? patch.creditCardId : current.creditCardId,
       statementId: patch.statementId !== undefined ? patch.statementId : current.type === "CARD_PAYMENT" && !patch.creditCardId && !patch.date ? current.statementId : null,
       installmentCount: patch.installmentCount ?? current.installmentCount,
+      installmentOffset: current.installmentOffset,
       payerMemberId: patch.payerMemberId !== undefined ? patch.payerMemberId : current.payerMemberId,
       ownership: patch.ownership ?? current.ownership,
       responsibleMemberId: patch.responsibleMemberId !== undefined ? patch.responsibleMemberId : current.responsibleMemberId,
@@ -742,6 +746,8 @@ export async function updateTransaction(
         creditCardId: data.creditCardId,
         statementId: data.statementId,
         installmentCount: data.installmentCount,
+        // Só faz sentido em compra parcelada no cartão.
+        installmentOffset: data.creditCardId && data.installmentCount > 1 ? data.installmentOffset : 0,
         payerMemberId: data.payerMemberId,
         ownership: data.ownership,
         responsibleMemberId: data.responsibleMemberId,
@@ -915,10 +921,61 @@ export async function buildTransactionWhere(ctx: ServiceContext, raw: Transactio
   return { AND: and };
 }
 
+/** Compra parcelada no cartão: cada parcela conta no seu mês (a 1ª no mês da compra). */
+const SPLIT_PURCHASE: Prisma.TransactionWhereInput = { type: "EXPENSE", creditCardId: { not: null }, installmentCount: { gt: 1 } };
+
+/** Data em que a parcela conta (competência da compra + meses), como no painel e nos relatórios. */
+function installmentAccrualDate(competenceDate: Date, number: number, offset: number): string {
+  return addMonths(dateToISO(competenceDate), number - 1 - offset);
+}
+
+/** Parcelas de cada compra que caem no período: [número, total, valor, data]. */
+async function periodInstallments(ids: string[], start: string, end: string) {
+  const out = new Map<string, PeriodInstallment>();
+  if (!ids.length) return out;
+  const txs = await prisma.transaction.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, competenceDate: true, installmentCount: true, installmentOffset: true, installments: { select: { number: true, amountCents: true } } },
+  });
+  for (const t of txs) {
+    for (const i of t.installments) {
+      const date = installmentAccrualDate(t.competenceDate, i.number, t.installmentOffset);
+      if (date < start || date > end) continue;
+      const cur = out.get(t.id);
+      if (cur) out.set(t.id, { ...cur, number: null, amountCents: cur.amountCents + i.amountCents, count: cur.count + 1 });
+      else out.set(t.id, { number: i.number, total: t.installmentCount + t.installmentOffset, amountCents: i.amountCents, date, count: 1 });
+    }
+  }
+  return out;
+}
+
 export async function listTransactions(ctx: ServiceContext, raw: TransactionListFilters) {
   assertCan(ctx, "transactions:read");
   const f = transactionListSchema.parse(raw);
-  const where = await buildTransactionWhere(ctx, f);
+  // Período pela data: a compra parcelada no cartão aparece nos meses das parcelas (inclusive as
+  // compradas antes do período), com o valor da parcela — nunca o valor inteiro de uma vez.
+  const byPeriod = Boolean(f.start && f.end && f.dateField === "date");
+  let where = await buildTransactionWhere(ctx, f);
+  if (byPeriod) {
+    const base = await buildTransactionWhere(ctx, { ...f, start: undefined, end: undefined });
+    const start = isoToDate(f.start!);
+    const end = isoToDate(f.end!);
+    const splitRows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT DISTINCT t.id FROM "Transaction" t JOIN "Installment" i ON i."transactionId" = t.id
+      WHERE t."householdId" = ${ctx.householdId} AND t.type = 'EXPENSE' AND t."creditCardId" IS NOT NULL AND t."installmentCount" > 1
+        AND (t."competenceDate" + (i.number - 1 - t."installmentOffset") * INTERVAL '1 month')::date BETWEEN ${start} AND ${end}`;
+    where = {
+      AND: [
+        base,
+        {
+          OR: [
+            { AND: [{ date: { gte: start, lte: end } }, { NOT: SPLIT_PURCHASE }] },
+            ...(splitRows.length ? [{ id: { in: splitRows.map((r) => r.id) } }] : []),
+          ],
+        },
+      ],
+    };
+  }
   const orderBy: Prisma.TransactionOrderByWithRelationInput[] =
     f.sort === "date_asc"
       ? [{ date: "asc" }, { createdAt: "asc" }]
@@ -929,32 +986,45 @@ export async function listTransactions(ctx: ServiceContext, raw: TransactionList
           : f.sort === "created_desc"
             ? [{ createdAt: "desc" }]
             : [{ date: "desc" }, { createdAt: "desc" }];
-  const [rows, total, sums] = await Promise.all([
+  const counted = { status: "CONFIRMED" as const, deletedAt: null };
+  const [rows, total, sums, splitCounted] = await Promise.all([
     prisma.transaction.findMany({ where, orderBy, skip: (f.page - 1) * f.pageSize, take: f.pageSize, include: transactionInclude }),
     prisma.transaction.count({ where }),
     // Totais em reais: lançamentos em moeda estrangeira entram pelo valor em reais (PTAX da data).
     prisma.transaction.groupBy({
       by: ["type", "currency", "excludedFromReports"],
-      where: { AND: [where, { status: "CONFIRMED", deletedAt: null }] },
+      where: { AND: [where, counted, ...(byPeriod ? [{ NOT: SPLIT_PURCHASE }] : [])] },
       _sum: { amountCents: true, amountBrlCents: true },
     }),
+    // No período, parceladas entram nos totais pelo valor das parcelas do período.
+    byPeriod
+      ? prisma.transaction.findMany({ where: { AND: [where, counted, SPLIT_PURCHASE] }, select: { id: true, currency: true, amountCents: true, amountBrlCents: true, excludedFromReports: true } })
+      : Promise.resolve([]),
   ]);
+  const parcels: Map<string, PeriodInstallment> = byPeriod ? await periodInstallments([...new Set([...rows.filter((r) => r.type === "EXPENSE" && r.creditCardId && r.installmentCount > 1).map((r) => r.id), ...splitCounted.map((t) => t.id)])], f.start!, f.end!) : new Map();
+  const brlOf = (t: { currency: string; amountCents: number; amountBrlCents: number | null }, cents: number) =>
+    t.currency === "BRL" ? cents : t.amountBrlCents && t.amountCents ? Math.round((cents * t.amountBrlCents) / t.amountCents) : 0;
+  const splitSum = (excluded: boolean) => splitCounted.filter((t) => t.excludedFromReports === excluded).reduce((acc, t) => acc + brlOf(t, parcels.get(t.id)?.amountCents ?? 0), 0);
   // Receitas/despesas desconsideradas nos relatórios ficam fora dos totais (aparecem à parte).
   const sumOf = (t: string, excluded: boolean | null = false) =>
     sums
       .filter((s) => s.type === t && (excluded === null || s.excludedFromReports === excluded))
       .reduce((acc, s) => acc + ((s.currency === "BRL" ? s._sum.amountCents : s._sum.amountBrlCents) ?? 0), 0);
   return {
-    items: rows.map(serializeTransaction),
+    items: rows.map((r): TransactionDTO => {
+      const dto = serializeTransaction(r);
+      const p = parcels.get(r.id);
+      return p ? { ...dto, periodInstallment: p } : dto;
+    }),
     total,
     page: f.page,
     pageSize: f.pageSize,
     totals: {
-      expenseCents: sumOf("EXPENSE"),
+      expenseCents: sumOf("EXPENSE") + splitSum(false),
       incomeCents: sumOf("INCOME"),
       transferCents: sumOf("TRANSFER", null),
       cardPaymentCents: sumOf("CARD_PAYMENT", null),
-      excludedExpenseCents: sumOf("EXPENSE", true),
+      excludedExpenseCents: sumOf("EXPENSE", true) + splitSum(true),
       excludedIncomeCents: sumOf("INCOME", true),
     },
   };

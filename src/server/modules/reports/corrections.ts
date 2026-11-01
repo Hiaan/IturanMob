@@ -50,14 +50,14 @@ async function installmentRuleChanged(householdId: string, month: string): Promi
   const end = isoToDate(monthRange(month).end);
   const [row] = await prisma.$queryRaw<Array<{ whole: bigint | null; parcels: bigint | null }>>`
     WITH split AS (
-      SELECT t.id, t."amountCents", t."competenceDate" FROM "Transaction" t
+      SELECT t.id, t."amountCents", t."competenceDate", t."installmentOffset" FROM "Transaction" t
       WHERE t."householdId" = ${householdId} AND t.type = 'EXPENSE' AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL
         AND t."excludedFromReports" = false AND t."creditCardId" IS NOT NULL AND t."installmentCount" > 1
     )
     SELECT
       (SELECT SUM("amountCents") FROM split WHERE "competenceDate" BETWEEN ${start} AND ${end}) AS whole,
       (SELECT SUM(i."amountCents") FROM "Installment" i JOIN split ON split.id = i."transactionId"
-        WHERE (split."competenceDate" + (i.number - 1) * INTERVAL '1 month')::date BETWEEN ${start} AND ${end}) AS parcels`;
+        WHERE (split."competenceDate" + (i.number - 1 - split."installmentOffset") * INTERVAL '1 month')::date BETWEEN ${start} AND ${end}) AS parcels`;
   return Number(row?.whole ?? 0) !== Number(row?.parcels ?? 0);
 }
 

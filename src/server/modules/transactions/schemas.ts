@@ -37,6 +37,8 @@ export const transactionFieldsSchema = z.object({
   creditCardId: idSchema.nullish(),
   statementId: idSchema.nullish(),
   installmentCount: z.number().int().min(1).max(72).default(1),
+  /** Parcelas já pagas antes deste registro (compra trazida a partir da parcela 3 de 10 → 2). */
+  installmentOffset: z.number().int().min(0).max(71).default(0),
   payerMemberId: idSchema.nullish(),
   ownership: z.enum(["SHARED", "INDIVIDUAL"]).default("SHARED"),
   responsibleMemberId: idSchema.nullish(),

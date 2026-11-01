@@ -95,7 +95,8 @@ describe("Desconsiderar nos relatórios", () => {
     // Lista: aparece com a marca; totais à parte; filtros.
     const list = await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end });
     expect(list.total).toBe(4);
-    expect(list.totals).toMatchObject({ incomeCents: 0, expenseCents: 10_000, excludedIncomeCents: 50_000, excludedExpenseCents: 90_000 });
+    // ADS (300) + 1ª parcela do ADS parcelado (3x de 200): na lista do mês, o parcelado conta só a parcela.
+    expect(list.totals).toMatchObject({ incomeCents: 0, expenseCents: 10_000, excludedIncomeCents: 50_000, excludedExpenseCents: 30_000 + 20_000 });
     expect((await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end, excluded: "hide" })).total).toBe(1);
     expect((await listTransactions(fam.ctx, { start: OCT.start, end: OCT.end, excluded: "only" })).total).toBe(3);
 
