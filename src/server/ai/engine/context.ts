@@ -32,7 +32,7 @@ export interface HouseholdContext {
 
 const GENERIC_WORDS = new Set(["conta", "cartao", "credito", "debito", "corrente", "de", "da", "do", "banco", "poupanca", "digital", "meu", "minha", "o", "a"]);
 
-function aliasesFor(...names: Array<string | null | undefined>): string[] {
+export function aliasesFor(...names: Array<string | null | undefined>): string[] {
   const set = new Set<string>();
   for (const n of names) {
     if (!n) continue;

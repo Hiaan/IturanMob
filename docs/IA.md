@@ -221,6 +221,12 @@ assistente conversacional (Claude com ferramentas), em vez das respostas prontas
 - age só por ferramentas do servidor, que validam tudo: o valor precisa constar nas mensagens de quem
   escreve (nada inventado), categoria/conta/cartão precisam existir, nome de pessoa não vira
   categoria, apagar vai para a lixeira (reversível); nunca SQL;
+- além de lançamentos, informa saldo de conta/caixa ("tenho 1.500 no caixa 1" → ajuste de saldo,
+  que não conta como receita nem despesa), cria conta (só quando pedem ou aceitam), transfere entre
+  contas e cadastra contas a pagar/receber; conta citada pelo apelido que serve para mais de uma
+  ("caixa" com Caixa 1 e Caixa 2) faz a assistente perguntar qual;
+- a mesma assistente (mesmas ferramentas e validações) atende na tela "Isa" do app; sem IA autorizada,
+  essa tela continua só consultando, com o assistente local;
 - teto mensal por família (`AGENT_MONTHLY_LIMIT`, padrão 300 pedidos, somando WhatsApp e painel);
   acima dele, sem consentimento ou se o provedor falhar, o motor local responde como antes.
 

@@ -41,6 +41,8 @@ import { agentAvailable, toWhatsAppText } from "@/server/ai/agent/whatsapp-agent
 import { createWaFamily, enableExternalAI, initTestQueues, clearTestQueues, messageState, sendMessage, teardownTestQueues, type WaFamily } from "./ai-pipeline-support";
 import { createBasicAccounts, resetDatabase } from "./helpers";
 import { dashboardSummary } from "@/server/modules/analytics/service";
+import { createAccount, listAccounts } from "@/server/modules/accounts/service";
+import { ask } from "@/server/ai/assistant/service";
 import { monthRange, todayISO } from "@/lib/dates";
 
 /** Código L# do lançamento cuja linha contém o texto (como o modelo faria lendo o prompt). */
@@ -161,6 +163,57 @@ describe("assistente conversacional do WhatsApp", () => {
     const month = monthRange(today.slice(0, 7));
     const summary = await dashboardSummary(wa.ctx, { period: month, regime: "ACCRUAL", filters: { scope: "ALL" } });
     expect(summary.expenseCents).toBe(10_000 + 30_000);
+  });
+
+  it("saldo do caixa, conta nova, transferência e conta a pagar — tudo validado (valor dito, conta existente)", async () => {
+    const wa = await aiFamily();
+    const caixa1 = await createAccount(wa.ctx, { name: "Caixa 1", type: "WALLET", initialBalanceCents: 50_000 });
+    fake.script.push(async (req) => {
+      // Valor que ninguém disse: recusado.
+      await expect(req.execute("informar_saldo", { conta: "Caixa 1", saldo: 999, data: null })).rejects.toThrow(/não aparece/);
+      // Conta que não existe: pede para criar.
+      await expect(req.execute("informar_saldo", { conta: "Caixa 2", saldo: 300, data: null })).rejects.toThrow(/Não achei a conta/);
+      const s1 = (await req.execute("informar_saldo", { conta: "caixa 1", saldo: 1500, data: null })) as { saldo_anterior: string; saldo_agora: string; ajustado: boolean };
+      expect(s1).toMatchObject({ saldo_anterior: "R$ 500,00", saldo_agora: "R$ 1.500,00", ajustado: true });
+      const c2 = (await req.execute("criar_conta", { nome: "Caixa 2", tipo: "dinheiro", saldo_inicial: 300 })) as { criada: string };
+      expect(c2.criada).toBe("Caixa 2");
+      await expect(req.execute("criar_conta", { nome: "Caixa 2", tipo: "dinheiro", saldo_inicial: null })).rejects.toThrow(/Já existe/);
+      // Apelido "caixa" serve para as duas: pergunta qual.
+      await expect(req.execute("transferir", { de: "caixa", para: "Caixa 2", valor: 200, data: null, descricao: null })).rejects.toThrow(/mais de uma conta/);
+      // Venda e transferência na mesma mensagem: os dois são gravados (cada um na sua posição).
+      await req.execute("registrar_lancamentos", {
+        lancamentos: [{ tipo: "receita", valor: 250, descricao: "Venda", data: null, categoria: null, conta: "Caixa 1", cartao: null, forma_pagamento: null, parcelas: null, pessoa: null, natureza: null }],
+      });
+      await req.execute("transferir", { de: "Caixa 1", para: "Caixa 2", valor: 200, data: null, descricao: null });
+      await req.execute("cadastrar_conta_a_pagar", { descricao: "Conta de luz", valor: 180, vencimento: "2026-12-10", tipo: "pagar", conta: null });
+      return { text: "Pronto: Caixa 1 com R$ 1.500,00, criei o Caixa 2 com R$ 300,00 e passei R$ 200,00 do Caixa 1 pro Caixa 2. Também cadastrei a conta de luz de R$ 180,00.", calls: ["informar_saldo", "criar_conta", "transferir", "cadastrar_conta_a_pagar"] };
+    });
+    const m = await sendMessage(wa, { text: "tenho 1.500 no caixa 1, cria o caixa 2 com 300, entrou 250 de venda no caixa 1 e passei 200 do caixa 1 pro caixa 2. a luz de 180 vence dia 10/12" });
+    expect((await messageState(wa, m.messageId)).reply).toContain("criei o Caixa 2");
+    const accounts = await listAccounts(wa.ctx);
+    const byName = Object.fromEntries(accounts.map((a) => [a.name, a.balanceCents]));
+    expect(byName["Caixa 1"]).toBe(150_000 + 25_000 - 20_000);
+    expect(byName["Caixa 2"]).toBe(30_000 + 20_000);
+    // O ajuste não é receita nem despesa; a transferência também não.
+    const txs = await prisma.transaction.findMany({ where: { householdId: wa.householdId, deletedAt: null }, select: { type: true, amountCents: true } });
+    expect(txs.map((t) => [t.type, t.amountCents]).sort()).toEqual([["ADJUSTMENT", 100_000], ["INCOME", 25_000], ["TRANSFER", 20_000]].sort());
+    expect(await prisma.scheduledPayment.count({ where: { householdId: wa.householdId, description: "Conta de luz", amountCents: 18_000 } })).toBe(1);
+    expect(caixa1.id).toBeTruthy();
+  });
+
+  it("na tela do app, a Isa também registra (mesmas ferramentas) e marca a resposta como alteração", async () => {
+    const wa = await aiFamily();
+    await createAccount(wa.ctx, { name: "Caixa", type: "WALLET", initialBalanceCents: 0 });
+    fake.script.push(async (req) => {
+      expect(req.system).toContain("dentro do app da família");
+      expect(req.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["registrar_lancamentos", "informar_saldo", "transferir", "saldos"]));
+      await req.execute("informar_saldo", { conta: "Caixa", saldo: 820.5, data: null });
+      return { text: "Anotei: o **Caixa** está com R$ 820,50.", calls: ["informar_saldo"] };
+    });
+    const res = await ask(wa.ctx, { question: "o caixa ficou com 820,50" });
+    expect(res.assistantMessage.content).toBe("Anotei: o **Caixa** está com R$ 820,50.");
+    expect(res.assistantMessage.metadata).toMatchObject({ changed: true, tools: ["informar_saldo"] });
+    expect((await listAccounts(wa.ctx)).find((a) => a.name === "Caixa")!.balanceCents).toBe(82_050);
   });
 
   it("sem consentimento ou acima do teto do mês: motor local; provedor falhou sem ação: motor local também", async () => {

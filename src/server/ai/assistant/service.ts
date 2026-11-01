@@ -10,6 +10,7 @@ import { assistantSystemPrompt } from "../prompts/assistant";
 import { answerLocally } from "./local";
 import { resolveScope } from "../../modules/analytics/service";
 import { runTool, toolDefinitions } from "./tools";
+import { agentAvailable, runPanelAgent } from "../agent/whatsapp-agent";
 
 export interface AssistantAnswer {
   text: string;
@@ -22,6 +23,7 @@ export interface AssistantAnswer {
 /**
  * Responde uma pergunta sobre os dados da família. Com provedor de IA autorizado, usa um
  * loop de ferramentas somente-leitura; caso contrário (ou em falha), o assistente local.
+ * (A conversa do app usa primeiro a Isa com ações — ver `ask`.)
  */
 export async function answerQuestion(
   ctx: ServiceContext,
@@ -113,13 +115,22 @@ export async function ask(ctx: ServiceContext, input: z.input<typeof askSchema>)
     conversationId = conv.id;
   }
   const userMsg = await prisma.assistantMessage.create({ data: { conversationId, role: "USER", content: data.question } });
-  const answer = await answerQuestion(ctx, data.question, { channel: "DASHBOARD", history });
+  // Com IA autorizada: a Isa conversa e também registra (mesmas ferramentas validadas do WhatsApp).
+  // Sem IA (ou se falhar): o assistente de consulta de sempre.
+  let answer: AssistantAnswer & { changed?: boolean };
+  const agent = (await agentAvailable(ctx)) ? await runPanelAgent(ctx, { text: data.question, history }) : null;
+  if (agent) {
+    const resolution = await resolveProvider(ctx.householdId, "ASSISTANT");
+    answer = { text: agent.text, engine: resolution.type, model: resolution.model, toolCalls: agent.toolCalls, fallbackReason: null, changed: agent.changed };
+  } else {
+    answer = await answerQuestion(ctx, data.question, { channel: "DASHBOARD", history });
+  }
   const assistantMsg = await prisma.assistantMessage.create({
     data: {
       conversationId,
       role: "ASSISTANT",
       content: answer.text,
-      metadata: { engine: answer.engine, model: answer.model, tools: answer.toolCalls.map((t) => t.name), fallbackReason: answer.fallbackReason },
+      metadata: { engine: answer.engine, model: answer.model, tools: answer.toolCalls.map((t) => t.name), fallbackReason: answer.fallbackReason, changed: Boolean(answer.changed) },
     },
   });
   await prisma.assistantConversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });

@@ -34,13 +34,14 @@ interface Message {
 
 const SUGGESTIONS = [
   "Quanto gastamos este mês?",
-  "Quanto gastamos com alimentação este mês?",
+  "Quanto tem em cada conta?",
+  "Gastei 45 no mercado no pix",
+  "Tenho 1.500 no caixa",
+  "Passei 200 do caixa pro banco",
   "Compara nossos gastos de agosto e setembro",
   "Quais são as cinco maiores despesas?",
   "Quanto ainda podemos gastar com alimentação?",
   "Quais contas ainda faltam pagar?",
-  "Quais assinaturas estão ativas?",
-  "Qual foi nossa média de gastos com alimentação nos últimos três meses?",
 ];
 
 const TOOL_LABELS: Record<string, string> = {
@@ -76,7 +77,8 @@ export function AssistantView() {
   });
 
   const ask = useMutation({
-    mutationFn: (q: string) => api.post<{ conversationId: string }>("/api/v1/assistant/ask", { conversationId, question: q }),
+    mutationFn: (q: string) =>
+      api.post<{ conversationId: string; assistantMessage: { metadata: { changed?: boolean } | null } }>("/api/v1/assistant/ask", { conversationId, question: q }),
     onMutate: (q) => {
       setOptimistic(q);
       setQuestion("");
@@ -85,6 +87,8 @@ export function AssistantView() {
       setConversationId(res.conversationId);
       await qc.invalidateQueries({ queryKey: qk.assistant({ id: res.conversationId }) });
       qc.invalidateQueries({ queryKey: qk.assistant({ list: true }) });
+      // A Isa registrou algo (lançamento, saldo, conta…): atualiza as outras telas.
+      if (res.assistantMessage.metadata?.changed) void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "assistant" });
     },
     onError: (e, q) => {
       toast.error(errorMessage(e));
@@ -114,7 +118,7 @@ export function AssistantView() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Isa, sua assistente" description="Pergunte do seu jeito sobre as finanças da família. A Isa responde só com os dados registrados." />
+      <PageHeader title="Isa, sua assistente" description="Fale do seu jeito: pergunte, registre gastos e entradas, informe o saldo do caixa, transfira entre contas. A Isa só usa valores que você disser." />
       {/* No celular a lista lateral fica oculta: as conversas anteriores ficam neste seletor. */}
       {Boolean(conversations.data?.length) && (
         <div className="lg:hidden">
@@ -240,7 +244,7 @@ export function AssistantView() {
                 {!ask.isPending && <Send />}
               </Button>
             </div>
-            <p className="mx-auto mt-2 max-w-3xl text-[11px] text-muted-foreground">A Isa aqui no painel apenas consulta dados; registros e correções são feitos pelo WhatsApp ou pelo painel.</p>
+            <p className="mx-auto mt-2 max-w-3xl text-[11px] text-muted-foreground">A Isa registra só o que você disser e confirma o que fez. Para corrigir, é só pedir (ou ajustar nas telas do app).</p>
           </form>
         </Card>
       </div>
