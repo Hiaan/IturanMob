@@ -11,7 +11,7 @@ export interface PeriodicTask {
 }
 
 export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
-  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance, agenda, google, platform] = await Promise.all([
+  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance, agenda, google, platform, reportCorrections] = await Promise.all([
     import("../modules/recurring/jobs"),
     import("../modules/budgets/jobs"),
     import("../modules/bills/jobs"),
@@ -30,6 +30,7 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     import("../modules/agenda/jobs"),
     import("../modules/agenda/google"),
     import("../modules/instance/platform"),
+    import("../modules/reports/corrections"),
   ]);
   return [
     { name: "recurring:generate", everySeconds: 15 * 60, run: () => recurring.runRecurringJobs() },
@@ -50,6 +51,8 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     // Instalação: avisa o administrador de cada atualização automática (e se o servidor parar de dar sinal).
     { name: "platform:notify", everySeconds: 2 * 60, run: () => platform.runPlatformNotifications() },
     { name: "reports:scheduled", everySeconds: 15 * 60, run: () => reports.runScheduledReports() },
+    // Reenvio único do resumo mensal com valores corrigidos (ver reports/corrections.ts).
+    { name: "reports:corrections", everySeconds: 15 * 60, run: () => reportCorrections.runReportCorrections() },
     { name: "retention:purge", everySeconds: 6 * 60 * 60, run: () => retention.runRetentionJobs() },
     { name: "backups:run", everySeconds: 60 * 60, run: () => backups.runBackupJob() },
     { name: "sessions:purge", everySeconds: 12 * 60 * 60, run: () => sessions.purgeExpiredSessions() },
