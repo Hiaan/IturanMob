@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { ChevronLeft, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { NAV_GROUPS, isActive } from "./nav";
+import { isActive, visibleNavGroups } from "./nav";
+import { useMe } from "@/features/me/use-me";
 
 export function Sidebar({ collapsed, onToggle, pendingCount }: { collapsed: boolean; onToggle: () => void; pendingCount: number }) {
   const pathname = usePathname();
+  const isAdmin = Boolean(useMe().data?.instanceAdmin);
   return (
     <aside
       className={cn(
@@ -30,7 +32,7 @@ export function Sidebar({ collapsed, onToggle, pendingCount }: { collapsed: bool
       </div>
 
       <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-4">
-        {NAV_GROUPS.map((group) => (
+        {visibleNavGroups(isAdmin).map((group) => (
           <div key={group.label} className="mb-5">
             {!collapsed && <p className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-wider text-sidebar-muted">{group.label}</p>}
             <ul className="space-y-0.5">

@@ -12,6 +12,7 @@ export interface MeResponse {
   permissions: string[];
   canViewOthersPrivate: boolean;
   pending: { total: number; byType: Record<string, number> };
+  instanceAdmin?: boolean;
 }
 
 const noopSubscribe = () => () => {};

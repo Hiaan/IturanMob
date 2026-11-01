@@ -21,6 +21,8 @@ const envSchema = z.object({
    * único para criar uma NOVA família. Vazio = o proprietário da primeira família criada.
    */
   INSTANCE_ADMIN_EMAILS: z.string().default(""),
+  /** Versão instalada (commit), gravada pelo script de atualização do servidor. Só informativa. */
+  APP_VERSION: z.string().max(40).optional(),
   SECURE_COOKIES: bool(false),
   DEFAULT_TIMEZONE: z.string().default("America/Recife"),
   STORAGE_DIR: z.string().default("./storage"),

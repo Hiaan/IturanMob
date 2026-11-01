@@ -11,7 +11,7 @@ export interface PeriodicTask {
 }
 
 export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
-  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance, agenda, google] = await Promise.all([
+  const [recurring, budgets, bills, notifications, reports, retention, backups, sessions, jobs, investments, fx, goals, cash, subscriptions, openFinance, agenda, google, platform] = await Promise.all([
     import("../modules/recurring/jobs"),
     import("../modules/budgets/jobs"),
     import("../modules/bills/jobs"),
@@ -29,6 +29,7 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     import("../modules/open-finance/service"),
     import("../modules/agenda/jobs"),
     import("../modules/agenda/google"),
+    import("../modules/instance/platform"),
   ]);
   return [
     { name: "recurring:generate", everySeconds: 15 * 60, run: () => recurring.runRecurringJobs() },
@@ -46,6 +47,8 @@ export async function loadPeriodicTasks(): Promise<PeriodicTask[]> {
     { name: "agenda:morning", everySeconds: 10 * 60, run: () => agenda.runMorningSummaries() },
     { name: "agenda:google", everySeconds: 30 * 60, run: () => google.runGoogleCalendarJobs() },
     { name: "notifications:dispatch", everySeconds: 60, run: () => notifications.runNotificationDispatch() },
+    // Instalação: avisa o administrador de cada atualização automática (e se o servidor parar de dar sinal).
+    { name: "platform:notify", everySeconds: 2 * 60, run: () => platform.runPlatformNotifications() },
     { name: "reports:scheduled", everySeconds: 15 * 60, run: () => reports.runScheduledReports() },
     { name: "retention:purge", everySeconds: 6 * 60 * 60, run: () => retention.runRetentionJobs() },
     { name: "backups:run", everySeconds: 60 * 60, run: () => backups.runBackupJob() },

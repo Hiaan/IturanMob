@@ -11,6 +11,7 @@ import {
   PiggyBank,
   Plug,
   Settings,
+  ShieldCheck,
   Sparkles,
   Tags,
   Target,
@@ -23,6 +24,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   badge?: "pending";
+  /** Só para o administrador da instalação. */
+  adminOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -65,6 +68,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/integracoes", label: "Integrações", icon: Plug },
       { href: "/importacao", label: "Importação", icon: Upload },
       { href: "/configuracoes", label: "Configurações", icon: Settings },
+      { href: "/administracao", label: "Administração", icon: ShieldCheck, adminOnly: true },
     ],
   },
 ];
@@ -74,4 +78,9 @@ export const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 export function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** Grupos do menu visíveis para quem está logado (itens de administrador só para ele). */
+export function visibleNavGroups(isAdmin: boolean): NavGroup[] {
+  return NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.adminOnly || isAdmin) }));
 }

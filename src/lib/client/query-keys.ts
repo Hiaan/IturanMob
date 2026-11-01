@@ -7,6 +7,8 @@ export const qk = {
   invitations: ["invitations"] as const,
   /** Convites de nova família (administrador da instalação). */
   householdInvites: ["instance", "invites"] as const,
+  /** Painel da instalação (versão, atualização automática, saúde). */
+  instanceStatus: ["instance", "status"] as const,
   accounts: (p?: unknown) => ["accounts", p ?? {}] as const,
   cards: (p?: unknown) => ["cards", p ?? {}] as const,
   statements: (cardId: string) => ["cards", "statements", cardId] as const,

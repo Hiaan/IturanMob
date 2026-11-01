@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import { ArrowLeftRight, LayoutDashboard, Menu, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { NAV_GROUPS, isActive } from "./nav";
+import { isActive, visibleNavGroups } from "./nav";
+import { useMe } from "@/features/me/use-me";
 import { useState } from "react";
 
 export function MobileNav({ onQuickAdd, pendingCount }: { onQuickAdd: () => void; pendingCount: number }) {
   const pathname = usePathname();
+  const isAdmin = Boolean(useMe().data?.instanceAdmin);
   const [open, setOpen] = useState(false);
   const item = (href: string, label: string, Icon: typeof LayoutDashboard) => {
     const active = isActive(pathname, href);
@@ -49,7 +51,7 @@ export function MobileNav({ onQuickAdd, pendingCount }: { onQuickAdd: () => void
               <SheetTitle>Menu</SheetTitle>
             </SheetHeader>
             <div className="grid max-h-[70dvh] gap-4 overflow-y-auto overscroll-contain px-5">
-              {NAV_GROUPS.map((group) => (
+              {visibleNavGroups(isAdmin).map((group) => (
                 <div key={group.label}>
                   <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{group.label}</p>
                   <div className="grid grid-cols-3 gap-2">

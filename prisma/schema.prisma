@@ -690,6 +690,32 @@ model HouseholdInvite {
   @@index([createdByUserId])
 }
 
+/// Histórico da instalação (fora de qualquer família): atualizações automáticas, pedidos de
+/// "atualizar agora" feitos no painel e o resultado de cada um. Gravado pelo próprio servidor
+/// (script de atualização) e pelo app; o worker avisa o administrador.
+model PlatformEvent {
+  id         String    @id @default(cuid())
+  /// UPDATE (resultado de uma atualização) | UPDATE_REQUEST (pedido feito no painel)
+  kind       String
+  /// UPDATE: OK | ROLLED_BACK | ROLLBACK_FAILED · UPDATE_REQUEST: PENDING | DONE
+  status     String
+  version    String?
+  message    String
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([kind, status])
+  @@index([createdAt])
+}
+
+/// Estado da instalação em chave/valor (ex.: "host" = último sinal do servidor: versão instalada,
+/// versão disponível, disco, memória, backup externo). Sem dados de famílias.
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
 model Invitation {
   id          String     @id @default(cuid())
   householdId String
