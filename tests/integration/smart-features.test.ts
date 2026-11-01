@@ -134,7 +134,7 @@ describe("Entrega A: boleto, relatório pelo WhatsApp e avisos espertos", () => 
     const again = await sendMessage(wa, { text: UTILITY });
     expect((await messageState(wa, again.messageId)).reply).toContain("Qual é a data de vencimento?");
     const answer = await sendMessage(wa, { text: "28/10" });
-    expect((await messageState(wa, answer.messageId)).reply).toContain("*Conta: Energia elétrica e gás* — R$ 189,90 — vence em 28/10/2026");
+    expect((await messageState(wa, answer.messageId)).reply).toMatch(/\*Conta: Energia elétrica e gás\* — R\$ 189,90 — venc(e|eu) em 28\/10\/2026/); // "venceu" depois da data
 
     // PDF de outro boleto de consumo (água): a data do documento é oferecida e confirmada com "sim".
     await prisma.scheduledPayment.deleteMany({ where: { householdId: wa.householdId } });
@@ -146,7 +146,7 @@ describe("Entrega A: boleto, relatório pelo WhatsApp e avisos espertos", () => 
     expect(docReply).toContain("no documento aparece 05/11/2026");
     expect(await prisma.scheduledPayment.count({ where: { householdId: wa.householdId } })).toBe(0);
     const yes = await sendMessage(wa, { text: "sim" });
-    expect((await messageState(wa, yes.messageId)).reply).toContain("*COMPESA* — R$ 75,50 — vence em 05/11/2026");
+    expect((await messageState(wa, yes.messageId)).reply).toMatch(/\*COMPESA\* — R\$ 75,50 — venc(e|eu) em 05\/11\/2026/);
     expect(await prisma.importBatch.count({ where: { householdId: wa.householdId } })).toBe(0);
   });
 

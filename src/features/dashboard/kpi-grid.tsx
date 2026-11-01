@@ -124,7 +124,7 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
         label="Despesas do período"
         value={data.expenseCents}
         icon={TrendingDown}
-        hint={`${data.regime === "CASH" ? "Regime de caixa: débito/Pix/dinheiro na data do pagamento; cartão pelo valor das parcelas no vencimento da fatura." : "Regime de competência: valor total na data de competência (compra), inclusive parcelados."}${scopeText}`}
+        hint={`${data.regime === "CASH" ? "Regime de caixa: débito/Pix/dinheiro na data do pagamento; cartão pelo valor das parcelas no vencimento da fatura." : "Regime de competência: na data de competência (compra); parcelados no cartão, uma parcela por mês."}${scopeText}`}
         href={`/transacoes?type=EXPENSE${scopeQs}`}
         footer={<Delta pct={data.comparison.expenseChangePct} invert />}
       />

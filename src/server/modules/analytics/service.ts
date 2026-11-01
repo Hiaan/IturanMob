@@ -25,7 +25,8 @@ import { getSettings } from "../households/service";
 /**
  * Reconhecimento de receitas e despesas por regime (documentado em docs/REGRAS_FINANCEIRAS.md):
  *
- * COMPETÊNCIA: transação confirmada, pelo valor total, na data de competência.
+ * COMPETÊNCIA: transação confirmada, na data de competência; compra parcelada no cartão conta
+ *              uma parcela por mês (a 1ª no mês da competência).
  * CAIXA: débito/Pix/dinheiro na data do pagamento; compras no cartão pelo valor de cada
  *        parcela, na data de vencimento da fatura. Pagamento de fatura e transferências
  *        nunca são despesas.
@@ -119,19 +120,30 @@ export async function recognizedRows(ctx: ServiceContext, period: Period, regime
   const base = Prisma.sql`t."householdId" = ${ctx.householdId} AND t.status = 'CONFIRMED' AND t."deletedAt" IS NULL AND t."excludedFromReports" = false AND ${scopeSql} AND ${vis} AND ${extra} AND (t.currency = 'BRL' OR t."amountBrlCents" IS NOT NULL)`;
   const amountBrl = Prisma.sql`(CASE WHEN t.currency = 'BRL' THEN t."amountCents" ELSE t."amountBrlCents" END)`;
 
+  // Parcela em reais (cartão em moeda estrangeira: proporcional ao total convertido).
+  const installmentBrl = Prisma.sql`(CASE WHEN t.currency = 'BRL' THEN i."amountCents" ELSE ROUND(i."amountCents"::numeric * t."amountBrlCents" / NULLIF(t."amountCents", 0))::int END)`;
+
   let rows: RawRow[];
   if (regime === "ACCRUAL") {
+    // Compra parcelada no cartão: uma parcela por mês a partir do mês da competência (a 1ª no
+    // próprio mês da compra), nunca o valor inteiro de uma vez.
+    const split = Prisma.sql`(t.type = 'EXPENSE' AND t."creditCardId" IS NOT NULL AND t."installmentCount" > 1)`;
+    const instDate = Prisma.sql`(t."competenceDate" + (i.number - 1) * INTERVAL '1 month')::date`;
     rows = await prisma.$queryRaw<RawRow[]>`
       SELECT ${cols}, t."competenceDate" AS rdate, ${amountBrl} AS amount, NULL::int AS "installmentNumber"
       FROM "Transaction" t
-      WHERE ${base} AND t.type IN ('EXPENSE', 'INCOME') AND t."competenceDate" BETWEEN ${start} AND ${end}`;
+      WHERE ${base} AND t.type IN ('EXPENSE', 'INCOME') AND NOT ${split} AND t."competenceDate" BETWEEN ${start} AND ${end}
+      UNION ALL
+      SELECT ${cols}, ${instDate} AS rdate, ${installmentBrl} AS amount, i.number AS "installmentNumber"
+      FROM "Installment" i JOIN "Transaction" t ON t.id = i."transactionId"
+      WHERE ${base} AND ${split} AND ${instDate} BETWEEN ${start} AND ${end}`;
   } else {
     rows = await prisma.$queryRaw<RawRow[]>`
       SELECT ${cols}, t.date AS rdate, ${amountBrl} AS amount, NULL::int AS "installmentNumber"
       FROM "Transaction" t
       WHERE ${base} AND (t.type = 'INCOME' OR (t.type = 'EXPENSE' AND t."creditCardId" IS NULL)) AND t.date BETWEEN ${start} AND ${end}
       UNION ALL
-      SELECT ${cols}, i."dueDate" AS rdate, i."amountCents" AS amount, i.number AS "installmentNumber"
+      SELECT ${cols}, i."dueDate" AS rdate, ${installmentBrl} AS amount, i.number AS "installmentNumber"
       FROM "Installment" i JOIN "Transaction" t ON t.id = i."transactionId"
       WHERE ${base} AND t.type = 'EXPENSE' AND i."dueDate" BETWEEN ${start} AND ${end}`;
   }
@@ -380,8 +392,10 @@ export async function topExpenses(ctx: ServiceContext, params: { period: Period;
   const byTx = new Map<string, RecognizedRow & { recognizedCents: number }>();
   for (const r of rows) {
     const cur = byTx.get(r.transactionId);
-    if (cur) cur.recognizedCents += r.amountCents;
-    else byTx.set(r.transactionId, { ...r, recognizedCents: r.amountCents });
+    if (cur) {
+      cur.recognizedCents += r.amountCents;
+      cur.installmentNumber = null; // mais de uma parcela no período
+    } else byTx.set(r.transactionId, { ...r, recognizedCents: r.amountCents });
   }
   const top = [...byTx.values()].sort((a, b) => b.recognizedCents - a.recognizedCents).slice(0, params.limit ?? 10);
   const cats = await prisma.category.findMany({ where: { id: { in: top.map((t) => t.categoryId).filter(Boolean) as string[] } }, select: { id: true, name: true, color: true } });
@@ -395,6 +409,8 @@ export async function topExpenses(ctx: ServiceContext, params: { period: Period;
       amountCents: t.recognizedCents,
       category: t.categoryId ? catMap.get(t.categoryId) ?? null : null,
       installmentCount: t.installmentCount,
+      /** Qual parcela entrou no período (compra parcelada); null = valor da compra ou várias parcelas. */
+      installmentNumber: t.installmentNumber,
     })),
   };
 }

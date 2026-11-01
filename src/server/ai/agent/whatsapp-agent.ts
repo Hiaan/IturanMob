@@ -127,6 +127,7 @@ COMO AGIR
 - Entenda a intenção da mensagem inteira. Uma mensagem pode ter vários lançamentos ("400 de Rosineide e 739,75 de Ariane"): registre todos de uma vez com registrar_lancamentos.
 - "Recebi", "foi de fulano", "entrou", "pagamento de cliente", "salário" = RECEITA. "Gastei", "paguei", "comprei" = DESPESA. Se não der para saber, pergunte de forma natural antes de registrar.
 - Correções soltas ("a Ariane foi receita", "foram 15", "foi no crédito", "muda pra mercado", "cancela a da Rosineide") referem-se aos lançamentos acima ou aos que você acabou de fazer: use corrigir_lancamento ou apagar_lancamento no lançamento certo.
+- Compra parcelada: "valor" é o número que a pessoa disse. "TV de 3000 em 10x" → valor 3000, parcelas 10. "Tênis em 5x de 100" → valor 100, parcelas 5, valor_da_parcela true. Ao responder, diga o total e a parcela (ex.: "R$ 500,00 em 5x de R$ 100,00").
 - "Paguei a conta de luz / o aluguel / a escola…": primeiro veja contas_a_pagar_abertas. Se houver a conta, marque como paga com marcar_conta_paga (o valor vem do cadastro da conta). Só se não houver conta cadastrada, registre como despesa (e aí o valor precisa ter sido dito).
 - Nunca diga que anotou, corrigiu, apagou ou marcou algo sem ter chamado a ferramenta e recebido sucesso.
 - Só apague quando a pessoa pedir claramente. Apagar manda para a lixeira (dá para recuperar no app).
@@ -155,6 +156,10 @@ const lancamentoSchema = z.object({
   cartao: z.string().nullable().describe("Nome do cartão citado, ou null."),
   forma_pagamento: z.enum(["PIX", "DEBIT_CARD", "CREDIT_CARD", "CASH", "BANK_SLIP", "BANK_TRANSFER", "AUTO_DEBIT", "VOUCHER", "OTHER"]).nullable(),
   parcelas: z.number().int().min(1).max(72).nullable(),
+  valor_da_parcela: z
+    .boolean()
+    .nullish()
+    .describe("true quando o valor dito é o de cada parcela (\"5x de 100\"); false/null quando é o total da compra (\"TV de 3000 em 10x\")."),
   pessoa: z.string().nullable().describe("Quem gastou/recebeu, se citado (ex.: 'esposa')."),
   natureza: z.enum(["pessoal", "empresa"]).nullable(),
 });
@@ -260,18 +265,21 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       const items = (data as z.infer<typeof ACTION_TOOLS.registrar_lancamentos.schema>).lancamentos;
       const results: unknown[] = [];
       for (const it of items) {
-        const cents = toCents(it.valor);
+        const said = toCents(it.valor);
         // Anti-invenção: o valor precisa estar no que a pessoa escreveu.
-        if (!amountMentioned(state.userText, cents)) {
-          results.push({ erro: `O valor ${formatBRL(cents)} não aparece nas mensagens. Pergunte o valor à pessoa.`, descricao: it.descricao });
+        if (!amountMentioned(state.userText, said)) {
+          results.push({ erro: `O valor ${formatBRL(said)} não aparece nas mensagens. Pergunte o valor à pessoa.`, descricao: it.descricao });
           continue;
         }
+        // "5x de 100": o total da compra é a parcela dita × a quantidade (derivado só de valores ditos).
+        const perInstallment = Boolean(it.valor_da_parcela && it.parcelas && it.parcelas > 1);
+        const cents = perInstallment ? said * it.parcelas! : said;
         const date = it.data && isISODate(it.data) && it.data <= addDays(hc.today, 1) ? it.data : null;
         const raw: RawDraft = {
           kind: it.tipo === "receita" ? "INCOME" : "EXPENSE",
           amountCents: cents,
           amountText: String(it.valor),
-          amountIsInstallmentValue: false,
+          amountIsInstallmentValue: false, // o total já foi calculado acima
           description: it.descricao,
           merchant: null,
           categoryHint: it.categoria,
@@ -321,6 +329,7 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
             tipo: it.tipo,
             descricao: draft.description,
             valor: formatBRL(cents),
+            parcelas: draft.installmentCount > 1 ? `${draft.installmentCount}x de ${formatBRL(Math.round(cents / draft.installmentCount))} (no mês conta só a parcela)` : null,
             data: formatDateBR(draft.date),
             categoria: draft.labels.category ?? "sem categoria",
             conta_ou_cartao: draft.labels.card ?? draft.labels.account ?? null,

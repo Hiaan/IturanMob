@@ -121,6 +121,7 @@ function topExpenseItems(items: Awaited<ReturnType<typeof topExpenses>>["items"]
     amountCents: t.amountCents,
     categoryName: t.category?.name ?? null,
     installmentCount: t.installmentCount,
+    installmentNumber: t.installmentNumber,
   }));
 }
 

@@ -70,7 +70,8 @@ describe("Desconsiderar nos relatórios", () => {
     const { fam, pix, ads, adsParcelado } = s;
     const before = await untouched(s);
     const accrualBefore = await dashboardSummary(fam.ctx, { period: OCT, regime: "ACCRUAL" });
-    expect([accrualBefore.incomeCents, accrualBefore.expenseCents]).toEqual([50_000, 100_000]);
+    // ADS parcelado 3x de 200: em outubro só a 1ª parcela.
+    expect([accrualBefore.incomeCents, accrualBefore.expenseCents]).toEqual([50_000, 60_000]);
 
     const res = await setReportExclusion(fam.ctx, { transactionIds: [pix.id, ads.id, adsParcelado.id], excluded: true, reason: "CLIENT_PASSTHROUGH", party: "Cliente X" });
     expect(res.updated).toBe(3);
@@ -113,7 +114,7 @@ describe("Desconsiderar nos relatórios", () => {
     const undo = await setReportExclusion(fam.ctx, { transactionIds: [pix.id, ads.id, adsParcelado.id], excluded: false });
     expect(undo.updated).toBe(3);
     const back = await dashboardSummary(fam.ctx, { period: OCT, regime: "ACCRUAL" });
-    expect([back.incomeCents, back.expenseCents]).toEqual([50_000, 100_000]);
+    expect([back.incomeCents, back.expenseCents]).toEqual([50_000, 60_000]);
     expect(await untouched(s)).toEqual(before);
     expect((await passthroughSummary(fam.ctx)).parties).toEqual([]);
   });

@@ -81,9 +81,14 @@ describe("núcleo financeiro (ledger, cartões, transferências)", () => {
     expect(withTotals).toHaveLength(12);
     expect(withTotals.every((s) => s.totalCents === 30_000)).toBe(true);
 
-    // Competência: despesa total na data da compra.
+    // Competência: uma parcela por mês, a primeira no mês da compra (nunca o valor inteiro).
     const accrual = await dashboardSummary(fam.ctx, { period: { start: "2026-10-01", end: "2026-10-31" }, regime: "ACCRUAL" });
-    expect(accrual.expenseCents).toBe(360_000);
+    expect(accrual.expenseCents).toBe(30_000);
+    const accrualNov = await dashboardSummary(fam.ctx, { period: { start: "2026-11-01", end: "2026-11-30" }, regime: "ACCRUAL" });
+    expect(accrualNov.expenseCents).toBe(30_000);
+    // A 12ª parcela fica em setembro do ano seguinte; somando tudo dá o valor da compra.
+    const accrualAll = await dashboardSummary(fam.ctx, { period: { start: "2026-10-01", end: "2027-09-30" }, regime: "ACCRUAL" });
+    expect(accrualAll.expenseCents).toBe(360_000);
     // Caixa: cada parcela no vencimento da fatura (primeira em novembro).
     const cashOct = await dashboardSummary(fam.ctx, { period: { start: "2026-10-01", end: "2026-10-31" }, regime: "CASH" });
     expect(cashOct.expenseCents).toBe(0);
@@ -101,7 +106,7 @@ describe("núcleo financeiro (ledger, cartões, transferências)", () => {
     const cashNovAfter = await dashboardSummary(fam.ctx, { period: { start: "2026-11-01", end: "2026-11-30" }, regime: "CASH" });
     expect(cashNovAfter.expenseCents).toBe(30_000);
     const accrualYear = await dashboardSummary(fam.ctx, { period: { start: "2026-01-01", end: "2026-12-31" }, regime: "ACCRUAL" });
-    expect(accrualYear.expenseCents).toBe(360_000);
+    expect(accrualYear.expenseCents).toBe(90_000); // outubro, novembro e dezembro
   });
 
   it("alterar o número de parcelas recalcula as faturas", async () => {

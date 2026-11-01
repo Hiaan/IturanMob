@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/server/db";
 import { adjustBalance, createAccount, getAccount, updateAccount } from "@/server/modules/accounts/service";
 import { createTransaction, deleteTransaction } from "@/server/modules/transactions/service";
@@ -83,7 +83,10 @@ describe("Rendimento automático de investimentos", () => {
     await refreshNeededRates({ now: NOW, fetchImpl: fakeBcb(calls2) });
     expect(calls2.length).toBeLessThanOrEqual(1);
 
-    const summary = await getAccountYield(fam.ctx, cdb.id);
+    // O status compara com "hoje": fixa o relógio no mesmo dia das taxas.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const summary = await getAccountYield(fam.ctx, cdb.id).finally(() => vi.useRealTimers());
     expect(summary).toMatchObject({ configured: true, label: "101,5% do CDI", status: "OK", ratesThrough: "2026-10-16" });
     if (!summary.configured) throw new Error();
     expect(summary.grossCents).toBe(txs[0]!.amountCents + txs[1]!.amountCents);

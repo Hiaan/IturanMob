@@ -16,7 +16,7 @@ import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
 import { formatDateBR, formatDayMonthBR, formatMonthBR } from "@/lib/dates";
-import { PAYMENT_METHOD_LABELS, labelOf } from "@/lib/labels";
+import { PAYMENT_METHOD_LABELS, installmentTag, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { ReportScope, TransactionList } from "@/features/finance/types";
 import { useCards } from "@/features/finance/hooks";
@@ -762,7 +762,7 @@ export function RecurringExpenses({ filters }: { filters: DashboardFilters }) {
 // -----------------------------------------------------------------------------
 
 interface TopExpenses {
-  items: Array<{ transactionId: string; description: string; date: string; amountCents: number; category: { name: string; color: string } | null; installmentCount: number }>;
+  items: Array<{ transactionId: string; description: string; date: string; amountCents: number; category: { name: string; color: string } | null; installmentCount: number; installmentNumber?: number | null }>;
 }
 
 export function TopExpensesList({ filters }: { filters: DashboardFilters }) {
@@ -780,7 +780,7 @@ export function TopExpensesList({ filters }: { filters: DashboardFilters }) {
               <p className="truncate font-medium">{t.description}</p>
               <p className="text-xs text-muted-foreground">
                 {formatDateBR(t.date)} · {t.category?.name ?? "Sem categoria"}
-                {t.installmentCount > 1 && ` · ${t.installmentCount}x`}
+                {t.installmentCount > 1 && ` · ${installmentTag(t.installmentCount, t.installmentNumber)}`}
               </p>
             </div>
             <span className="font-medium tabular">{formatBRL(t.amountCents)}</span>

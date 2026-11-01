@@ -182,8 +182,9 @@ describe("contas a pagar", () => {
     expect(await findMatchingScheduledPayment(fam.ctx, { type: "EXPENSE", amountCents: 12_500, date: today, description: "Internet" })).toBeNull();
     // Fora da janela de datas (mais de 10 dias antes do vencimento).
     expect(await findMatchingScheduledPayment(fam.ctx, { type: "EXPENSE", amountCents: 12_000, date: addDays(due, -11), description: "Internet" })).toBeNull();
-    // Até 20 dias depois do vencimento ainda casa (pagamento atrasado).
-    expect((await findMatchingScheduledPayment(fam.ctx, { type: "EXPENSE", amountCents: 12_000, date: addDays(due, 20), description: "Internet" }))?.id).toBe(occurrence.id);
+    // Pagamento atrasado (15 dias depois do vencimento) ainda casa. Com 20 dias, num mês de 30 dias,
+    // a data já fica a 10 dias da próxima ocorrência e a próxima passa a ser a mais próxima.
+    expect((await findMatchingScheduledPayment(fam.ctx, { type: "EXPENSE", amountCents: 12_000, date: addDays(due, 15), description: "Internet" }))?.id).toBe(occurrence.id);
     // Descrição genérica com valor exato.
     expect((await findMatchingScheduledPayment(fam.ctx, { type: "EXPENSE", amountCents: 12_000, date: today, description: "Boleto" }))?.id).toBe(occurrence.id);
     // Tipo diferente.

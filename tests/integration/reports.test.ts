@@ -49,7 +49,7 @@ async function seedOctober() {
 
   const alimentacao = await categoryId(fam.householdId, "Alimentação");
   await prisma.budget.create({ data: { householdId: fam.householdId, categoryId: alimentacao, month: "2026-10", limitCents: 50_000 } });
-  const goal = await prisma.financialGoal.create({ data: { householdId: fam.householdId, name: "Viagem", targetCents: 1_000_000, deadline: isoToDate("2027-06-30") } });
+  const goal = await prisma.financialGoal.create({ data: { householdId: fam.householdId, name: "Viagem", targetCents: 1_000_000, deadline: isoToDate("2027-06-30"), createdAt: NOW } });
   await prisma.goalContribution.createMany({
     data: [
       { householdId: fam.householdId, goalId: goal.id, amountCents: 50_000, date: isoToDate("2026-09-15") },
@@ -85,19 +85,19 @@ describe("relatórios", () => {
     expect(r.type).toBe("MONTHLY");
     expect(r.period).toEqual({ start: "2026-10-01", end: "2026-10-31" });
     expect(r.isPartial).toBe(true);
-    // Receita: salário. Despesas: mercado + notebook (valor total). Pagamento de fatura e transferência fora.
-    expect(r.totals).toEqual({ incomeCents: 350_000, expenseCents: 145_800, resultCents: 204_200 });
+    // Receita: salário. Despesas: mercado + 1ª parcela do notebook (3x de 400). Pagamento de fatura e transferência fora.
+    expect(r.totals).toEqual({ incomeCents: 350_000, expenseCents: 65_800, resultCents: 284_200 });
     expect(r.recognizedTransactions).toBe(3);
     expect(r.comparison.previousExpenseCents).toBe(80_000);
     expect(r.comparison.previousIncomeCents).toBe(300_000);
     expect(r.evolution).toHaveLength(6);
-    expect(r.evolution.at(-1)).toMatchObject({ month: "2026-10", incomeCents: 350_000, expenseCents: 145_800 });
+    expect(r.evolution.at(-1)).toMatchObject({ month: "2026-10", incomeCents: 350_000, expenseCents: 65_800 });
     expect(r.evolution.at(-2)).toMatchObject({ month: "2026-09", expenseCents: 80_000 });
     expect(r.previousMonths).toMatchObject({ months: 1, averageExpenseCents: 80_000 });
 
     const alimentacao = r.topCategories.find((c) => c.name === "Alimentação");
     expect(alimentacao?.amountCents).toBe(25_800);
-    expect(r.topCategories.reduce((s, c) => s + c.amountCents, 0)).toBe(145_800);
+    expect(r.topCategories.reduce((s, c) => s + c.amountCents, 0)).toBe(65_800);
     expect(r.incomeCategories[0]).toMatchObject({ name: "Trabalho", amountCents: 350_000 });
 
     expect(r.budget.items).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("relatórios", () => {
       { month: "2027-01", amountCents: 40_000 },
     ]);
     expect(r.categoryComparison.totalPreviousCents).toBe(80_000);
-    expect(r.topExpenses[0]).toMatchObject({ description: "Notebook", amountCents: 120_000 });
+    expect(r.topExpenses[0]).toMatchObject({ description: "Notebook", amountCents: 40_000, installmentCount: 3, installmentNumber: 1 });
     // Saldo: Nubank 100.000 − 25.800 + 50.000 − 50.000 (set) − 30.000 (fatura) ; Itaú 500.000 + 300.000 + 350.000 − 50.000
     expect(r.balance.availableCents).toBe(100_000 - 50_000 - 25_800 + 50_000 - 30_000 + (500_000 + 300_000 + 350_000 - 50_000));
     expect(r.regime).toBe("ACCRUAL");
@@ -149,7 +149,7 @@ describe("relatórios", () => {
     const r = await buildWeeklyReport(fam.ctx, "2026-10-14", { now: NOW });
     expect(r.period).toEqual({ start: "2026-10-12", end: "2026-10-18" });
     expect(r.periodLabel).toBe("Semana de 12/10/2026 a 18/10/2026");
-    expect(r.totals).toEqual({ incomeCents: 0, expenseCents: 120_000, resultCents: -120_000 });
+    expect(r.totals).toEqual({ incomeCents: 0, expenseCents: 40_000, resultCents: -40_000 }); // 1ª parcela do notebook
     expect(r.comparison.previousPeriod).toEqual({ start: "2026-10-05", end: "2026-10-11" });
     expect(r.comparison.previousExpenseCents).toBe(25_800 + 4_000);
     expect(r.comparison.previousIncomeCents).toBe(350_000);
@@ -171,7 +171,7 @@ describe("relatórios", () => {
 
     const text = reportSummaryText(r);
     expect(text).toMatch(/Resumo semanal/);
-    expect(text).toMatch(/Gasto: R\$\s1\.200,00/);
+    expect(text).toMatch(/Gasto: R\$\s400,00/);
   });
 
   it("gera, lista e exporta (PDF, XLSX e CSV) com bytes válidos", async () => {
@@ -252,7 +252,7 @@ describe("relatórios", () => {
     );
     expect(created.status).toBe(201);
     const report = (await created.json()).data as { id: string; data: { totals: { expenseCents: number } } };
-    expect(report.data.totals.expenseCents).toBe(145_800);
+    expect(report.data.totals.expenseCents).toBe(65_800);
 
     const pdf = await exp.GET(new NextRequest(`http://localhost:3000/api/v1/reports/${report.id}/export?format=pdf`, { headers }), { params: Promise.resolve({ id: report.id }) });
     expect(pdf.status).toBe(200);

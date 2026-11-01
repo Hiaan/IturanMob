@@ -165,9 +165,15 @@ export const REGIME_LABELS = {
   CASH: "Caixa",
 } as const;
 
+/** "parcela 2/10" quando só uma parcela entrou no período; senão "10x". */
+export function installmentTag(count: number, number?: number | null): string | null {
+  if (count <= 1) return null;
+  return number ? `parcela ${number}/${count}` : `${count}x`;
+}
+
 export const REGIME_DESCRIPTIONS = {
   ACCRUAL:
-    "Competência: a despesa é reconhecida na data de competência (por padrão, a data da compra), pelo valor total — inclusive compras parceladas no cartão.",
+    "Competência: a despesa é reconhecida na data de competência (por padrão, a data da compra). Compras parceladas no cartão contam uma parcela por mês, a primeira no mês da compra.",
   CASH:
     "Caixa: a despesa é reconhecida quando o dinheiro sai. Débito, Pix e dinheiro na data do pagamento; compras no cartão pelo valor de cada parcela, na data de vencimento da fatura. O pagamento da fatura em si nunca é contado como despesa.",
 } as const;

@@ -58,11 +58,12 @@ describe("Natureza do lançamento (Pessoal / Empresa / Repasse)", () => {
     expect((await verifyLedgerIntegrity(s.fam.householdId)).ok).toBe(true);
 
     const personal = await dashboardSummary(s.fam.ctx, { period: OCT, regime: "ACCRUAL" });
-    expect(personal).toMatchObject({ scope: "PERSONAL", incomeCents: 0, expenseCents: 10_000, business: { incomeCents: 200_000, expenseCents: 105_000, resultCents: 95_000 } });
+    expect(personal).toMatchObject({ scope: "PERSONAL", incomeCents: 0, expenseCents: 10_000, business: { incomeCents: 200_000, expenseCents: 90_000, resultCents: 110_000 } });
     const business = await dashboardSummary(s.fam.ctx, { period: OCT, regime: "ACCRUAL", filters: { scope: "BUSINESS" } });
-    expect([business.incomeCents, business.expenseCents]).toEqual([200_000, 105_000]);
+    // Tráfego 2x de 150: em outubro (competência) só a 1ª parcela.
+    expect([business.incomeCents, business.expenseCents]).toEqual([200_000, 90_000]);
     const all = await dashboardSummary(s.fam.ctx, { period: OCT, regime: "ACCRUAL", filters: { scope: "ALL" } });
-    expect([all.incomeCents, all.expenseCents]).toEqual([200_000, 115_000]);
+    expect([all.incomeCents, all.expenseCents]).toEqual([200_000, 100_000]);
     // Caixa (parcelas): a 1ª parcela do tráfego (fatura de novembro) é da empresa.
     const cashBusiness = await dashboardSummary(s.fam.ctx, { period: { start: "2026-10-01", end: "2026-12-31" }, regime: "CASH", filters: { scope: "BUSINESS" } });
     expect(cashBusiness.expenseCents).toBe(75_000 + 30_000);
@@ -73,15 +74,15 @@ describe("Natureza do lançamento (Pessoal / Empresa / Repasse)", () => {
     // Relatório e orçamento com o recorte escolhido.
     const { generateReport } = await import("@/server/modules/reports/service");
     const rep = await generateReport(s.fam.ctx, { type: "MONTHLY", month: "2026-10", natureScope: "BUSINESS", regime: "ACCRUAL" });
-    expect(rep.data).toMatchObject({ natureScope: "BUSINESS", totals: { incomeCents: 200_000, expenseCents: 105_000 } });
+    expect(rep.data).toMatchObject({ natureScope: "BUSINESS", totals: { incomeCents: 200_000, expenseCents: 90_000 } });
     const repDefault = await generateReport(s.fam.ctx, { type: "MONTHLY", month: "2026-10", regime: "ACCRUAL" });
-    expect(repDefault.data).toMatchObject({ natureScope: "PERSONAL", totals: { expenseCents: 10_000 }, business: { resultCents: 95_000 } });
-    expect((await budgetOverview(s.fam.ctx, "2026-10", "ACCRUAL", "ALL")).totalSpentCents).toBe(10_000 + 30_000);
+    expect(repDefault.data).toMatchObject({ natureScope: "PERSONAL", totals: { expenseCents: 10_000 }, business: { resultCents: 110_000 } });
+    expect((await budgetOverview(s.fam.ctx, "2026-10", "ACCRUAL", "ALL")).totalSpentCents).toBe(10_000 + 15_000);
 
     // Padrão da família "Tudo": o painel volta a somar tudo.
     await updateSettings(s.fam.ctx, { defaultReportScope: "ALL" });
     const allDefault = await dashboardSummary(s.fam.ctx, { period: OCT, regime: "ACCRUAL" });
-    expect([allDefault.scope, allDefault.expenseCents]).toEqual(["ALL", 115_000]);
+    expect([allDefault.scope, allDefault.expenseCents]).toEqual(["ALL", 100_000]);
 
     // Lista: filtro por natureza.
     expect((await listTransactions(s.fam.ctx, { start: OCT.start, end: OCT.end, scope: "BUSINESS" })).total).toBe(3);

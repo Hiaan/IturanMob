@@ -64,7 +64,8 @@ não entram em totais, gráficos ou orçamentos.
 A família escolhe o regime padrão em Configurações. Todos os relatórios aceitam os dois.
 
 - **Competência (`ACCRUAL`)**: a despesa conta na data de competência da compra (padrão = data da
-  compra), pelo valor total, mesmo parcelada.
+  compra). Compra parcelada no cartão conta uma parcela por mês: a 1ª no mês da competência, a 2ª
+  no mês seguinte e assim por diante (nunca o valor inteiro de uma vez).
 - **Caixa (`CASH`)**: o que não é cartão conta na data do lançamento. Compras no cartão contam
   parcela a parcela, na data de vencimento da fatura de cada parcela.
 

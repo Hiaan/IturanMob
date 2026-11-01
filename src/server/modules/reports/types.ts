@@ -24,6 +24,8 @@ export interface ReportTopExpense {
   amountCents: number;
   categoryName: string | null;
   installmentCount: number;
+  /** Parcela que entrou no período (compra parcelada), quando é uma só. */
+  installmentNumber?: number | null;
 }
 
 export interface ReportPeriodComparison {

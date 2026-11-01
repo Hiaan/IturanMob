@@ -19,6 +19,7 @@ import { useReportScopePreference } from "@/features/transactions/report-scope-p
 import { CertaintyBadge, Delta, RankedBars, ReportSection, StatTile } from "./report-ui";
 import { downloadWithToast } from "./use-reports";
 import type { MonthlyReportData, ReportData, ReportView, WeeklyReportData } from "./types";
+import { installmentTag } from "@/lib/labels";
 
 const SERIES = { income: "var(--series-3)", expense: "var(--series-2)", projection: "var(--series-7)" };
 
@@ -139,7 +140,7 @@ function TopExpenses({ data, compact }: { data: ReportData; compact?: boolean })
     <ReportSection
       title="Maiores despesas"
       certainty="CONFIRMED"
-      description={data.regime === "CASH" ? "No regime de caixa, compras parceladas aparecem pelo valor das parcelas do período." : "Pelo valor total da compra (competência)."}
+      description={data.regime === "CASH" ? "No regime de caixa, compras parceladas aparecem pelo valor das parcelas do período." : "Compras parceladas no cartão entram pela parcela de cada mês (a primeira no mês da compra)."}
     >
       {!items.length ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma despesa confirmada no período.</p>
@@ -161,7 +162,7 @@ function TopExpenses({ data, compact }: { data: ReportData; compact?: boolean })
                     <TableCell className="tabular text-muted-foreground">{formatDateBR(t.date)}</TableCell>
                     <TableCell className="max-w-72">
                       <span className="block truncate font-medium">{t.description}</span>
-                      {t.installmentCount > 1 && <span className="text-xs text-muted-foreground">Parcelado em {t.installmentCount}x</span>}
+                      {t.installmentCount > 1 && <span className="text-xs text-muted-foreground">{t.installmentNumber ? `Parcela ${t.installmentNumber} de ${t.installmentCount}` : `Parcelado em ${t.installmentCount}x`}</span>}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{t.categoryName ?? "Sem categoria"}</TableCell>
                     <TableCell className="text-right font-medium tabular">{formatBRL(t.amountCents)}</TableCell>
@@ -177,7 +178,7 @@ function TopExpenses({ data, compact }: { data: ReportData; compact?: boolean })
                   <p className="truncate font-medium">{t.description}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatDateBR(t.date)} · {t.categoryName ?? "Sem categoria"}
-                    {t.installmentCount > 1 && ` · ${t.installmentCount}x`}
+                    {t.installmentCount > 1 && ` · ${installmentTag(t.installmentCount, t.installmentNumber)}`}
                   </p>
                 </div>
                 <span className="shrink-0 font-medium tabular">{formatBRL(t.amountCents)}</span>

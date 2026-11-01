@@ -39,7 +39,9 @@ vi.mock("@/server/ai/providers/anthropic", () => ({
 import { prisma } from "@/server/db";
 import { agentAvailable, toWhatsAppText } from "@/server/ai/agent/whatsapp-agent";
 import { createWaFamily, enableExternalAI, initTestQueues, clearTestQueues, messageState, sendMessage, teardownTestQueues, type WaFamily } from "./ai-pipeline-support";
-import { resetDatabase } from "./helpers";
+import { createBasicAccounts, resetDatabase } from "./helpers";
+import { dashboardSummary } from "@/server/modules/analytics/service";
+import { monthRange, todayISO } from "@/lib/dates";
 
 /** Código L# do lançamento cuja linha contém o texto (como o modelo faria lendo o prompt). */
 function refOf(system: string, text: string): string {
@@ -129,6 +131,36 @@ describe("assistente conversacional do WhatsApp", () => {
     const txs = await prisma.transaction.findMany({ where: { householdId: wa.householdId } });
     expect(txs.map((t) => t.amountCents)).toEqual([8_750]);
     expect(await prisma.category.count({ where: { householdId: wa.householdId, name: "João" } })).toBe(0);
+  });
+
+  it("compra parcelada: '5x de 100' vira R$ 500 em 5 parcelas e o mês conta só a parcela", async () => {
+    const wa = await aiFamily();
+    await createBasicAccounts(wa.ctx);
+    const today = todayISO("America/Recife");
+    fake.script.push(async (req) => {
+      const base = { tipo: "despesa", data: null, categoria: null, conta: null, cartao: null, forma_pagamento: "CREDIT_CARD", pessoa: null, natureza: null };
+      const out = (await req.execute("registrar_lancamentos", {
+        lancamentos: [
+          { ...base, valor: 100, descricao: "Tênis", parcelas: 5, valor_da_parcela: true },
+          { ...base, valor: 3000, descricao: "TV", parcelas: 10, valor_da_parcela: false },
+        ],
+      })) as { resultados: Array<{ valor: string; parcelas: string | null }> };
+      expect(out.resultados.map((r) => [r.valor, r.parcelas])).toEqual([
+        ["R$ 500,00", "5x de R$ 100,00 (no mês conta só a parcela)"],
+        ["R$ 3.000,00", "10x de R$ 300,00 (no mês conta só a parcela)"],
+      ]);
+      return { text: "Anotei o tênis em 5x de R$ 100,00 e a TV em 10x de R$ 300,00.", calls: ["registrar_lancamentos"] };
+    });
+    await sendMessage(wa, { text: "comprei um tênis em 5x de 100 e uma tv de 3000 em 10x no cartão" });
+    const txs = await prisma.transaction.findMany({ where: { householdId: wa.householdId }, orderBy: { amountCents: "asc" } });
+    expect(txs.map((t) => [t.description, t.amountCents, t.installmentCount, Boolean(t.creditCardId)])).toEqual([
+      ["Tênis", 50_000, 5, true],
+      ["TV", 300_000, 10, true],
+    ]);
+    // Painel do mês (competência): só as parcelas, nunca o valor inteiro.
+    const month = monthRange(today.slice(0, 7));
+    const summary = await dashboardSummary(wa.ctx, { period: month, regime: "ACCRUAL", filters: { scope: "ALL" } });
+    expect(summary.expenseCents).toBe(10_000 + 30_000);
   });
 
   it("sem consentimento ou acima do teto do mês: motor local; provedor falhou sem ação: motor local também", async () => {

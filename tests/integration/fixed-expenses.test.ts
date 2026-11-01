@@ -129,10 +129,12 @@ describe("Gastos fixos e fatura por categoria", () => {
     expect(spending.combined.current.totalCents).toBe(sumCards);
 
     // "Despesas por categoria" só do cartão (forma de pagamento) — sem o aluguel/energia da conta.
-    const period = { start: shift(-4, 1), end: shift(1, 28) };
+    // Competência: parcelados contam uma parcela por mês desde o mês da compra (até o mês que vem).
+    const period = { start: shift(-4, 1), end: monthRange(addMonthsToKey(monthKey(todayISO(TZ)), 1)).end };
     const byCard = await expensesByCategory(s.fam.ctx, { period, regime: "ACCRUAL", filters: { paymentMethod: "CREDIT_CARD" } });
-    expect(byCard.totalCents).toBe(300_000 + 600_000 + 45_000 + 8_000);
+    // geladeira 5 × 300 + notebook 3 × 1.000 + tênis 2 × 150 + mercado à vista
+    expect(byCard.totalCents).toBe(5 * 30_000 + 3 * 100_000 + 2 * 15_000 + 8_000);
     const nubankOnly = await expensesByCategory(s.fam.ctx, { period, regime: "ACCRUAL", filters: { creditCardId: s.nubank.id } });
-    expect(nubankOnly.totalCents).toBe(45_000 + 8_000);
+    expect(nubankOnly.totalCents).toBe(2 * 15_000 + 8_000);
   });
 });
