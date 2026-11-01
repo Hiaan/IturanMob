@@ -37,6 +37,7 @@ vi.mock("@/server/ai/providers/anthropic", () => ({
 }));
 
 import { prisma } from "@/server/db";
+import { encryptString } from "@/server/crypto";
 import { agentAvailable, toWhatsAppText } from "@/server/ai/agent/whatsapp-agent";
 import { createWaFamily, enableExternalAI, initTestQueues, clearTestQueues, messageState, sendMessage, teardownTestQueues, type WaFamily } from "./ai-pipeline-support";
 import { createBasicAccounts, resetDatabase } from "./helpers";
@@ -246,6 +247,26 @@ describe("assistente conversacional do WhatsApp", () => {
     });
     await sendMessage(wa, { text: "sim" });
     expect((await listAccounts(wa.ctx)).find((a) => a.name === "Caixa")!.balanceCents).toBe(45_000);
+  });
+
+  it("valor dito num áudio vale na resposta seguinte por texto (o histórico usa a transcrição)", async () => {
+    const wa = await aiFamily();
+    await createAccount(wa.ctx, { name: "Hian", type: "DIGITAL", initialBalanceCents: 0 });
+    // Uma mensagem anterior vira o áudio "ajusta o caixa Hian para 258,74" (transcrição criptografada).
+    fake.script.push(async () => ({ text: "Qual conta é o caixa Hian?", calls: [] }));
+    const audio = await sendMessage(wa, { text: "x" });
+    const att = await prisma.attachment.create({
+      data: { householdId: wa.householdId, kind: "AUDIO", mimeType: "audio/ogg", sizeBytes: 10, sha256: "a".repeat(64), transcription: encryptString("Ajusta o Caixa, Hian, para R$ 258,74") },
+    });
+    await prisma.whatsAppMessage.update({ where: { id: audio.messageId }, data: { type: "AUDIO", text: null, attachmentId: att.id } });
+    fake.script.push(async (req) => {
+      expect(req.messages[0]!.content).toContain("258,74");
+      await req.execute("ajustar_saldo", { conta: "Hian", saldo: 258.74, data: null });
+      await req.execute("renomear_conta", { conta: "Hian", novo_nome: "Caixa - Hian" });
+      return { text: "Pronto, a conta Hian está com R$ 258,74.", calls: ["ajustar_saldo"] };
+    });
+    await sendMessage(wa, { text: "tem um caixa Hian sim, é o nubank" });
+    expect((await listAccounts(wa.ctx)).find((a) => a.name === "Caixa - Hian")!.balanceCents).toBe(25_874);
   });
 
   it("na tela do app, a Isa também registra (mesmas ferramentas) e marca a resposta como alteração", async () => {

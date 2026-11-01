@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
 import type { ServiceContext } from "../../auth/context";
 import { env } from "../../env";
+import { decryptStringSafe } from "../../crypto";
 import { logger } from "../../logger";
 import { addDays, dateToISO, formatDateBR, isISODate, startOfMonth, todayISO, zonedToInstant } from "@/lib/dates";
 import { formatBRL } from "@/lib/money";
@@ -18,7 +19,7 @@ import type { RawDraft } from "../engine/schemas";
 import { runTool, toolDefinitions } from "../assistant/tools";
 import { familyScopeContext } from "../../modules/reports/service";
 import { confirmTransaction, createTransaction, deleteTransaction, updateTransaction } from "../../modules/transactions/service";
-import { adjustBalance, createAccount, getAccount } from "../../modules/accounts/service";
+import { adjustBalance, createAccount, getAccount, updateAccount } from "../../modules/accounts/service";
 import type { TransactionUpdateInput } from "../../modules/transactions/schemas";
 import { setTransactionNature } from "../../modules/transactions/nature";
 import { createCategory } from "../../modules/categories/service";
@@ -77,12 +78,14 @@ async function loadHistory(householdId: string, chatId: string, currentMessageId
     where: { householdId, chatId, createdAt: { gte: new Date(Date.now() - HISTORY_HOURS * 3_600_000) }, ...(currentMessageId ? { id: { not: currentMessageId } } : {}), status: { not: "FAILED" } },
     orderBy: { createdAt: "desc" },
     take: HISTORY_MAX_MESSAGES,
-    select: { direction: true, type: true, text: true, sender: { select: { displayName: true } } },
+    select: { direction: true, type: true, text: true, sender: { select: { displayName: true } }, attachment: { select: { transcription: true } } },
   });
   const turns: Array<{ role: "user" | "assistant"; content: string }> = [];
   for (const m of rows.reverse()) {
     const role = m.direction === "INBOUND" ? "user" : "assistant";
-    const raw = (m.text ?? "").trim();
+    // Áudio: o que foi dito (transcrição) — senão valores falados no áudio "somem" na resposta seguinte.
+    const heard = m.type === "AUDIO" ? (decryptStringSafe(m.attachment?.transcription) ?? "").trim() : "";
+    const raw = (m.text ?? "").trim() || (heard ? `(áudio) ${heard}` : "");
     const body = role === "assistant" ? raw.replace(new RegExp(`^${withBotPrefix("").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`), "") : raw;
     const content = role === "user" ? `[${m.sender?.displayName ?? "Alguém"}] ${body || (m.type === "AUDIO" ? "(áudio)" : m.type === "IMAGE" ? "(imagem)" : m.type === "DOCUMENT" ? "(documento)" : "")}` : body;
     if (!content.trim()) continue;
@@ -102,16 +105,16 @@ interface RecentRef {
 
 async function loadRecentRefs(ctx: ServiceContext): Promise<RecentRef[]> {
   const rows = await prisma.transaction.findMany({
-    where: { householdId: ctx.householdId, createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) }, type: { in: ["EXPENSE", "INCOME", "TRANSFER"] } },
+    where: { householdId: ctx.householdId, createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) }, type: { in: ["EXPENSE", "INCOME", "TRANSFER", "ADJUSTMENT"] } },
     orderBy: { createdAt: "desc" },
     take: 15,
-    include: { category: { select: { name: true } }, creditCard: { select: { name: true } }, account: { select: { name: true } } },
+    include: { category: { select: { name: true } }, creditCard: { select: { name: true } }, account: { select: { name: true } }, destinationAccount: { select: { name: true } } },
   });
   // Apagados aparecem marcados (para o assistente saber que o cancelamento já foi feito).
   return rows.map((t, i) => ({
     ref: `L${i + 1}`,
     id: t.id,
-    line: `L${i + 1}: ${t.type === "INCOME" ? "RECEITA" : t.type === "TRANSFER" ? "TRANSFERÊNCIA" : "DESPESA"} "${t.description}" ${formatBRL(t.amountCents)} em ${formatDateBR(dateToISO(t.date))}${t.category ? ` · ${t.category.name}` : " · sem categoria"}${t.creditCard ? ` · cartão ${t.creditCard.name}` : t.account ? ` · ${t.account.name}` : ""}${t.status === "PENDING" ? " · PENDENTE de confirmação" : ""}${t.scope === "BUSINESS" ? " · Empresa" : ""}${t.deletedAt ? " · APAGADO (na lixeira)" : ""}`,
+    line: `L${i + 1}: ${t.type === "INCOME" ? "RECEITA" : t.type === "TRANSFER" ? "TRANSFERÊNCIA" : t.type === "ADJUSTMENT" ? "AJUSTE DE SALDO" : "DESPESA"} "${t.description}" ${t.type === "ADJUSTMENT" ? (t.destinationAccount ? "+" : "−") : ""}${formatBRL(t.amountCents)} em ${formatDateBR(dateToISO(t.date))}${t.type === "ADJUSTMENT" ? ` · conta ${t.destinationAccount?.name ?? t.account?.name ?? "?"}` : `${t.category ? ` · ${t.category.name}` : " · sem categoria"}${t.creditCard ? ` · cartão ${t.creditCard.name}` : t.account ? ` · ${t.account.name}` : ""}${t.type === "TRANSFER" && t.destinationAccount ? ` → ${t.destinationAccount.name}` : ""}`}${t.status === "PENDING" ? " · PENDENTE de confirmação" : ""}${t.scope === "BUSINESS" ? " · Empresa" : ""}${t.deletedAt ? " · APAGADO (na lixeira)" : ""}`,
   }));
 }
 
@@ -142,7 +145,7 @@ COMO AGIR
 - NUNCA calcule entradas ou saídas para chegar a um saldo: para mudar o saldo use ajustar_saldo (com o saldo FINAL) ou zerar_saldos. Pode propor um saldo final (ex.: o saldo atual de outra conta) e, com o "sim" da pessoa, ajustar para ele.
 - Conta que não existe: diga que não achou e pergunte se é para criar. Criar só quando pedirem ou aceitarem: criar_conta (caixa, carteira e dinheiro vivo = tipo "dinheiro"), com o saldo inicial dito.
 - "Tenho a conta de luz de 180 pra dia 10", "boleto da escola de 900 vence dia 5" = cadastrar_conta_a_pagar (vencimento e valor ditos). "Vou receber 2 mil do cliente dia 20" = cadastrar_conta_a_pagar com tipo receber.
-- Nunca diga que anotou, corrigiu, apagou ou marcou algo sem ter chamado a ferramenta e recebido sucesso.
+- Nunca diga que anotou, corrigiu, apagou ou marcou algo AGORA sem ter chamado a ferramenta e recebido sucesso. Suas respostas anteriores no histórico já foram conferidas pelo sistema: o que você disse que fez, foi feito (veja também a lista de lançamentos e ajustes acima). Não se desdiga nem peça desculpas por elas.
 - Só apague quando a pessoa pedir claramente. Apagar manda para a lixeira (dá para recuperar no app).
 - NUNCA invente valores, datas ou nomes. Use só o que a pessoa escreveu. Faltou algo essencial (valor)? Pergunte.
 - Categoria: escolha a mais adequada da lista; se nenhuma servir, deixe sem e, se fizer sentido, pergunte ou sugira criar. Não crie categoria com o nome de uma pessoa.
@@ -254,6 +257,10 @@ const ACTION_TOOLS = {
       data: z.string().nullable(),
       descricao: z.string().max(120).nullable(),
     }),
+  },
+  renomear_conta: {
+    description: "Muda o nome de uma conta quando a pessoa pedir ou aceitar.",
+    schema: z.object({ conta: z.string().min(1), novo_nome: z.string().min(2).max(60) }),
   },
   zerar_saldos: {
     description: "Zera o saldo de contas/caixas ('zera o caixa', 'zera tudo pra começar de novo'). Gera ajustes de saldo; os lançamentos já feitos continuam no histórico.",
@@ -584,6 +591,16 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       );
       state.transactionIds.push(transaction.id);
       return { transferido: true, de: from.name, para: to.name, valor: formatBRL(cents), data: formatDateBR(date) };
+    }
+    case "renomear_conta": {
+      const d = data as { conta: string; novo_nome: string };
+      const acc = findAccount(hc, d.conta);
+      if (hc.accounts.some((a) => a.id !== acc.id && normalizeText(a.name) === normalizeText(d.novo_nome))) throw new Error(`Já existe a conta "${d.novo_nome}".`);
+      const updated = await updateAccount(ctx, acc.id, { name: d.novo_nome.trim() });
+      acc.name = updated.name;
+      acc.aliases = aliasesFor(updated.name, acc.institution);
+      state.changed = true;
+      return { renomeada: true, nome_novo: updated.name };
     }
     case "zerar_saldos": {
       const d = data as { contas: string[] | null };
