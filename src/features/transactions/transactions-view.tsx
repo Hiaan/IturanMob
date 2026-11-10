@@ -496,6 +496,8 @@ export function TransactionsView() {
             canWrite={canWrite}
             canDelete={canDelete}
             accountId={view === "list" ? filters.accountId : undefined}
+            sort={filters.sort}
+            onSort={(sort) => update({ sort })}
           />
         </div>
       )}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Check, CheckCircle2, Eye, MoreHorizontal, Paperclip, RotateCcw, Trash2, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, CheckCircle2, Eye, MoreHorizontal, Paperclip, RotateCcw, Trash2, Users } from "lucide-react";
+import type { TxSort } from "./use-transaction-filters";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -43,11 +44,11 @@ function dayLabel(iso: string, today: string): string {
   return iso === today ? `Hoje · ${base}` : base;
 }
 
-function groupItems(items: TransactionDTO[], grouped: boolean, today: string): Group[] {
+function groupItems(items: TransactionDTO[], grouped: boolean, today: string, ascending = false): Group[] {
   if (!grouped) return [{ key: "all", label: "", items, incomeCents: 0, expenseCents: 0 }];
   const groups: Group[] = [];
   // Parcelas de compras anteriores aparecem no dia da parcela (mantém a ordem da página por dia).
-  const ordered = items.some((t) => t.periodInstallment) ? [...items].sort((a, b) => listDate(b).localeCompare(listDate(a))) : items;
+  const ordered = items.some((t) => t.periodInstallment) ? [...items].sort((a, b) => (ascending ? listDate(a).localeCompare(listDate(b)) : listDate(b).localeCompare(listDate(a)))) : items;
   for (const row of ordered) {
     const tx = periodAmount(row);
     const day = listDate(row);
@@ -76,6 +77,23 @@ function PeriodAmount({ tx, accountId, className }: { tx: TransactionDTO; accoun
       <AmountText tx={periodAmount(tx)} accountId={accountId} className={className} secondary={false} />
       <span className="whitespace-nowrap text-[11px] font-normal text-muted-foreground tabular">total {formatMoney(tx.amountCents, tx.currency ?? "BRL")}</span>
     </span>
+  );
+}
+
+/** Título de coluna que ordena ao clicar (seta mostra o sentido atual). */
+function SortHeader({ label, active, onClick, align }: { label: string; active: "asc" | "desc" | null; onClick?: () => void; align?: "right" }) {
+  if (!onClick) return <>{label}</>;
+  const Icon = active === "asc" ? ArrowUp : active === "desc" ? ArrowDown : ArrowUpDown;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn("inline-flex items-center gap-1 rounded font-medium uppercase tracking-wide outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", align === "right" && "flex-row-reverse", active && "text-foreground")}
+      title={`Ordenar por ${label.toLowerCase()}`}
+    >
+      {label}
+      <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
+    </button>
   );
 }
 
@@ -199,6 +217,8 @@ export function TransactionList({
   canWrite,
   canDelete,
   accountId,
+  sort,
+  onSort,
 }: {
   items: TransactionDTO[];
   grouped: boolean;
@@ -212,8 +232,11 @@ export function TransactionList({
   canWrite: boolean;
   canDelete: boolean;
   accountId?: string;
+  /** Ordenação atual e troca pelo título da coluna (Data, Valor). */
+  sort?: TxSort;
+  onSort?: (sort: TxSort) => void;
 }) {
-  const groups = useMemo(() => groupItems(items, grouped, today), [items, grouped, today]);
+  const groups = useMemo(() => groupItems(items, grouped, today, sort === "date_asc"), [items, grouped, today, sort]);
   const cardsById = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
   const allSelected = items.length > 0 && items.every((t) => selected.has(t.id));
   const someSelected = items.some((t) => selected.has(t.id));
@@ -231,10 +254,15 @@ export function TransactionList({
                   <Checkbox checked={allSelected ? true : someSelected ? "indeterminate" : false} onCheckedChange={(v) => onToggleAll(v === true)} aria-label="Selecionar todos desta página" />
                 </TableHead>
               )}
+              <TableHead className="w-[112px]" aria-sort={sort === "date_asc" ? "ascending" : sort === "date_desc" ? "descending" : undefined}>
+                <SortHeader label="Data" active={sort === "date_desc" ? "desc" : sort === "date_asc" ? "asc" : null} onClick={onSort ? () => onSort(sort === "date_desc" ? "date_asc" : "date_desc") : undefined} />
+              </TableHead>
               <TableHead>Lançamento</TableHead>
               <TableHead className="hidden w-[190px] xl:table-cell">Conta / cartão</TableHead>
               <TableHead className="hidden w-[160px] xl:table-cell">Pessoa</TableHead>
-              <TableHead className="w-[150px] text-right">Valor</TableHead>
+              <TableHead className="w-[150px] text-right" aria-sort={sort === "amount_asc" ? "ascending" : sort === "amount_desc" ? "descending" : undefined}>
+                <SortHeader label="Valor" align="right" active={sort === "amount_desc" ? "desc" : sort === "amount_asc" ? "asc" : null} onClick={onSort ? () => onSort(sort === "amount_desc" ? "amount_asc" : "amount_desc") : undefined} />
+              </TableHead>
               <TableHead className="w-12">
                 <span className="sr-only">Ações</span>
               </TableHead>
@@ -257,6 +285,7 @@ export function TransactionList({
                           <Checkbox checked={selected.has(tx.id)} onCheckedChange={() => onToggle(tx.id)} aria-label={`Selecionar ${tx.description}`} />
                         </TableCell>
                       )}
+                      <TableCell className="whitespace-nowrap py-2.5 text-sm text-muted-foreground tabular">{formatDateBR(listDate(tx))}</TableCell>
                       <TableCell className="py-2.5">
                         <div className="flex min-w-0 items-center gap-3">
                           <TransactionIcon tx={tx} />
@@ -280,7 +309,6 @@ export function TransactionList({
                                 {tx.merchant && ` · ${tx.merchant.name}`}
                                 {tx.paymentMethod && ` · ${labelOf(PAYMENT_METHOD_LABELS, tx.paymentMethod)}`}
                                 {whereLabel(tx) && <span className="xl:hidden"> · {whereLabel(tx)}</span>}
-                                {!grouped && ` · ${formatDateBR(tx.date)}`}
                                 {trash && tx.deletedAt && ` · excluída em ${formatDateTimeBR(tx.deletedAt)}`}
                               </span>
                               <span aria-hidden>·</span>
@@ -406,10 +434,10 @@ function GroupRows({ g, selectable, children }: { g: Group; selectable: boolean;
       {g.label && (
         <TableRow className="bg-muted/40 hover:bg-muted/40">
           {/* Duas células: uma por faixa de largura (colunas Conta/Pessoa só aparecem a partir de xl). */}
-          <TableCell colSpan={selectable ? 4 : 3} className="py-2 pl-4 xl:hidden">
+          <TableCell colSpan={selectable ? 5 : 4} className="py-2 pl-4 xl:hidden">
             <GroupHeader g={g} />
           </TableCell>
-          <TableCell colSpan={selectable ? 6 : 5} className="hidden py-2 pl-4 xl:table-cell">
+          <TableCell colSpan={selectable ? 7 : 6} className="hidden py-2 pl-4 xl:table-cell">
             <GroupHeader g={g} />
           </TableCell>
         </TableRow>
