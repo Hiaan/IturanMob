@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isISODate, resolvePeriod, type PeriodPreset } from "@/lib/dates";
+import { PERIOD_PRESET_LABELS, isISODate, resolvePeriod, type PeriodPreset } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import type { ReportScope, TransactionScope } from "@/features/finance/types";
 import type { SmartPatch } from "./smart-search";
@@ -69,7 +69,7 @@ export function countAdvanced(f: TxFilters): number {
   ].filter(Boolean).length;
 }
 
-export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "scope", "natureReview", "paymentMethod", "start", "end", "period"] as const;
+export const URL_FILTER_KEYS = ["categoryId", "subcategoryId", "type", "accountId", "creditCardId", "memberId", "status", "uncategorized", "excluded", "scope", "natureReview", "paymentMethod", "start", "end", "period", "preset"] as const;
 
 /** Converte parâmetros da URL (links do dashboard, busca global, contas, cartões) em filtros. */
 export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
@@ -98,10 +98,13 @@ export function filtersFromUrl(sp: URLSearchParams): Partial<TxFilters> | null {
   // O recorte (?scope=) não é filtro da lista: vai para a barra do topo (veja scopeFromUrl).
   // "Pedem natureza" (?natureReview=1).
   if (sp.get("natureReview") === "1" || sp.get("natureReview") === "true") patch.natureReview = true;
+  // Período pelo nome (?preset=thisMonth, vindo do painel), pelas datas (?start=&end=) ou tudo (?period=all).
+  const preset = sp.get("preset");
   const start = sp.get("start");
   const end = sp.get("end");
-  if (isISODate(start) && isISODate(end) && start <= end) Object.assign(patch, { preset: "custom", start, end });
-  else if (sp.get("period") === "all") Object.assign(patch, { preset: "all", start: undefined, end: undefined });
+  if (preset && preset !== "custom" && preset in PERIOD_PRESET_LABELS) Object.assign(patch, { preset: preset as TxPreset, start: undefined, end: undefined });
+  else if (isISODate(start) && isISODate(end) && start <= end) Object.assign(patch, { preset: "custom", start, end });
+  else if (sp.get("period") === "all" || preset === "all") Object.assign(patch, { preset: "all", start: undefined, end: undefined });
   return patch;
 }
 

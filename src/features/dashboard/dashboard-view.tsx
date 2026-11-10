@@ -20,8 +20,8 @@ import { REPORT_SCOPE_LABELS } from "@/features/transactions/nature";
 import { useReportScopePreference } from "@/features/transactions/report-scope-preference";
 import { ScopeBar } from "@/features/transactions/scope-bar";
 import { foreignSummary } from "@/features/accounts/currency";
-import { FiltersBar } from "./filters-bar";
-import { filtersToParams, usePersistentFilters } from "./use-filters";
+import { FiltersBar, PeriodPicker } from "./filters-bar";
+import { filtersToParams, transactionsHref, usePersistentFilters } from "./use-filters";
 import { KpiGrid, type DashboardSummary, type KpiFxNotes } from "./kpi-grid";
 import { OnboardingChecklist } from "./onboarding";
 import { IncomeGoalsCard } from "./income-goals-card";
@@ -47,8 +47,7 @@ function fxNote(accounts: AccountDTO[]): string | null {
 }
 
 /** Resultado da empresa no período (natureza Empresa), quando o recorte não é só a empresa. */
-function BusinessResultCard({ business, scope, period, onShowBusiness }: { business: NonNullable<DashboardSummary["business"]>; scope: ReportScope; period: { start: string; end: string }; onShowBusiness: () => void }) {
-  const href = `/transacoes?scope=BUSINESS&start=${period.start}&end=${period.end}`;
+function BusinessResultCard({ business, scope, href, onShowBusiness }: { business: NonNullable<DashboardSummary["business"]>; scope: ReportScope; href: string; onShowBusiness: () => void }) {
   return (
     <Card aria-labelledby="business-result-title">
       <CardHeader className="flex-col gap-2 sm:flex-row sm:items-start">
@@ -127,14 +126,15 @@ export function DashboardView() {
             ? `Visão de ${describePeriod(summary.data.period)} · regime de ${summary.data.regime === "CASH" ? "caixa" : "competência"}${summary.data.scope ? ` · recorte ${REPORT_SCOPE_LABELS[summary.data.scope]}` : ""}`
             : "Visão geral das finanças da família"
         }
+        actions={<PeriodPicker filters={filters} onChange={update} />}
       />
       <FiltersBar filters={filters} onChange={update} onReset={reset} />
       <OnboardingChecklist />
       <div className={summary.isFetching && !summary.isLoading ? "opacity-70 transition-opacity" : "transition-opacity"}>
-        <KpiGrid data={summary.data} isLoading={summary.isLoading} fx={fx} />
+        <KpiGrid data={summary.data} isLoading={summary.isLoading} fx={fx} txHref={(extra) => transactionsHref(filters, summary.data?.period, extra)} />
       </div>
       {summary.data?.business && summary.data.scope && summary.data.scope !== "BUSINESS" && (
-        <BusinessResultCard business={summary.data.business} scope={summary.data.scope} period={summary.data.period} onShowBusiness={showBusiness} />
+        <BusinessResultCard business={summary.data.business} scope={summary.data.scope} href={transactionsHref(filters, summary.data.period, { scope: "BUSINESS" })} onShowBusiness={showBusiness} />
       )}
       <IncomeGoalsCard />
 

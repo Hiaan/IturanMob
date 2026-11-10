@@ -244,7 +244,10 @@ function CategoryTransactionsSheet({
             href={`/transacoes?${new URLSearchParams({
               ...(category?.id ? { categoryId: category.id } : { uncategorized: "1" }),
               ...(scope ? { scope } : {}),
-              ...(period ? { start: period.start, end: period.end } : {}),
+              // Mesmo período do painel: pelo nome ("Este mês"); personalizado, pelas datas.
+              ...(filters.preset !== "custom" ? { preset: filters.preset } : period ? { start: period.start, end: period.end } : {}),
+              ...(filters.memberId ? { memberId: filters.memberId } : {}),
+              ...(filters.accountId ? { accountId: filters.accountId } : {}),
               ...(creditCardId ? { creditCardId } : {}),
               ...(payment.paymentMethod ? { paymentMethod: payment.paymentMethod } : {}),
             }).toString()}`}

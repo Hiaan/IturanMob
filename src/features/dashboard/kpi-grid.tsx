@@ -89,7 +89,18 @@ export interface KpiFxNotes {
   all: string | null;
 }
 
-export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLoading: boolean; fx?: KpiFxNotes }) {
+export function KpiGrid({
+  data,
+  isLoading,
+  fx,
+  txHref,
+}: {
+  data?: DashboardSummary;
+  isLoading: boolean;
+  fx?: KpiFxNotes;
+  /** Link para Transações no mesmo período e filtros do painel. */
+  txHref?: (extra: Record<string, string>) => string;
+}) {
   if (isLoading || !data) {
     return (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -102,6 +113,8 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
   const budgetPct = data.budget.limitCents ? Math.round((data.budget.spentCents / data.budget.limitCents) * 100) : null;
   // Links para Lançamentos no mesmo recorte da barra do topo (Pessoa física | Empresa | Tudo).
   const scopeQs = data.scope ? `&scope=${data.scope}` : "";
+  const scopeExtra: Record<string, string> = data.scope ? { scope: data.scope } : {};
+  const typeHref = (type: "INCOME" | "EXPENSE") => (txHref ? txHref({ type, ...scopeExtra }) : `/transacoes?type=${type}${scopeQs}`);
   const scopeText = data.scope === "BUSINESS" ? " Recorte Empresa." : data.scope === "ALL" ? " Recorte Tudo (Pessoa física e Empresa)." : data.scope === "PERSONAL" ? " Recorte Pessoa física (sem a empresa)." : "";
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -119,13 +132,13 @@ export function KpiGrid({ data, isLoading, fx }: { data?: DashboardSummary; isLo
           </span>
         }
       />
-      <Kpi label="Receitas do período" value={data.incomeCents} icon={TrendingUp} hint={`Receitas confirmadas no período, conforme o regime selecionado.${scopeText} Repasses de clientes ficam de fora.`} href={`/transacoes?type=INCOME${scopeQs}`} footer={<Delta pct={data.comparison.incomeChangePct} />} />
+      <Kpi label="Receitas do período" value={data.incomeCents} icon={TrendingUp} hint={`Receitas confirmadas no período, conforme o regime selecionado.${scopeText} Repasses de clientes ficam de fora.`} href={typeHref("INCOME")} footer={<Delta pct={data.comparison.incomeChangePct} />} />
       <Kpi
         label="Despesas do período"
         value={data.expenseCents}
         icon={TrendingDown}
         hint={`${data.regime === "CASH" ? "Regime de caixa: débito/Pix/dinheiro na data do pagamento; cartão pelo valor das parcelas no vencimento da fatura." : "Regime de competência: na data de competência (compra); parcelados no cartão, uma parcela por mês."}${scopeText}`}
-        href={`/transacoes?type=EXPENSE${scopeQs}`}
+        href={typeHref("EXPENSE")}
         footer={<Delta pct={data.comparison.expenseChangePct} invert />}
       />
       <Kpi

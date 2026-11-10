@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, RotateCcw } from "lucide-react";
+import { CalendarDays, Info, RotateCcw } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,35 @@ import type { DashboardFilters } from "./use-filters";
 
 const ALL = "__all__";
 const PRESETS: PeriodPreset[] = ["today", "yesterday", "last7", "thisMonth", "lastMonth", "last3Months", "thisYear", "last12Months", "custom"];
+
+/** Período do painel: fica em destaque, à direita do título (não junto dos outros filtros). */
+export function PeriodPicker({ filters, onChange, className }: { filters: DashboardFilters; onChange: (patch: Partial<DashboardFilters>) => void; className?: string }) {
+  return (
+    <div className={cn("flex flex-wrap items-center justify-end gap-2", className)} role="group" aria-label="Período">
+      <Select value={filters.preset} onValueChange={(v) => onChange({ preset: v as PeriodPreset })}>
+        <SelectTrigger className="h-10 w-auto min-w-[190px] border-brand/40 bg-card font-medium shadow-sm" aria-label="Período">
+          <CalendarDays className="size-4 text-brand" aria-hidden />
+          <span className="text-xs font-normal text-muted-foreground">Período</span>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {PRESETS.map((p) => (
+            <SelectItem key={p} value={p}>
+              {PERIOD_PRESET_LABELS[p]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {filters.preset === "custom" && (
+        <div className="flex items-center gap-1">
+          <Input type="date" className="h-10 w-[150px]" value={filters.start ?? ""} onChange={(e) => onChange({ start: e.target.value })} aria-label="Data inicial" />
+          <span className="text-xs text-muted-foreground">a</span>
+          <Input type="date" className="h-10 w-[150px]" value={filters.end ?? ""} onChange={(e) => onChange({ end: e.target.value })} aria-label="Data final" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function FiltersBar({
   filters,
@@ -36,25 +65,6 @@ export function FiltersBar({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} role="group" aria-label="Filtros">
-      <Select value={filters.preset} onValueChange={(v) => onChange({ preset: v as PeriodPreset })}>
-        <SelectTrigger className="h-9 w-auto min-w-[130px] max-w-[220px]" aria-label="Período">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {PRESETS.map((p) => (
-            <SelectItem key={p} value={p}>
-              {PERIOD_PRESET_LABELS[p]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {filters.preset === "custom" && (
-        <div className="flex items-center gap-1">
-          <Input type="date" className="h-9 w-[150px]" value={filters.start ?? ""} onChange={(e) => onChange({ start: e.target.value })} aria-label="Data inicial" />
-          <span className="text-xs text-muted-foreground">a</span>
-          <Input type="date" className="h-9 w-[150px]" value={filters.end ?? ""} onChange={(e) => onChange({ end: e.target.value })} aria-label="Data final" />
-        </div>
-      )}
       {showRegime && (
         <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
           {(["ACCRUAL", "CASH"] as const).map((r) => (
