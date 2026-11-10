@@ -7,6 +7,7 @@ import { decryptStringSafe } from "../../crypto";
 import { logger } from "../../logger";
 import { addDays, dateToISO, formatDateBR, isISODate, startOfMonth, todayISO, zonedToInstant } from "@/lib/dates";
 import { formatBRL } from "@/lib/money";
+import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { normalizeText } from "@/lib/utils";
 import { sanitizeUntrusted } from "../nlu/text";
 import { amountMentioned } from "../nlu/numbers";
@@ -118,6 +119,16 @@ async function loadRecentRefs(ctx: ServiceContext): Promise<RecentRef[]> {
   }));
 }
 
+/** Contas padrão de pagamento das pessoas (gasto sem conta dita sai daí, sem perguntar). */
+function defaultsLine(hc: HouseholdContext): string {
+  const items = hc.members
+    .filter((m) => m.defaultAccountId)
+    .map((m) => `${m.displayName}: ${hc.accounts.find((a) => a.id === m.defaultAccountId)?.name ?? "?"}${m.defaultPaymentMethod ? ` (${PAYMENT_METHOD_LABELS[m.defaultPaymentMethod as keyof typeof PAYMENT_METHOD_LABELS] ?? m.defaultPaymentMethod})` : ""}`);
+  return items.length
+    ? `Conta padrão de pagamento (gasto sem conta dita sai dela, deixe conta e forma de pagamento null e NÃO pergunte): ${items.join("; ")}.`
+    : "Ninguém tem conta padrão de pagamento: com várias contas, gasto sem conta dita fica pendente para escolher no app.";
+}
+
 function systemPrompt(hc: HouseholdContext, recent: RecentRef[], input: AgentInput): string {
   const expenseCats = hc.categories.filter((c) => c.kind === "EXPENSE").map((c) => c.name).join(", ");
   const incomeCats = hc.categories.filter((c) => c.kind === "INCOME").map((c) => c.name).join(", ");
@@ -126,6 +137,7 @@ function systemPrompt(hc: HouseholdContext, recent: RecentRef[], input: AgentInp
 Hoje é ${hc.today} (${formatDateBR(hc.today)}). Quem está falando agora: ${hc.sender?.displayName ?? "um membro da família"}.
 Membros: ${hc.members.map((m) => `${m.displayName}${m.relation ? ` (${m.relation})` : ""}`).join(", ") || "—"}.
 Contas: ${hc.accounts.map((a) => a.name).join(", ") || "nenhuma"}. Cartões: ${hc.cards.map((c) => c.name).join(", ") || "nenhum"}.
+${defaultsLine(hc)}
 Categorias de despesa: ${expenseCats || "—"}.
 Categorias de receita: ${incomeCats || "—"}.
 ${input.nature?.fallback === "BUSINESS" ? "Esta conversa é o grupo da EMPRESA: lançamentos são da empresa, salvo se disserem que é pessoal.\n" : ""}

@@ -15,7 +15,16 @@ export interface HouseholdContext {
   timezone: string;
   today: string;
   sender: { memberId: string; displayName: string; relation: string | null } | null;
-  members: Array<{ id: string; displayName: string; relation: string | null; hasLogin: boolean; aliases: string[] }>;
+  members: Array<{
+    id: string;
+    displayName: string;
+    relation: string | null;
+    hasLogin: boolean;
+    aliases: string[];
+    /** Conta/forma de pagamento padrão (gasto sem conta dita). Só se a conta estiver na lista abaixo. */
+    defaultAccountId?: string | null;
+    defaultPaymentMethod?: string | null;
+  }>;
   accounts: Array<{ id: string; name: string; institution: string | null; type: string; currency?: string; aliases: string[] }>;
   cards: Array<{ id: string; name: string; issuer: string | null; last4: string | null; paymentAccountId: string | null; aliases: string[] }>;
   categories: Array<{
@@ -91,7 +100,15 @@ export async function loadHouseholdContext(ctx: ServiceContext, senderMemberId?:
     timezone: ctx.timezone,
     today: todayISO(ctx.timezone),
     sender: sender ? { memberId: sender.id, displayName: sender.displayName, relation: sender.relation } : null,
-    members: members.map((m) => ({ id: m.id, displayName: m.displayName, relation: m.relation, hasLogin: Boolean(m.userId), aliases: memberAliases(m.displayName, m.relation) })),
+    members: members.map((m) => ({
+      id: m.id,
+      displayName: m.displayName,
+      relation: m.relation,
+      hasLogin: Boolean(m.userId),
+      aliases: memberAliases(m.displayName, m.relation),
+      defaultAccountId: m.defaultAccountId && accounts.some((a) => a.id === m.defaultAccountId) ? m.defaultAccountId : null,
+      defaultPaymentMethod: m.defaultPaymentMethod && m.defaultPaymentMethod !== "CREDIT_CARD" ? m.defaultPaymentMethod : null,
+    })),
     accounts: accounts.map((a) => ({ id: a.id, name: a.name, institution: a.institution, type: a.type, currency: a.currency, aliases: aliasesFor(a.name, a.institution) })),
     cards: cards.map((c) => ({ id: c.id, name: c.name, issuer: c.issuer, last4: c.last4, paymentAccountId: c.paymentAccountId, aliases: aliasesFor(c.name, c.issuer) })),
     categories: categories.map((c) => ({

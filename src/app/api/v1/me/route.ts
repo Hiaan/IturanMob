@@ -1,6 +1,7 @@
 import { authed } from "@/server/api/handler";
 import { permissionsFor } from "@/server/auth/permissions";
 import { isInstanceAdmin } from "@/server/modules/instance/invites";
+import { getPaymentDefaults } from "@/server/modules/members/payment-defaults";
 import { pendingCounts } from "@/server/modules/pending/service";
 
 export const GET = authed({}, async ({ session, ctx }) => ({
@@ -12,4 +13,6 @@ export const GET = authed({}, async ({ session, ctx }) => ({
   pending: await pendingCounts(ctx),
   /** Administrador da instalação: vê o painel "Administração". */
   instanceAdmin: await isInstanceAdmin(ctx.userId),
+  /** Conta e forma de pagamento padrão (gasto sem conta dita; pré-preenche o lançamento manual). */
+  paymentDefaults: ctx.memberId ? await getPaymentDefaults(ctx) : null,
 }));

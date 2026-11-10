@@ -183,7 +183,7 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
     confidence = Math.min(confidence, 0.7);
   }
 
-  let paymentMethod = raw.paymentMethod;
+  let paymentMethod: PaymentMethodValue | null = raw.paymentMethod;
   let installmentCount = raw.installments && raw.installments > 0 ? Math.min(raw.installments, 72) : 1;
   if (raw.kind === "EXPENSE") {
     if (card) paymentMethod = "CREDIT_CARD";
@@ -203,6 +203,20 @@ export function resolveDraft(raw: RawDraft, index: number, hc: HouseholdContext,
   if (!account && !raw.accountHint && ((raw.kind === "EXPENSE" && !card && paymentMethod !== "CREDIT_CARD") || raw.kind === "INCOME") && hc.accounts.length === 1) {
     account = hc.accounts[0]!;
     warnings.push(`Conta considerada: ${account.name} (única cadastrada).`);
+  }
+  // Gasto sem conta dita: a conta (e forma de pagamento) padrão de quem gastou — ou de quem escreveu.
+  if (raw.kind === "EXPENSE" && !card && paymentMethod !== "CREDIT_CARD") {
+    const who = resolveMember(raw.personHint, hc)?.id ?? hc.sender?.memberId ?? null;
+    const member = who ? hc.members.find((m) => m.id === who) : null;
+    const defAccount = member?.defaultAccountId ? hc.accounts.find((a) => a.id === member.defaultAccountId) ?? null : null;
+    if (defAccount && !account && !raw.accountHint) {
+      account = defAccount;
+      warnings.push(`Conta padrão de ${member!.displayName}: ${defAccount.name}.`);
+    }
+    // Forma de pagamento padrão quando a conta é a padrão e ninguém disse como pagou.
+    if (defAccount && account?.id === defAccount.id && !paymentMethod && member?.defaultPaymentMethod) {
+      paymentMethod = member.defaultPaymentMethod as PaymentMethodValue;
+    }
   }
 
   // --- Categoria (regra explícita do usuário tem prioridade)

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCan } from "@/features/me/use-me";
 import { useHousehold, useUpdateSettings } from "./use-household";
 import { MorningSummarySettings } from "./morning-summary-settings";
+import { PaymentDefaultsCard } from "./payment-defaults-card";
 
 export function PreferencesSection() {
   const household = useHousehold();
@@ -37,6 +38,7 @@ export function PreferencesSection() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <PaymentDefaultsCard />
       <Card>
         <CardHeader>
           <CardTitle>Interpretação automática</CardTitle>

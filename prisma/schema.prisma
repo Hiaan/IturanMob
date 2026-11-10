@@ -601,16 +601,16 @@ model HouseholdSettings {
 }
 
 model HouseholdMember {
-  id                   String     @id @default(cuid())
+  id                   String         @id @default(cuid())
   householdId          String
   userId               String?
   displayName          String
   /// Ex.: "Marido", "Esposa", "Filho".
   relation             String?
-  role                 MemberRole @default(MEMBER)
-  color                String     @default("#0f766e")
+  role                 MemberRole     @default(MEMBER)
+  color                String         @default("#0f766e")
   /// Pode visualizar contas e cartões PRIVADOS de outros membros.
-  canViewOthersPrivate Boolean    @default(false)
+  canViewOthersPrivate Boolean        @default(false)
   /// Número de WhatsApp em formato E.164 (ex.: +5581999999999).
   whatsappPhone        String?
   /// Identificadores do WhatsApp aprendidos na conexão (JID e LID).
@@ -618,15 +618,19 @@ model HouseholdMember {
   whatsappLid          String?
   /// Consentimento do participante para processamento das suas mensagens.
   whatsappConsentAt    DateTime?
-  whatsappAuthorized   Boolean    @default(false)
+  whatsappAuthorized   Boolean        @default(false)
   /// Mostrar pop-ups das notificações novas com o app aberto.
-  inAppPopups          Boolean    @default(true)
-  isActive             Boolean    @default(true)
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
+  inAppPopups          Boolean        @default(true)
+  /// Conta e forma de pagamento usadas quando a pessoa registra um gasto sem dizer de onde saiu.
+  defaultAccountId     String?
+  defaultPaymentMethod PaymentMethod?
+  isActive             Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
-  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  household      Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  defaultAccount Account?  @relation("MemberDefaultAccount", fields: [defaultAccountId], references: [id], onDelete: SetNull)
 
   ownedAccounts        Account[]                 @relation("AccountOwner")
   heldCards            CreditCard[]              @relation("CardHolder")
@@ -765,9 +769,10 @@ model Account {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
-  household Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  owner     HouseholdMember?  @relation("AccountOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
-  yields    InvestmentYield[]
+  household         Household         @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  owner             HouseholdMember?  @relation("AccountOwner", fields: [ownerMemberId], references: [id], onDelete: SetNull)
+  defaultForMembers HouseholdMember[] @relation("MemberDefaultAccount")
+  yields            InvestmentYield[]
 
   ledgerEntries         LedgerEntry[]
   transactions          Transaction[]          @relation("TransactionAccount")

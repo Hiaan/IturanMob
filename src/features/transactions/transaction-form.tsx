@@ -163,6 +163,16 @@ export function TransactionForm({
     if (!editing && me.data && form.getValues("payerMemberId") === NONE) setValue("payerMemberId", me.data.member.id);
   }, [me.data, editing, form, setValue]);
 
+  // Lançamento novo: começa com a conta e a forma de pagamento padrão da pessoa (dá para trocar).
+  const payDefaults = me.data?.paymentDefaults;
+  useEffect(() => {
+    if (editing || !payDefaults?.accountId) return;
+    if (form.getValues("accountId") === NONE && form.getValues("paymentMethod") === NONE && form.getValues("creditCardId") === NONE) {
+      setValue("accountId", payDefaults.accountId);
+      if (payDefaults.paymentMethod) setValue("paymentMethod", payDefaults.paymentMethod);
+    }
+  }, [payDefaults?.accountId, payDefaults?.paymentMethod, editing, form, setValue]);
+
   const isCredit = type === "EXPENSE" && paymentMethod === "CREDIT_CARD";
   // Moeda: a da conta (cartão é em reais). Na edição, conta fora da lista (arquivada) mantém a moeda do lançamento.
   const accountById = (id: string | undefined) => (accounts.data ?? []).find((a) => a.id === id) ?? null;

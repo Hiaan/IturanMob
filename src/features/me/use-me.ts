@@ -13,6 +13,7 @@ export interface MeResponse {
   canViewOthersPrivate: boolean;
   pending: { total: number; byType: Record<string, number> };
   instanceAdmin?: boolean;
+  paymentDefaults?: { accountId: string | null; accountName: string | null; paymentMethod: string | null } | null;
 }
 
 const noopSubscribe = () => () => {};
