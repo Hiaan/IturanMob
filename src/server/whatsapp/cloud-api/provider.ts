@@ -305,8 +305,10 @@ export class CloudApiProvider implements WhatsAppProvider {
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
-        type: "document",
-        document: { id: mediaId, filename: doc.fileName, caption: doc.caption.slice(0, 1024) },
+        // Imagem (gráfico) vai como foto; o resto, como arquivo.
+        ...(doc.mimeType.startsWith("image/")
+          ? { type: "image", image: { id: mediaId, caption: doc.caption.slice(0, 1024) } }
+          : { type: "document", document: { id: mediaId, filename: doc.fileName, caption: doc.caption.slice(0, 1024) } }),
         ...(opts?.quotedExternalId ? { context: { message_id: opts.quotedExternalId } } : {}),
       }),
     })) as { messages?: Array<{ id?: string }> };

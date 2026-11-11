@@ -65,6 +65,7 @@
     "react-hook-form": "7.90.0",
     "recharts": "3.10.1",
     "saxes": "5.0.1",
+    "sharp": "0.35.5",
     "sonner": "2.0.8",
     "tailwind-merge": "3.7.0",
     "tsx": "4.23.15",

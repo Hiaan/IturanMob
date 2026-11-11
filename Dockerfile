@@ -46,7 +46,8 @@ RUN pnpm prune --prod --ignore-scripts
 # ---------- runtime comum ----------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
 # ffmpeg: conversão de áudios do WhatsApp · postgresql16-client: pg_dump/pg_restore para backups
-RUN apk add --no-cache libc6-compat openssl tzdata tini ffmpeg postgresql16-client wget \
+# font-dejavu + fontconfig: textos dos gráficos enviados como imagem no WhatsApp
+RUN apk add --no-cache libc6-compat openssl tzdata tini ffmpeg postgresql16-client wget font-dejavu fontconfig \
  && addgroup -S app -g 1001 && adduser -S app -u 1001 -G app \
  && mkdir -p /data/storage /data/backups && chown -R app:app /data
 WORKDIR /app

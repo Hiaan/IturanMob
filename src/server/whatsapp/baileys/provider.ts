@@ -469,7 +469,11 @@ export class BaileysProvider implements WhatsAppProvider {
     const sock = this.sock;
     if (!sock || !this.connected) throw new Error("WhatsApp desconectado");
     const quoted = opts?.quotedExternalId ? this.quoteCache.get(opts.quotedExternalId) : undefined;
-    const sent = await sock.sendMessage(chatId, { document: doc.buffer, mimetype: doc.mimeType, fileName: doc.fileName, caption: doc.caption }, quoted ? { quoted } : undefined);
+    // Imagem (gráfico) vai como foto; o resto, como arquivo.
+    const content = doc.mimeType.startsWith("image/")
+      ? { image: doc.buffer, mimetype: doc.mimeType, caption: doc.caption }
+      : { document: doc.buffer, mimetype: doc.mimeType, fileName: doc.fileName, caption: doc.caption };
+    const sent = await sock.sendMessage(chatId, content, quoted ? { quoted } : undefined);
     const id = sent?.key?.id;
     if (!id) throw new Error("O WhatsApp não confirmou o envio");
     if (sent.message) this.sentCache.set(id, sent.message);

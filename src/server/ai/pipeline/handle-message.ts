@@ -19,7 +19,7 @@ import { familyVocabulary, type FamilyVocabulary } from "../transcription/vocabu
 import { normalizeTranscript } from "../nlu/transcript";
 import { extractReceipt } from "../vision/receipt";
 import { handleBoletoText, registerBoleto } from "../engine/boleto-commands";
-import { handleReportCommand, parseReportCommand } from "../engine/report-commands";
+import { handleReportCommand, hasReportFilter, parseReportCommand } from "../engine/report-commands";
 import { handleAgendaCommand, parseAgendaCommand } from "../engine/agenda-commands";
 import { agentAvailable, runWhatsAppAgent } from "../agent/whatsapp-agent";
 import { closeClarification, findOpenClarification } from "../engine/clarifications";
@@ -169,7 +169,9 @@ async function processText(ctx: ServiceContext, text: string, opts: TextOptions)
   // "manda o relatório do mês", "planilha de setembro": gera e envia o arquivo (sem IA).
   if (opts.source !== "WHATSAPP_IMAGE") {
     const reportCmd = parseReportCommand(text, todayISO(ctx.timezone));
-    if (reportCmd) return handleReportCommand(ctx, reportCmd);
+    // Pedido com filtro ("só do pix", "do cartão", "receitas", "do trimestre") vai para a Isa, que
+    // monta o relatório sob encomenda; o comando fixo cobre o relatório padrão do mês/semana.
+    if (reportCmd && !(agentOn && hasReportFilter(text))) return handleReportCommand(ctx, reportCmd);
   }
   // "marca dentista amanhã às 15h", "agenda de hoje", "desmarcar dentista": agenda (sem IA).
   if (opts.source !== "WHATSAPP_IMAGE") {

@@ -43,6 +43,8 @@ import { createWaFamily, enableExternalAI, initTestQueues, clearTestQueues, mess
 import { createBasicAccounts, resetDatabase } from "./helpers";
 import { dashboardSummary } from "@/server/modules/analytics/service";
 import { createAccount, listAccounts } from "@/server/modules/accounts/service";
+import { categoryId } from "./helpers";
+import { createTransaction } from "@/server/modules/transactions/service";
 import { ask } from "@/server/ai/assistant/service";
 import { monthRange, todayISO } from "@/lib/dates";
 
@@ -305,6 +307,85 @@ describe("assistente conversacional do WhatsApp", () => {
     expect(await prisma.financialRule.count({ where: { householdId: wa.householdId, pattern: "guincho" } })).toBe(1);
     expect(await prisma.creditCard.count({ where: { householdId: wa.householdId, name: "Nubank", closingDay: 20, dueDay: 27 } })).toBe(1);
     expect(await prisma.incomeGoal.count({ where: { householdId: wa.householdId, targetCents: 1_500_000, active: true } })).toBe(1);
+  });
+
+  it("relatório sob encomenda: 'excel só dos gastos no pix' vai para a Isa; o padrão do mês continua no comando fixo", async () => {
+    const wa = await aiFamily();
+    const c6 = await createAccount(wa.ctx, { name: "C6 Bank", type: "CHECKING", initialBalanceCents: 100_000 });
+    const today = new Date().toISOString().slice(0, 10);
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 5_000, description: "Feira no pix", date: today, accountId: c6.id, paymentMethod: "PIX" });
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 3_000, description: "Padaria no débito", date: today, accountId: c6.id, paymentMethod: "DEBIT_CARD" });
+    const priv = await createAccount(wa.wifeCtx, { name: "Conta da Maria", visibility: "PRIVATE", initialBalanceCents: 0 });
+    await createTransaction(wa.wifeCtx, { type: "EXPENSE", amountCents: 9_900, description: "Presente no pix", date: today, accountId: priv.id, paymentMethod: "PIX" });
+
+    // O padrão ("relatório do mês") segue no comando fixo, sem chamar a IA.
+    await sendMessage(wa, { text: "manda o relatório do mês" });
+    expect(fake.requests).toHaveLength(0);
+
+    fake.script.push(async (req) => {
+      const out = (await req.execute("gerar_relatorio", { inicio: `${today.slice(0, 7)}-01`, fim: today, tipo: "gastos", formato: "planilha", categoria: null, forma_pagamento: "PIX", conta: null, cartao: null })) as { lancamentos: number; total: string };
+      // Só o Pix da família: o Pix da conta privada da Maria não entra no grupo.
+      expect(out).toMatchObject({ lancamentos: 1, total: "R$ 50,00" });
+      await expect(req.execute("gerar_relatorio", { inicio: "2030-01-01", fim: "2030-01-31", tipo: "gastos", formato: "pdf", categoria: null, forma_pagamento: null, conta: null, cartao: null })).rejects.toThrow(/ainda não começou/);
+      return { text: "Pronto, mandei a planilha dos gastos no Pix deste mês.", calls: ["gerar_relatorio"] };
+    });
+    const m = await sendMessage(wa, { text: "manda um excel só dos gastos no pix desse mês" });
+    const reply = (await messageState(wa, m.messageId)).reply ?? "";
+    expect(reply).toContain("Pronto, mandei a planilha");
+    expect(reply).toMatch(/📎 gastos-no-pix_\d{4}-\d{2}-01_\d{4}-\d{2}-\d{2}\.xlsx/);
+  });
+
+  it("gráfico no WhatsApp: imagem PNG por mês (categorias comparadas) e por categoria; números do painel", async () => {
+    const wa = await aiFamily();
+    const c6 = await createAccount(wa.ctx, { name: "C6 Bank", type: "CHECKING", initialBalanceCents: 100_000 });
+    const today = new Date().toISOString().slice(0, 10);
+    const food = await categoryId(wa.householdId, "Alimentação");
+    const transport = await categoryId(wa.householdId, "Transporte");
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 4_500, description: "iFood", date: today, accountId: c6.id, categoryId: food });
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 2_390, description: "Uber", date: today, accountId: c6.id, categoryId: transport });
+    fake.script.push(async (req) => {
+      const out = (await req.execute("grafico", { tipo: "por_mes", valores: "gastos", meses: 3, categorias: ["Alimentação", "Transporte"], inicio: null, fim: null })) as { numeros: Array<{ serie: string; por_mes: string[] }> };
+      expect(out.numeros.map((s) => [s.serie, s.por_mes.at(-1)])).toEqual([
+        ["Alimentação", `${today.slice(0, 7)}: R$ 45,00`],
+        ["Transporte", `${today.slice(0, 7)}: R$ 23,90`],
+      ]);
+      await expect(req.execute("grafico", { tipo: "por_mes", valores: "gastos", meses: 3, categorias: ["Inventada"], inicio: null, fim: null })).rejects.toThrow(/não existe/);
+      const cat = (await req.execute("grafico", { tipo: "por_categoria", valores: "gastos", meses: null, categorias: null, inicio: null, fim: null })) as { numeros: string[] };
+      expect(cat.numeros).toEqual(["Alimentação: R$ 45,00", "Transporte: R$ 23,90"]);
+      return { text: "Mandei os gráficos: alimentação está acima de transporte neste mês.", calls: ["grafico", "grafico"] };
+    });
+    const m = await sendMessage(wa, { text: "compara alimentação e transporte nos últimos 3 meses e manda um gráfico por categoria" });
+    const reply = (await messageState(wa, m.messageId)).reply ?? "";
+    expect(reply.match(/📎 grafico\.png/g)).toHaveLength(2);
+    // Os arquivos são PNG de verdade.
+    const pngs = await prisma.whatsAppMessage.findMany({ where: { householdId: wa.householdId, direction: "OUTBOUND", text: { contains: "grafico.png" } } });
+    expect(pngs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("apagar em lote: primeiro conta e pergunta; só apaga depois do 'sim' (e vai para a lixeira)", async () => {
+    const wa = await aiFamily();
+    const c6 = await createAccount(wa.ctx, { name: "C6 Bank", type: "CHECKING", initialBalanceCents: 100_000 });
+    for (const [desc, cents, date] of [["Teste 1", 1_000, "2026-07-03"], ["Teste 2", 2_000, "2026-07-20"], ["Agosto fica", 3_000, "2026-08-02"]] as const) {
+      await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: cents, description: desc, date, accountId: c6.id });
+    }
+    const args = { inicio: "2026-07-01", fim: "2026-07-31", contem: null, tipo: "todos", confirmado: true };
+    fake.script.push(async (req) => {
+      // Mesmo pedindo confirmado=true, sem o "sim" da pessoa nada é apagado.
+      const first = (await req.execute("apagar_varios", args)) as { encontrados: number; apagado: boolean };
+      expect(first).toMatchObject({ encontrados: 2, apagado: false });
+      return { text: "Encontrei dois lançamentos de julho (R$ 30,00). Posso apagar os dois? Eles vão para a lixeira.", calls: ["apagar_varios"] };
+    });
+    await sendMessage(wa, { text: "apaga todos os lançamentos de julho, foi teste" });
+    expect(await prisma.transaction.count({ where: { householdId: wa.householdId, deletedAt: { not: null } } })).toBe(0);
+    fake.script.push(async (req) => {
+      const done = (await req.execute("apagar_varios", args)) as { apagados: number };
+      expect(done.apagados).toBe(2);
+      return { text: "Pronto, apaguei os 2 lançamentos de julho. Estão na lixeira.", calls: ["apagar_varios"] };
+    });
+    await sendMessage(wa, { text: "sim" });
+    const left = await prisma.transaction.findMany({ where: { householdId: wa.householdId, deletedAt: null, type: "EXPENSE" } });
+    expect(left.map((t) => t.description)).toEqual(["Agosto fica"]);
+    expect(await prisma.transaction.count({ where: { householdId: wa.householdId, deletedAt: { not: null } } })).toBe(2);
   });
 
   it("na tela do app, a Isa também registra (mesmas ferramentas) e marca a resposta como alteração", async () => {

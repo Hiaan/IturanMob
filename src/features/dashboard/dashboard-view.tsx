@@ -33,6 +33,7 @@ import {
   ExpensesByPerson,
   FinancialEvolution,
   FutureBillsProjection,
+  MonthFlow,
   MonthlyIncomeExpense,
   RecurringExpenses,
   TopExpensesList,
@@ -133,6 +134,7 @@ export function DashboardView() {
       <div className={summary.isFetching && !summary.isLoading ? "opacity-70 transition-opacity" : "transition-opacity"}>
         <KpiGrid data={summary.data} isLoading={summary.isLoading} fx={fx} txHref={(extra) => transactionsHref(filters, summary.data?.period, extra)} />
       </div>
+      <MonthFlow />
       {summary.data?.business && summary.data.scope && summary.data.scope !== "BUSINESS" && (
         <BusinessResultCard business={summary.data.business} scope={summary.data.scope} href={transactionsHref(filters, summary.data.period, { scope: "BUSINESS" })} onShowBusiness={showBusiness} />
       )}

@@ -57,6 +57,16 @@ export function parseReportCommand(text: string, today: ISODate): ReportCommand 
   return { kind: "MONTHLY", ref: current, format, nature };
 }
 
+/**
+ * O pedido tem filtro ou período fora do padrão (forma de pagamento, cartão, conta, categoria,
+ * receitas, trimestre/ano/intervalo)? Aí o relatório padrão do mês não atende: a Isa monta o
+ * relatório sob encomenda.
+ */
+export function hasReportFilter(text: string): boolean {
+  const norm = normalizeForNlu(text);
+  return /\b(so|apenas|somente|pix|debito|credito|cartao|dinheiro|boleto|categoria|categorias|receita|receitas|entrada|entradas|recebi|trimestre|semestre|ano|anual|entre|ate|desde|mercado|alimentacao|transporte|uber|ifood|lazer|saude|moradia|conta)\b/.test(norm);
+}
+
 export async function handleReportCommand(ctx: ServiceContext, cmd: ReportCommand): Promise<ActionOutcome> {
   if (!can(ctx.role, "reports:read")) {
     return { status: "IGNORED", intent: "REPORT_FILE", replies: ["Seu perfil não pode ver relatórios."], transactionIds: [] };

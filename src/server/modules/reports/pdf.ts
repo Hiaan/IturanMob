@@ -564,3 +564,66 @@ export async function renderReportPdf(report: ReportView): Promise<Buffer> {
   doc.end();
   return done;
 }
+
+/** Relatório sob encomenda (pedido à Isa): período e filtros livres, por categoria e lançamentos. */
+export interface CustomReportPdfInput {
+  title: string;
+  subtitle: string;
+  householdName: string;
+  timezone: string;
+  generatedAt: string;
+  totals: Array<{ label: string; value: string; color?: string }>;
+  byCategory: Array<{ label: string; valueCents: number; percent: number }>;
+  rows: Array<{ date: string; description: string; category: string; where: string; amountCents: number }>;
+  notes: string[];
+}
+
+export async function renderCustomReportPdf(r: CustomReportPdfInput): Promise<Buffer> {
+  const doc = new PDFDocument({ size: "A4", margin: M, bufferPages: true, info: { Title: r.title, Author: "Finance AI", Subject: `${r.title} — ${r.householdName}`, Creator: "Finance AI" } });
+  const chunks: Buffer[] = [];
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+  const w = new PdfWriter(doc);
+  w.font(true, 18, C.primaryDark);
+  doc.text(r.title, M, M);
+  w.font(false, 9.5, C.muted);
+  doc.text(r.subtitle, M, doc.y + 2, { width: CW });
+  doc.y += 10;
+  w.kpis(r.totals);
+  if (r.byCategory.length) {
+    w.section("Por categoria");
+    w.bars(r.byCategory.slice(0, 15).map((c) => ({ label: c.label, valueCents: c.valueCents, right: `${formatBRL(c.valueCents)} · ${pct(c.percent)}` })));
+  }
+  w.section("Lançamentos");
+  if (!r.rows.length) w.note("Nenhum lançamento no período com esses filtros.");
+  else
+    w.table(
+      [
+        { header: "Data", width: 60 },
+        { header: "Descrição", width: 190 },
+        { header: "Categoria", width: 110 },
+        { header: "Conta / cartão", width: 100 },
+        { header: "Valor", width: 80, align: "right" },
+      ],
+      r.rows.map((x) => [formatDateBR(x.date), x.description, x.category, x.where, formatBRL(x.amountCents)]),
+    );
+  for (const n of r.notes) w.note(n);
+  const range = doc.bufferedPageRange();
+  const generated = formatDateTimeBR(r.generatedAt, r.timezone);
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    const y = PAGE_H - M + 8;
+    doc.moveTo(M, y - 6).lineTo(M + CW, y - 6).lineWidth(0.5).strokeColor(C.border).stroke();
+    w.font(false, 7.5, C.muted);
+    doc.text(`Gerado em ${generated} · Finance AI · ${r.householdName}`, M, y, { width: CW * 0.75, lineBreak: false });
+    doc.text(`Página ${i - range.start + 1} de ${range.count}`, M + CW * 0.75, y, { width: CW * 0.25, align: "right", lineBreak: false });
+    doc.page.margins.bottom = bottomMargin;
+  }
+  doc.end();
+  return done;
+}

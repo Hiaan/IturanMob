@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { api } from "@/lib/client/api";
 import { qk } from "@/lib/client/query-keys";
 import { formatBRL } from "@/lib/money";
-import { formatDateBR, formatDayMonthBR, formatMonthBR } from "@/lib/dates";
+import { addDays, daysInMonth, formatDateBR, formatDayMonthBR, formatMonthBR, todayISO } from "@/lib/dates";
 import { PAYMENT_METHOD_LABELS, installmentTag, labelOf } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import type { ReportScope, TransactionList } from "@/features/finance/types";
@@ -581,6 +581,100 @@ interface Cashflow {
   points: Array<{ date: string; balanceCents: number }>;
   assumptions: string[];
   uncertainty: string;
+}
+
+/**
+ * Fluxo do mês: saldo de hoje, o que ainda entra e ainda sai (contas previstas e faturas) até o fim do
+ * mês e o saldo previsto se nada mudar, com o saldo dia a dia.
+ */
+export function MonthFlow() {
+  const today = todayISO();
+  const [y, m] = today.split("-").map(Number) as [number, number];
+  const monthEnd = `${today.slice(0, 7)}-${String(daysInMonth(y, m)).padStart(2, "0")}`;
+  const days = Math.max(1, Number(monthEnd.slice(8, 10)) - Number(today.slice(8, 10)));
+  const q = useQuery({ queryKey: qk.analytics("cashflow", { days }), queryFn: () => api.get<Cashflow>("/api/v1/analytics/cashflow", { days }), placeholderData: keepPreviousData });
+  const events = (q.data?.events ?? []).filter((e) => e.date <= monthEnd);
+  const incoming = events.filter((e) => e.amountCents > 0).reduce((s, e) => s + e.amountCents, 0);
+  const outgoing = events.filter((e) => e.amountCents < 0).reduce((s, e) => s - e.amountCents, 0);
+  const start = q.data?.startBalanceCents ?? 0;
+  const end = start + incoming - outgoing;
+  const data: Array<{ date: string; label: string; balanceCents: number }> = [];
+  let running = start;
+  for (let d = today; d <= monthEnd; d = addDays(d, 1)) {
+    for (const e of events) if (e.date === d) running += e.amountCents;
+    data.push({ date: d, label: formatDayMonthBR(d), balanceCents: running });
+  }
+  const lowest = data.reduce((min, p) => (p.balanceCents < min.balanceCents ? p : min), data[0] ?? { date: today, label: "", balanceCents: start });
+  const Item = ({ label, value, tone }: { label: string; value: string; tone?: "pos" | "neg" | "strong" }) => (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={cn("truncate text-lg font-semibold tabular", tone === "pos" && "text-positive", tone === "neg" && "text-negative")}>{value}</p>
+    </div>
+  );
+  return (
+    <ChartCard
+      title="Fluxo do mês"
+      description={`De hoje até ${formatDateBR(monthEnd)}, com as contas previstas e as faturas em aberto. Gastos do dia a dia ainda não registrados não entram.`}
+      isLoading={q.isLoading}
+      isFetching={q.isFetching}
+      error={q.error}
+      onRetry={() => q.refetch()}
+      height={300}
+      table={
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Data</TableHead>
+              <TableHead>Previsto</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {events.length ? (
+              events.map((e, i) => (
+                <TableRow key={`${e.date}-${i}`}>
+                  <TableCell>{formatDateBR(e.date)}</TableCell>
+                  <TableCell>{e.description}</TableCell>
+                  <TableCell className={cn("text-right tabular", e.amountCents < 0 ? "text-negative" : "text-positive")}>{formatBRL(e.amountCents, { signed: true })}</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={3} className="text-muted-foreground">
+                  Nada previsto até o fim do mês.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      }
+    >
+      <div className="grid grid-cols-2 gap-4 pb-3 sm:grid-cols-4">
+        <Item label="Saldo hoje" value={formatBRL(start)} />
+        <Item label="Ainda entra" value={formatBRL(incoming, { signed: incoming > 0 })} tone="pos" />
+        <Item label="Ainda sai" value={outgoing ? `−${formatBRL(outgoing)}` : formatBRL(0)} tone="neg" />
+        <Item label="Previsto no fim do mês" value={formatBRL(end)} tone={end < 0 ? "neg" : "strong"} />
+      </div>
+      {lowest && lowest.balanceCents < 0 && (
+        <p className="pb-2 text-xs font-medium text-negative">Atenção: o saldo fica negativo em {formatDateBR(lowest.date)} ({formatBRL(lowest.balanceCents)}).</p>
+      )}
+      <ResponsiveContainer width="100%" height={170}>
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="monthFlowFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--series-1)" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="var(--series-1)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+          <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} />
+          <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={compactBRL} width={60} />
+          <Tooltip content={(p) => <ChartTooltip active={p.active} payload={p.payload as never} label={p.label as string} />} />
+          <Area type="stepAfter" dataKey="balanceCents" name="Saldo previsto" stroke="var(--series-1)" strokeWidth={2} fill="url(#monthFlowFill)" />
+        </AreaChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
 }
 
 export function FutureBillsProjection() {

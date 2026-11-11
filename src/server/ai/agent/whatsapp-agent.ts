@@ -19,7 +19,7 @@ import { createFromDraft } from "../engine/actions";
 import type { RawDraft } from "../engine/schemas";
 import { runTool, toolDefinitions } from "../assistant/tools";
 import { familyScopeContext } from "../../modules/reports/service";
-import { confirmTransaction, createTransaction, deleteTransaction, updateTransaction } from "../../modules/transactions/service";
+import { buildTransactionWhere, confirmTransaction, createTransaction, deleteTransaction, updateTransaction } from "../../modules/transactions/service";
 import { adjustBalance, createAccount, getAccount, updateAccount } from "../../modules/accounts/service";
 import type { TransactionUpdateInput } from "../../modules/transactions/schemas";
 import { setTransactionNature } from "../../modules/transactions/nature";
@@ -35,6 +35,10 @@ import { createBill, listBills, markPaid } from "../../modules/bills/service";
 import { appointmentLine, appointmentsOfDay, createAppointment, deleteAppointment, sharedAppointmentsWhere, visibleAppointmentsWhere } from "../../modules/agenda/service";
 import { withBotPrefix } from "../../whatsapp/bot-messages";
 import type { ActionOutcome } from "../engine/actions";
+import type { ReplyDocument } from "../pipeline/types";
+import { storeFile } from "../../storage";
+import { buildCustomReport } from "../../modules/reports/custom";
+import { categoryChart, monthlyChart } from "../../modules/reports/charts";
 
 /**
  * Assistente conversacional (Claude com ferramentas): no WhatsApp da família e na tela "Isa" do app.
@@ -165,13 +169,15 @@ COMO AGIR
 - Conta que não existe: diga que não achou e pergunte se é para criar. Criar só quando pedirem ou aceitarem: criar_conta (caixa, carteira e dinheiro vivo = tipo "dinheiro"), com o saldo inicial dito.
 - "Tenho a conta de luz de 180 pra dia 10", "boleto da escola de 900 vence dia 5" = cadastrar_conta_a_pagar (vencimento e valor ditos). "Vou receber 2 mil do cliente dia 20" = cadastrar_conta_a_pagar com tipo receber.
 - Nunca diga que anotou, corrigiu, apagou ou marcou algo AGORA sem ter chamado a ferramenta e recebido sucesso. Suas respostas anteriores no histórico já foram conferidas pelo sistema: o que você disse que fez, foi feito (veja também a lista de lançamentos e ajustes acima). Não se desdiga nem peça desculpas por elas.
-- Só apague quando a pessoa pedir claramente. Apagar manda para a lixeira (dá para recuperar no app).
+- Só apague quando a pessoa pedir claramente. Apagar manda para a lixeira (dá para recuperar no app). Vários de uma vez ("apaga tudo de julho", "apaga os testes de ontem") = apagar_varios: primeiro sem confirmar, diga quantos são e pergunte; só com o "sim" chame de novo confirmando.
 - NUNCA invente valores, datas ou nomes. Use só o que a pessoa escreveu. Faltou algo essencial (valor)? Pergunte.
 - Categoria: escolha a mais adequada da lista; se nenhuma servir, deixe sem e, se fizer sentido, pergunte ou sugira criar. Não crie categoria com o nome de uma pessoa.
 - Perguntas sobre dinheiro: use as ferramentas de consulta e responda só com os números que elas trouxerem.
 - Responda só ao que foi pedido AGORA. Não retome assuntos já resolvidos, não faça consultas que ninguém pediu e não ofereça conferências extras. O que está no histórico e na lista acima já aconteceu: confie nisso (lançamento marcado como APAGADO foi cancelado de verdade).
 - Recibo do gasto: ao confirmar uma despesa, diga valor, categoria e de onde saiu, e acrescente a linha "no_mes" quando a ferramenta trouxer (ex.: "Alimentação no mês: R$ 412,00 de R$ 800,00 (52%), restam R$ 388,00"). Uma linha por gasto; com vários gastos, só a linha "no mês" de cada categoria uma vez.
 - Pedidos de organização também se resolvem por aqui: orçamento ("define 800 pra alimentação") = definir_orcamento; "toda segunda tem 89,90 da academia" / "aluguel todo dia 5" = criar_recorrencia (lancar_automatico true só se pedirem para já lançar); "guincho é sempre Manutenção do Carro" = criar_regra; "cadastra meu cartão…" = cadastrar_cartao; "minha meta de receita é 15 mil" = meta_de_receita; "tem algum gasto que se repete?" = gastos_que_se_repetem; "quanto sobrou do orçamento?" = consulta de orçamento.
+- Gráfico ("compara delivery e transporte", "gráfico dos gastos por mês", "gráfico por categoria") = grafico.
+- Relatório/planilha/PDF de um período ou com filtro ("pdf dos gastos de junho", "excel só do pix desse mês", "relatório do cartão Nubank em outubro") = gerar_relatorio, com as datas do período (mês inteiro: dia 1 ao último dia). Use para qualquer pedido de arquivo; não diga os números todos na resposta, o arquivo traz.
 - Depois de agir, confirme em linguagem natural o que foi feito (ex.: "Anotei as duas entradas: R$ 400,00 da Rosineide e R$ 739,75 da Ariane."). Não repita listas longas.
 - Se a ferramenta devolver erro, explique de forma simples e diga o que falta.
 - Assuntos fora de finanças, contas, agenda e do app: responda com gentileza em uma frase e volte ao assunto.
@@ -277,6 +283,43 @@ const ACTION_TOOLS = {
       valor: z.number().positive(),
       data: z.string().nullable(),
       descricao: z.string().max(120).nullable(),
+    }),
+  },
+  gerar_relatorio: {
+    description:
+      "Gera um relatório em PDF ou planilha (Excel) de qualquer período, com filtros, e envia no chat: 'pdf dos gastos de junho', 'excel só dos gastos no pix desse mês', 'relatório das receitas do trimestre', 'planilha do cartão Nubank em outubro'. Os números são os do painel.",
+    schema: z.object({
+      inicio: z.string().describe("AAAA-MM-DD"),
+      fim: z.string().describe("AAAA-MM-DD (até hoje, se o período ainda não acabou)."),
+      tipo: z.enum(["gastos", "receitas", "tudo"]),
+      formato: z.enum(["pdf", "planilha"]),
+      categoria: z.string().nullable(),
+      forma_pagamento: z.enum(["PIX", "DEBIT_CARD", "CREDIT_CARD", "CASH", "BANK_SLIP", "BANK_TRANSFER", "AUTO_DEBIT", "VOUCHER", "OTHER"]).nullable(),
+      conta: z.string().nullable(),
+      cartao: z.string().nullable(),
+    }),
+  },
+  grafico: {
+    description:
+      "Monta um gráfico (imagem) e manda no chat: 'compara delivery e transporte nos últimos 6 meses' (por_mes com categorias), 'gráfico dos meus gastos por mês' (por_mes sem categorias), 'gráfico dos gastos por categoria de outubro' (por_categoria com período).",
+    schema: z.object({
+      tipo: z.enum(["por_mes", "por_categoria"]),
+      valores: z.enum(["gastos", "receitas"]),
+      meses: z.number().int().min(1).max(12).nullable().describe("por_mes: quantos meses até o atual (padrão 6)."),
+      categorias: z.array(z.string()).max(4).nullable().describe("por_mes: até 4 categorias para comparar; null = total."),
+      inicio: z.string().nullable().describe("por_categoria: AAAA-MM-DD (padrão: dia 1 do mês atual)."),
+      fim: z.string().nullable().describe("por_categoria: AAAA-MM-DD (padrão: hoje)."),
+    }),
+  },
+  apagar_varios: {
+    description:
+      "Apaga vários lançamentos de uma vez ('apaga todos os lançamentos de julho, foi teste'). Primeiro chame com confirmado=false: devolve quantos são e o total para você perguntar à pessoa. Só depois do 'sim' dela, chame de novo com confirmado=true e os mesmos filtros. Vai para a lixeira (dá para recuperar no app).",
+    schema: z.object({
+      inicio: z.string().describe("AAAA-MM-DD"),
+      fim: z.string().describe("AAAA-MM-DD"),
+      contem: z.string().max(80).nullable().describe("Só os que têm este texto na descrição (ex.: 'ifood'); null = todos do período."),
+      tipo: z.enum(["despesas", "receitas", "todos"]),
+      confirmado: z.boolean(),
     }),
   },
   definir_orcamento: {
@@ -385,6 +428,8 @@ interface RunState {
   transactionIds: string[];
   /** Alguma ação que não gera lançamento (conta criada, conta a pagar, saldo) foi feita. */
   changed?: boolean;
+  /** Arquivos para enviar depois da resposta (relatório sob encomenda). */
+  documents: ReplyDocument[];
   /** A mensagem atual confirma ("sim") a última proposta da Isa: o texto dessa proposta. */
   confirmedProposal?: string;
 }
@@ -656,6 +701,94 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       state.transactionIds.push(transaction.id);
       return { transferido: true, de: from.name, para: to.name, valor: formatBRL(cents), data: formatDateBR(date) };
     }
+    case "gerar_relatorio": {
+      const d = data as z.infer<typeof ACTION_TOOLS.gerar_relatorio.schema>;
+      if (state.input.channel === "DASHBOARD") throw new Error("Aqui no app, os relatórios ficam em Relatórios (gerar e baixar) e em Transações → Exportar. Pelo WhatsApp eu mando o arquivo.");
+      if (!isISODate(d.inicio) || !isISODate(d.fim) || d.inicio > d.fim) throw new Error("Período inválido: confira as datas de início e fim.");
+      const end = d.fim > hc.today ? hc.today : d.fim;
+      if (d.inicio > hc.today) throw new Error("Esse período ainda não começou.");
+      const kind = d.tipo === "receitas" ? "INCOME" : d.tipo === "tudo" ? "ALL" : "EXPENSE";
+      const cat = d.categoria ? categoryByName(hc, d.categoria, kind === "INCOME" ? "INCOME" : "EXPENSE") : null;
+      if (d.categoria && !cat) throw new Error(`A categoria "${d.categoria}" não existe.`);
+      const card = d.cartao ? hc.cards.find((c) => normalizeText(c.name) === normalizeText(d.cartao!) || c.aliases.includes(normalizeText(d.cartao!))) : null;
+      if (d.cartao && !card) throw new Error(`Cartão "${d.cartao}" não encontrado.`);
+      const acc = !card && d.conta ? findAccount(hc, d.conta) : null;
+      const parts = [
+        cat ? `em ${cat.label}` : null,
+        d.forma_pagamento ? `no ${PAYMENT_METHOD_LABELS[d.forma_pagamento]}` : null,
+        card ? `no cartão ${card.name}` : null,
+        acc ? `na conta ${acc.name}` : null,
+      ].filter(Boolean);
+      // No grupo, o arquivo vai para todos: recorte da família (contas e cartões privados de fora).
+      const file = await buildCustomReport(state.readCtx, {
+        start: d.inicio,
+        end,
+        kind,
+        format: d.formato === "pdf" ? "pdf" : "xlsx",
+        filters: { categoryIds: cat ? [cat.categoryId] : null, paymentMethod: d.forma_pagamento, creditCardId: card?.id ?? null, accountId: acc?.id ?? null, scope: state.readCtx.reportScope ?? null },
+        filterLabel: parts.join(" "),
+      });
+      const stored = await storeFile("reports", file.content);
+      state.documents.push({ storageKey: stored.storageKey, mimeType: file.mimeType, fileName: file.fileName, caption: `📊 ${file.title}${state.input.isGroup ? " · contas e cartões privados não entram" : ""}` });
+      return { arquivo: file.fileName, lancamentos: file.count, total: formatBRL(file.totalCents), observacao: "O arquivo vai logo depois da sua resposta: só avise que está indo, sem repetir os números todos." };
+    }
+    case "grafico": {
+      const d = data as z.infer<typeof ACTION_TOOLS.grafico.schema>;
+      if (state.input.channel === "DASHBOARD") throw new Error("Aqui no app, os gráficos estão no painel e em Relatórios. Pelo WhatsApp eu mando a imagem.");
+      const kind = d.valores === "receitas" ? "INCOME" : "EXPENSE";
+      const filters = { scope: state.readCtx.reportScope ?? null };
+      let png: Buffer;
+      let caption: string;
+      let resumo: unknown;
+      if (d.tipo === "por_mes") {
+        const cats = (d.categorias ?? []).map((n) => {
+          const c = categoryByName(hc, n, kind);
+          if (!c) throw new Error(`A categoria "${n}" não existe. Opções: ${hc.categories.filter((x) => x.kind === kind).map((x) => x.name).join(", ")}.`);
+          return { id: c.categoryId, name: c.label.split(" › ")[0]! };
+        });
+        const out = await monthlyChart(state.readCtx, { months: d.meses ?? 6, kind, categories: cats, filters });
+        png = out.png;
+        caption = `📈 ${out.title}`;
+        resumo = out.totals.map((s) => ({ serie: s.name, por_mes: out.monthKeys.map((k, i) => `${k}: ${formatBRL(s.values[i] ?? 0)}`) }));
+      } else {
+        const start = d.inicio && isISODate(d.inicio) ? d.inicio : `${hc.today.slice(0, 7)}-01`;
+        const end = d.fim && isISODate(d.fim) && d.fim <= hc.today ? d.fim : hc.today;
+        if (start > end) throw new Error("Período inválido.");
+        const out = await categoryChart(state.readCtx, { start, end, kind, filters });
+        if (!out.items.length) return { aviso: "Não há lançamentos nesse período para montar o gráfico." };
+        png = out.png;
+        caption = `📊 ${out.title}`;
+        resumo = out.items.slice(0, 6).map((i) => `${i.name}: ${formatBRL(i.cents)}`);
+      }
+      const stored = await storeFile("reports", png);
+      state.documents.push({ storageKey: stored.storageKey, mimeType: "image/png", fileName: "grafico.png", caption });
+      return { grafico_enviado: true, numeros: resumo, observacao: "A imagem vai logo depois da sua resposta. Comente em uma ou duas frases o que mais chama atenção (maior valor, subida ou queda), sem repetir todos os números." };
+    }
+    case "apagar_varios": {
+      const d = data as z.infer<typeof ACTION_TOOLS.apagar_varios.schema>;
+      if (!isISODate(d.inicio) || !isISODate(d.fim) || d.inicio > d.fim) throw new Error("Período inválido: confira as datas.");
+      const where = await buildTransactionWhere(state.readCtx, {
+        start: d.inicio,
+        end: d.fim,
+        ...(d.tipo === "despesas" ? { types: ["EXPENSE"] } : d.tipo === "receitas" ? { types: ["INCOME"] } : { types: ["EXPENSE", "INCOME", "TRANSFER", "ADJUSTMENT"] }),
+        ...(d.contem ? { search: d.contem } : {}),
+      });
+      const found = await prisma.transaction.findMany({ where, select: { id: true, amountCents: true, description: true, type: true }, orderBy: { date: "asc" }, take: 501 });
+      if (!found.length) return { encontrados: 0, observacao: "Nenhum lançamento com esses filtros." };
+      if (found.length > 500) throw new Error("São mais de 500 lançamentos: por segurança, apague pelo app (Transações → selecionar → Excluir) ou diminua o período.");
+      const total = found.filter((t) => t.type === "EXPENSE").reduce((acc, t) => acc - t.amountCents, 0) + found.filter((t) => t.type === "INCOME").reduce((acc, t) => acc + t.amountCents, 0);
+      const resumo = { encontrados: found.length, exemplos: found.slice(0, 5).map((t) => `${t.description} ${formatBRL(t.amountCents)}`), saldo_dos_lancamentos: formatBRL(total, { signed: true }) };
+      // Apagar de verdade só com o "sim" de alguém logo depois da pergunta (proposta da Isa com a quantidade).
+      const WORDS = ["zero", "um", "dois", "tres", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze"];
+      const proposal = state.confirmedProposal ? normalizeText(state.confirmedProposal) : "";
+      const askedCount = Boolean(proposal) && (new RegExp(`\\b${found.length}\\b`).test(proposal) || (found.length < WORDS.length && new RegExp(`\\b(${WORDS[found.length]}|${found.length === 1 ? "uma|o lancamento" : found.length === 2 ? "duas|os dois|as duas" : WORDS[found.length]})\\b`).test(proposal)));
+      if (!d.confirmado || !askedCount) {
+        return { ...resumo, apagado: false, observacao: `Pergunte: "Encontrei ${found.length} lançamentos (…). Posso apagar todos? Eles vão para a lixeira." Diga o número exato. Só apague depois do sim.` };
+      }
+      for (const t of found) await deleteTransaction(ctx, t.id, { reason: "Exclusão em lote pedida à Isa" });
+      state.changed = true;
+      return { apagados: found.length, observacao: "Foram para a lixeira; dá para recuperar no app (Transações → Lixeira)." };
+    }
     case "definir_orcamento": {
       const d = data as { categoria: string; valor: number; mes: string | null };
       const cat = categoryByName(hc, d.categoria, "EXPENSE");
@@ -863,6 +996,7 @@ async function runAgent(
     apptRefs: new Map(),
     nextIndex: 0,
     transactionIds: [],
+    documents: [],
   };
   // "sim", "pode", "confirmo"… logo depois de uma proposta da Isa: a proposta vale como dita.
   const lastAssistant = [...history].reverse().find((h) => h.role === "assistant");
@@ -895,13 +1029,14 @@ async function runAgent(
     });
     const reply = panel ? res.text.trim().slice(0, 4000) : toWhatsAppText(res.text);
     const changed = Boolean(state.changed || state.transactionIds.length);
-    if (!reply && !changed) return null;
+    if (!reply && !changed && !state.documents.length) return null;
     const ids = [...new Set(state.transactionIds)];
     return {
       outcome: {
         status: "PROCESSED",
         intent: changed ? "AGENT_ACTION" : "AGENT_REPLY",
-        replies: reply ? [reply] : ["Feito."],
+        replies: reply ? [reply] : state.documents.length ? [] : ["Feito."],
+        ...(state.documents.length ? { documents: state.documents } : {}),
         transactionIds: ids,
         detail: `assistente: ${res.toolCalls.map((t) => t.name).join(", ") || "conversa"}`,
       },
