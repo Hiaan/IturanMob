@@ -9,6 +9,8 @@ export const qk = {
   householdInvites: ["instance", "invites"] as const,
   /** Painel da instalação (versão, atualização automática, saúde). */
   instanceStatus: ["instance", "status"] as const,
+  /** Meus gráficos (salvos pela Isa). */
+  savedCharts: ["charts", "saved"] as const,
   accounts: (p?: unknown) => ["accounts", p ?? {}] as const,
   cards: (p?: unknown) => ["cards", p ?? {}] as const,
   statements: (cardId: string) => ["cards", "statements", cardId] as const,

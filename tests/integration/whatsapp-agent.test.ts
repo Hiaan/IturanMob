@@ -46,6 +46,7 @@ import { createAccount, listAccounts } from "@/server/modules/accounts/service";
 import { categoryId } from "./helpers";
 import { createTransaction } from "@/server/modules/transactions/service";
 import { ask } from "@/server/ai/assistant/service";
+import { deleteSavedChart, listSavedCharts } from "@/server/modules/reports/charts";
 import { monthRange, todayISO } from "@/lib/dates";
 
 /** Código L# do lançamento cuja linha contém o texto (como o modelo faria lendo o prompt). */
@@ -386,6 +387,37 @@ describe("assistente conversacional do WhatsApp", () => {
     const left = await prisma.transaction.findMany({ where: { householdId: wa.householdId, deletedAt: null, type: "EXPENSE" } });
     expect(left.map((t) => t.description)).toEqual(["Agosto fica"]);
     expect(await prisma.transaction.count({ where: { householdId: wa.householdId, deletedAt: { not: null } } })).toBe(2);
+  });
+
+  it("Meus gráficos: salvar o gráfico pedido à Isa; o painel lista com números atualizados; apresentação só na primeira conversa", async () => {
+    const wa = await aiFamily();
+    const c6 = await createAccount(wa.ctx, { name: "C6 Bank", type: "CHECKING", initialBalanceCents: 100_000 });
+    const today = new Date().toISOString().slice(0, 10);
+    const food = await categoryId(wa.householdId, "Alimentação");
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 4_500, description: "iFood", date: today, accountId: c6.id, categoryId: food });
+    const args = { tipo: "por_mes", valores: "gastos", meses: 3, categorias: ["Alimentação"], inicio: null, fim: null };
+    fake.script.push(async (req) => {
+      expect(req.system).toContain("ESTA É A PRIMEIRA VEZ");
+      await req.execute("grafico", args);
+      return { text: "Mandei o gráfico. Quer salvar no painel?", calls: ["grafico"] };
+    });
+    await sendMessage(wa, { text: "gráfico de alimentação nos últimos 3 meses" });
+    fake.script.push(async (req) => {
+      expect(req.system).not.toContain("ESTA É A PRIMEIRA VEZ");
+      const saved = (await req.execute("salvar_grafico", { ...args, titulo: null })) as { salvo: boolean; titulo: string };
+      expect(saved).toMatchObject({ salvo: true, titulo: "Alimentação · últimos 3 meses" });
+      return { text: "Salvei em Meus gráficos.", calls: ["salvar_grafico"] };
+    });
+    await sendMessage(wa, { text: "sim, salva" });
+    // Novo gasto depois de salvar: o painel mostra o número novo (recalculado).
+    await createTransaction(wa.ctx, { type: "EXPENSE", amountCents: 500, description: "Café", date: today, accountId: c6.id, categoryId: food });
+    const charts = await listSavedCharts(wa.ctx);
+    expect(charts).toHaveLength(1);
+    const d = charts[0]!.data!;
+    expect(d.type).toBe("MONTHLY");
+    if (d.type === "MONTHLY") expect(d.series[0]!.values.at(-1)).toBe(5_000);
+    await deleteSavedChart(wa.ctx, charts[0]!.id);
+    expect(await listSavedCharts(wa.ctx)).toHaveLength(0);
   });
 
   it("na tela do app, a Isa também registra (mesmas ferramentas) e marca a resposta como alteração", async () => {

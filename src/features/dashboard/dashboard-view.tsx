@@ -34,6 +34,7 @@ import {
   FinancialEvolution,
   FutureBillsProjection,
   MonthFlow,
+  SavedCharts,
   MonthlyIncomeExpense,
   RecurringExpenses,
   TopExpensesList,
@@ -175,6 +176,7 @@ export function DashboardView() {
       </div>
 
       <RecurringExpenses filters={filters} />
+      <SavedCharts />
     </div>
   );
 }

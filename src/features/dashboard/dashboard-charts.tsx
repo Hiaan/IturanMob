@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, LabelList, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronRight } from "lucide-react";
 import { ChartCard } from "@/components/charts/chart-card";
 import { ChartTooltip, axisTick, compactBRL } from "@/components/charts/chart-tooltip";
@@ -674,6 +674,89 @@ export function MonthFlow() {
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>
+  );
+}
+
+type SavedChartData =
+  | { type: "MONTHLY"; title: string; subtitle: string; months: Array<{ key: string; label: string }>; series: Array<{ name: string; values: number[] }> }
+  | { type: "BY_CATEGORY"; title: string; subtitle: string; items: Array<{ name: string; cents: number }> };
+interface SavedChart {
+  id: string;
+  title: string;
+  createdAt: string;
+  data: SavedChartData | null;
+}
+
+const SAVED_SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)"];
+
+/** Meus gráficos: os que a pessoa pediu à Isa e mandou salvar. Números sempre atualizados. */
+export function SavedCharts() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: qk.savedCharts, queryFn: () => api.get<SavedChart[]>("/api/v1/charts") });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/v1/charts/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.savedCharts }),
+  });
+  const charts = q.data ?? [];
+  if (q.isLoading) return null;
+  if (!charts.length) {
+    return (
+      <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Meus gráficos:</span> peça um gráfico à Isa no WhatsApp (ex.: “compara mercado e delivery nos últimos 6 meses”) e diga “salva no painel”. Ele aparece aqui e se atualiza sozinho.
+      </div>
+    );
+  }
+  return (
+    <section aria-labelledby="saved-charts-title" className="space-y-3">
+      <h2 id="saved-charts-title" className="text-base font-semibold">
+        Meus gráficos
+      </h2>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {charts.map((c) => {
+          const d = c.data;
+          const monthly = d?.type === "MONTHLY" ? d.months.map((m, i) => Object.fromEntries([["label", m.label], ...d.series.map((s, j) => [`s${j}`, s.values[i] ?? 0])])) : [];
+          return (
+            <ChartCard
+              key={c.id}
+              title={c.title}
+              description={d?.subtitle}
+              action={
+                <button type="button" className="rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:text-destructive" onClick={() => remove.mutate(c.id)} aria-label={`Remover o gráfico ${c.title}`}>
+                  Remover
+                </button>
+              }
+              empty={!d ? "Este gráfico não pôde ser montado." : d.type === "BY_CATEGORY" && !d.items.length ? "Sem lançamentos no período." : false}
+            >
+              {d?.type === "MONTHLY" ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} />
+                    <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={compactBRL} width={60} />
+                    <Tooltip content={(p) => <ChartTooltip active={p.active} payload={p.payload as never} label={p.label as string} />} />
+                    {d.series.length > 1 && <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />}
+                    {d.series.map((s, j) => (
+                      <Bar key={s.name} dataKey={`s${j}`} name={s.name} fill={SAVED_SERIES[j % SAVED_SERIES.length]} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : d?.type === "BY_CATEGORY" ? (
+                <ResponsiveContainer width="100%" height={Math.max(160, d.items.slice(0, 8).length * 34)}>
+                  <BarChart data={d.items.slice(0, 8)} layout="vertical" margin={{ top: 4, right: 96, left: 0, bottom: 0 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" tick={axisTick} tickLine={false} axisLine={false} width={120} />
+                    <Tooltip content={(p) => <ChartTooltip active={p.active} payload={p.payload as never} label={p.label as string} />} />
+                    <Bar dataKey="cents" name="Valor" fill="var(--series-1)" radius={[0, 4, 4, 0]} maxBarSize={22}>
+                      <LabelList dataKey="cents" position="right" formatter={(v: unknown) => formatBRL(Number(v))} className="fill-foreground text-xs" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : null}
+            </ChartCard>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

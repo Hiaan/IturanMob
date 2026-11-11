@@ -542,6 +542,7 @@ model Household {
   googleOAuthApp         GoogleOAuthApp?
   googleCalendars        GoogleCalendarConnection[]
   whatsappConnection     WhatsAppConnection?
+  savedCharts            SavedChart[]
   whatsappGroups         WhatsAppGroup[]
   whatsappMessages       WhatsAppMessage[]
   processingJobs         MessageProcessingJob[]
@@ -697,6 +698,21 @@ model HouseholdInvite {
 /// Histórico da instalação (fora de qualquer família): atualizações automáticas, pedidos de
 /// "atualizar agora" feitos no painel e o resultado de cada um. Gravado pelo próprio servidor
 /// (script de atualização) e pelo app; o worker avisa o administrador.
+/// "Meus gráficos": gráfico pedido à Isa e salvo para acompanhar no painel. Guarda só a definição
+/// (tipo, categorias, meses); os números são recalculados a cada abertura.
+model SavedChart {
+  id                String   @id @default(cuid())
+  householdId       String
+  createdByMemberId String?
+  title             String
+  spec              Json
+  createdAt         DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, createdAt])
+}
+
 model PlatformEvent {
   id         String    @id @default(cuid())
   /// UPDATE (resultado de uma atualização) | UPDATE_REQUEST (pedido feito no painel)
