@@ -5,7 +5,7 @@ import type { ServiceContext } from "../../auth/context";
 import { env } from "../../env";
 import { decryptStringSafe } from "../../crypto";
 import { logger } from "../../logger";
-import { addDays, dateToISO, formatDateBR, isISODate, startOfMonth, todayISO, zonedToInstant } from "@/lib/dates";
+import { addDays, dateToISO, formatDateBR, isISODate, startOfMonth, todayISO, weekday, zonedToInstant } from "@/lib/dates";
 import { formatBRL } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS } from "@/lib/labels";
 import { normalizeText } from "@/lib/utils";
@@ -23,7 +23,14 @@ import { confirmTransaction, createTransaction, deleteTransaction, updateTransac
 import { adjustBalance, createAccount, getAccount, updateAccount } from "../../modules/accounts/service";
 import type { TransactionUpdateInput } from "../../modules/transactions/schemas";
 import { setTransactionNature } from "../../modules/transactions/nature";
-import { createCategory } from "../../modules/categories/service";
+import { createCategory, createRule } from "../../modules/categories/service";
+import { upsertBudget } from "../../modules/budgets/service";
+import { createRecurring } from "../../modules/recurring/service";
+import { createCard } from "../../modules/cards/service";
+import { setIncomeGoal } from "../../modules/income-goals/service";
+import { listSubscriptionCandidates } from "../../modules/subscriptions/service";
+import { budgetOverview } from "../../modules/analytics/service";
+import { categoryMonthLine } from "../../modules/analytics/receipt";
 import { createBill, listBills, markPaid } from "../../modules/bills/service";
 import { appointmentLine, appointmentsOfDay, createAppointment, deleteAppointment, sharedAppointmentsWhere, visibleAppointmentsWhere } from "../../modules/agenda/service";
 import { withBotPrefix } from "../../whatsapp/bot-messages";
@@ -163,6 +170,8 @@ COMO AGIR
 - Categoria: escolha a mais adequada da lista; se nenhuma servir, deixe sem e, se fizer sentido, pergunte ou sugira criar. Não crie categoria com o nome de uma pessoa.
 - Perguntas sobre dinheiro: use as ferramentas de consulta e responda só com os números que elas trouxerem.
 - Responda só ao que foi pedido AGORA. Não retome assuntos já resolvidos, não faça consultas que ninguém pediu e não ofereça conferências extras. O que está no histórico e na lista acima já aconteceu: confie nisso (lançamento marcado como APAGADO foi cancelado de verdade).
+- Recibo do gasto: ao confirmar uma despesa, diga valor, categoria e de onde saiu, e acrescente a linha "no_mes" quando a ferramenta trouxer (ex.: "Alimentação no mês: R$ 412,00 de R$ 800,00 (52%), restam R$ 388,00"). Uma linha por gasto; com vários gastos, só a linha "no mês" de cada categoria uma vez.
+- Pedidos de organização também se resolvem por aqui: orçamento ("define 800 pra alimentação") = definir_orcamento; "toda segunda tem 89,90 da academia" / "aluguel todo dia 5" = criar_recorrencia (lancar_automatico true só se pedirem para já lançar); "guincho é sempre Manutenção do Carro" = criar_regra; "cadastra meu cartão…" = cadastrar_cartao; "minha meta de receita é 15 mil" = meta_de_receita; "tem algum gasto que se repete?" = gastos_que_se_repetem; "quanto sobrou do orçamento?" = consulta de orçamento.
 - Depois de agir, confirme em linguagem natural o que foi feito (ex.: "Anotei as duas entradas: R$ 400,00 da Rosineide e R$ 739,75 da Ariane."). Não repita listas longas.
 - Se a ferramenta devolver erro, explique de forma simples e diga o que falta.
 - Assuntos fora de finanças, contas, agenda e do app: responda com gentileza em uma frase e volte ao assunto.
@@ -269,6 +278,48 @@ const ACTION_TOOLS = {
       data: z.string().nullable(),
       descricao: z.string().max(120).nullable(),
     }),
+  },
+  definir_orcamento: {
+    description: "Define (ou muda) o limite do mês de uma categoria de despesa: 'define um orçamento de 800 pra alimentação'.",
+    schema: z.object({ categoria: z.string().min(1), valor: z.number().positive(), mes: z.string().nullable().describe("AAAA-MM; null = mês atual.") }),
+  },
+  criar_recorrencia: {
+    description: "Cria um gasto ou receita que se repete ('toda segunda tem 89,90 da academia', 'aluguel de 1.500 todo dia 5'). Lança sozinho quando a pessoa pedir ('já deixa lançado'); senão vira conta prevista.",
+    schema: z.object({
+      tipo: z.enum(["despesa", "receita"]),
+      descricao: z.string().min(2).max(120),
+      valor: z.number().positive(),
+      frequencia: z.enum(["semanal", "quinzenal", "mensal", "anual"]),
+      dia_do_mes: z.number().int().min(1).max(31).nullable(),
+      dia_da_semana: z.enum(["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"]).nullable(),
+      categoria: z.string().nullable(),
+      conta: z.string().nullable(),
+      cartao: z.string().nullable(),
+      lancar_automatico: z.boolean().describe("true quando pedem para já lançar ('já deixa lançado'); false = só lembrar e prever."),
+      valor_variavel: z.boolean().describe("true para contas que mudam todo mês (luz, água): o valor é estimativa."),
+    }),
+  },
+  criar_regra: {
+    description: "Ensina uma regra de categoria: 'guincho é sempre Manutenção do Carro', 'tudo da Shell é Combustível'. Vale para os próximos lançamentos.",
+    schema: z.object({ palavra: z.string().min(2).max(80).describe("Texto que aparece na descrição/estabelecimento."), categoria: z.string().min(1), tipo: z.enum(["despesa", "receita"]) }),
+  },
+  cadastrar_cartao: {
+    description: "Cadastra um cartão de crédito: 'cadastra meu cartão Nubank, fecha dia 20 e vence dia 27'.",
+    schema: z.object({
+      nome: z.string().min(2).max(60),
+      dia_fechamento: z.number().int().min(1).max(31),
+      dia_vencimento: z.number().int().min(1).max(31),
+      limite: z.number().positive().nullable(),
+      conta_pagamento: z.string().nullable().describe("Conta de onde a fatura é paga, se disseram."),
+    }),
+  },
+  meta_de_receita: {
+    description: "Define a meta de ganho (receita) do mês: 'minha meta de receita esse mês é 15 mil'.",
+    schema: z.object({ valor: z.number().positive(), natureza: z.enum(["pessoal", "empresa", "tudo"]).nullable().describe("null = pessoal, salvo se a conversa for da empresa.") }),
+  },
+  gastos_que_se_repetem: {
+    description: "Lista gastos que se repetem todo mês e ainda não estão cadastrados como fixos (assinaturas, mensalidades), para a pessoa decidir.",
+    schema: z.object({}),
   },
   renomear_conta: {
     description: "Muda o nome de uma conta quando a pessoa pedir ou aceitar.",
@@ -438,6 +489,7 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
             status: created.status === "PENDING" ? "pendente (possível duplicado — pergunte se é repetido)" : "registrado",
             possivel_duplicado: created.duplicateOf ? `${created.duplicateOf.description} em ${formatDateBR(created.duplicateOf.date)}` : null,
             conta_prevista_quitada: created.billLinked,
+            no_mes: created.status === "CONFIRMED" && draft.kind === "EXPENSE" && draft.categoryId ? await categoryMonthLine(state.readCtx, draft.categoryId, draft.labels.category ?? "", draft.date) : null,
           });
         } else {
           results.push({ descricao: draft.description, aviso: created.note ?? "Não registrado." });
@@ -603,6 +655,105 @@ async function runAction(state: RunState, name: ActionName, input: unknown): Pro
       );
       state.transactionIds.push(transaction.id);
       return { transferido: true, de: from.name, para: to.name, valor: formatBRL(cents), data: formatDateBR(date) };
+    }
+    case "definir_orcamento": {
+      const d = data as { categoria: string; valor: number; mes: string | null };
+      const cat = categoryByName(hc, d.categoria, "EXPENSE");
+      if (!cat) throw new Error(`A categoria "${d.categoria}" não existe. Opções: ${hc.categories.filter((c) => c.kind === "EXPENSE").map((c) => c.name).join(", ")}.`);
+      const cents = toCents(d.valor);
+      assertSaid(state, cents);
+      const month = d.mes && /^\d{4}-\d{2}$/.test(d.mes) ? d.mes : hc.today.slice(0, 7);
+      await upsertBudget(ctx, { categoryId: cat.categoryId, month, limitCents: cents });
+      const item = (await budgetOverview(state.readCtx, month)).items.find((b) => b.category.id === cat.categoryId);
+      state.changed = true;
+      return {
+        orcamento: cat.label,
+        mes: month,
+        limite: formatBRL(cents),
+        ja_gasto: formatBRL(item?.spentCents ?? 0),
+        resta: formatBRL(item ? item.remainingCents : cents),
+        observacao: "Aviso no resumo da manhã quando passar de 80%.",
+      };
+    }
+    case "criar_recorrencia": {
+      const d = data as z.infer<typeof ACTION_TOOLS.criar_recorrencia.schema>;
+      const cents = toCents(d.valor);
+      assertSaid(state, cents);
+      const kind = d.tipo === "receita" ? "INCOME" : "EXPENSE";
+      const cat = d.categoria ? categoryByName(hc, d.categoria, kind) : null;
+      if (d.categoria && !cat) throw new Error(`A categoria "${d.categoria}" não existe para ${kind === "INCOME" ? "receitas" : "despesas"}.`);
+      const card = d.cartao ? hc.cards.find((c) => normalizeText(c.name) === normalizeText(d.cartao!) || c.aliases.includes(normalizeText(d.cartao!))) : null;
+      if (d.cartao && !card) throw new Error(`Cartão "${d.cartao}" não encontrado.`);
+      const acc = !card && d.conta ? findAccount(hc, d.conta) : null;
+      const frequency = { semanal: "WEEKLY", quinzenal: "BIWEEKLY", mensal: "MONTHLY", anual: "YEARLY" }[d.frequencia] as "WEEKLY" | "BIWEEKLY" | "MONTHLY" | "YEARLY";
+      // Semanal/quinzenal: começa no próximo dia da semana dito (hoje, se for hoje).
+      let startDate = hc.today;
+      if ((frequency === "WEEKLY" || frequency === "BIWEEKLY") && d.dia_da_semana) {
+        const target = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"].indexOf(d.dia_da_semana);
+        const diff = (target - weekday(hc.today) + 7) % 7;
+        startDate = addDays(hc.today, diff);
+      }
+      const rec = await createRecurring(ctx, {
+        type: kind,
+        description: d.descricao,
+        amountCents: cents,
+        isVariableAmount: d.valor_variavel,
+        categoryId: cat?.categoryId ?? null,
+        subcategoryId: cat?.subcategoryId ?? null,
+        accountId: acc?.id ?? null,
+        creditCardId: card?.id ?? null,
+        paymentMethod: card ? "CREDIT_CARD" : undefined,
+        frequency,
+        dayOfMonth: frequency === "MONTHLY" || frequency === "YEARLY" ? d.dia_do_mes ?? Number(hc.today.slice(8, 10)) : null,
+        startDate,
+        autoPost: d.lancar_automatico,
+        scope: state.input.nature?.fallback === "BUSINESS" ? "BUSINESS" : "PERSONAL",
+      });
+      state.changed = true;
+      return {
+        criada: rec.description,
+        valor: formatBRL(cents),
+        repete: d.frequencia + (d.dia_da_semana ? ` (${d.dia_da_semana})` : d.dia_do_mes ? ` (dia ${d.dia_do_mes})` : ""),
+        proxima: rec.nextDueDate ? formatDateBR(rec.nextDueDate) : null,
+        lanca_sozinho: d.lancar_automatico,
+        observacao: d.lancar_automatico ? "Lança sozinho na data." : "Entra como conta prevista, com lembrete; é só avisar quando pagar.",
+      };
+    }
+    case "criar_regra": {
+      const d = data as { palavra: string; categoria: string; tipo: "despesa" | "receita" };
+      const kind = d.tipo === "receita" ? "INCOME" : "EXPENSE";
+      const cat = categoryByName(hc, d.categoria, kind);
+      if (!cat) throw new Error(`A categoria "${d.categoria}" não existe. Opções: ${hc.categories.filter((c) => c.kind === kind).map((c) => c.name).join(", ")}.`);
+      const rule = await createRule(ctx, { name: `${d.palavra} → ${cat.label}`, pattern: d.palavra.trim(), transactionType: kind, setCategoryId: cat.categoryId, setSubcategoryId: cat.subcategoryId }, "WHATSAPP");
+      hc.rules.push(rule);
+      state.changed = true;
+      return { regra_criada: true, quando_aparecer: d.palavra, vai_para: cat.label, observacao: "Vale para os próximos lançamentos (os antigos não mudam)." };
+    }
+    case "cadastrar_cartao": {
+      const d = data as { nome: string; dia_fechamento: number; dia_vencimento: number; limite: number | null; conta_pagamento: string | null };
+      if (hc.cards.some((c) => normalizeText(c.name) === normalizeText(d.nome))) throw new Error(`Já existe o cartão "${d.nome}".`);
+      if (d.limite !== null) assertSaid(state, toCents(d.limite));
+      const pay = d.conta_pagamento ? findAccount(hc, d.conta_pagamento) : null;
+      const card = await createCard(ctx, { name: d.nome, closingDay: d.dia_fechamento, dueDay: d.dia_vencimento, limitCents: d.limite === null ? 0 : toCents(d.limite), paymentAccountId: pay?.id ?? null });
+      hc.cards.push({ id: card.id, name: card.name, issuer: null, last4: null, paymentAccountId: pay?.id ?? null, aliases: aliasesFor(card.name) });
+      state.changed = true;
+      return { cartao_criado: card.name, fecha_dia: d.dia_fechamento, vence_dia: d.dia_vencimento, limite: d.limite === null ? "não informado" : formatBRL(toCents(d.limite)), paga_pela_conta: pay?.name ?? null };
+    }
+    case "meta_de_receita": {
+      const d = data as { valor: number; natureza: "pessoal" | "empresa" | "tudo" | null };
+      const cents = toCents(d.valor);
+      assertSaid(state, cents);
+      const scope = d.natureza === "empresa" ? "BUSINESS" : d.natureza === "tudo" ? "ALL" : d.natureza === "pessoal" ? "PERSONAL" : state.input.nature?.fallback === "BUSINESS" ? "BUSINESS" : "PERSONAL";
+      const res = await setIncomeGoal(ctx, scope, cents);
+      state.changed = true;
+      return { meta: formatBRL(cents), recorte: scope === "BUSINESS" ? "empresa" : scope === "ALL" ? "tudo" : "pessoal", antes: res.previousCents === null ? null : formatBRL(res.previousCents) };
+    }
+    case "gastos_que_se_repetem": {
+      const items = await listSubscriptionCandidates(state.readCtx, { status: "OPEN" });
+      return {
+        encontrados: items.slice(0, 10).map((c) => ({ descricao: c.merchantName, valor_tipico: formatBRL(c.amountCents), vezes: c.occurrences, ultimo: formatDateBR(c.lastChargeDate), subiu_de_preco: c.priceRaised, onde: c.creditCard?.name ?? c.account?.name ?? null })),
+        observacao: items.length ? "Dá para transformar em gasto fixo com criar_recorrencia, se a pessoa quiser." : "Nenhum gasto repetido novo encontrado.",
+      };
     }
     case "renomear_conta": {
       const d = data as { conta: string; novo_nome: string };

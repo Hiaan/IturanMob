@@ -8,7 +8,7 @@ import { claimAlertMark } from "../notifications/marks";
 import { getSettings } from "../households/service";
 import { familyScopeContext } from "../reports/service";
 import { listBills } from "../bills/service";
-import { expensesByCategory } from "../analytics/service";
+import { budgetOverview, expensesByCategory } from "../analytics/service";
 import { appointmentLine, appointmentsOfDay, sharedAppointmentsWhere } from "./service";
 
 /**
@@ -66,10 +66,11 @@ export interface MorningSummary {
 /** Texto do resumo do dia no recorte da família (função usada também nos testes). */
 export async function buildMorningSummary(householdId: string, timezone: string, today: ISODate): Promise<MorningSummary> {
   const ctx = familyScopeContext(householdId, timezone);
-  const [appointments, bills, yesterday] = await Promise.all([
+  const [appointments, bills, yesterday, budget] = await Promise.all([
     appointmentsOfDay(householdId, timezone, today, sharedAppointmentsWhere(householdId)),
     listBills(ctx, { start: today, end: today, includeOverdue: true, type: "EXPENSE" }),
     expensesByCategory(ctx, { period: { start: addDays(today, -1), end: addDays(today, -1) }, regime: "CASH" }),
+    budgetOverview(ctx, today.slice(0, 7)),
   ]);
   const lines: string[] = [];
   let content = false;
@@ -97,6 +98,19 @@ export async function buildMorningSummary(householdId: string, timezone: string,
     content = true;
     const top = yesterday.items[0];
     lines.push(`\n🧾 Ontem: ${formatBRL(yesterday.totalCents)} em gastos${top ? ` (mais em ${top.name}: ${formatBRL(top.amountCents)})` : ""}.`);
+  }
+  // Orçamentos do mês a partir de 80%: avisa antes de estourar (os mais apertados primeiro).
+  const tight = budget.items.filter((b) => b.limitCents > 0 && b.percentUsed >= 80).sort((a, b) => b.percentUsed - a.percentUsed);
+  if (tight.length) {
+    content = true;
+    lines.push(`\n📊 *Orçamento do mês*`);
+    for (const b of tight.slice(0, 5)) {
+      lines.push(
+        b.remainingCents >= 0
+          ? `• ${b.category.name}: ${Math.round(b.percentUsed)}% usado, restam ${formatBRL(b.remainingCents)}`
+          : `• ${b.category.name}: passou ${formatBRL(-b.remainingCents)} do limite de ${formatBRL(b.limitCents)}`,
+      );
+    }
   }
   const [, m, d] = today.split("-");
   return { title: `Bom dia! Resumo de ${WEEKDAYS[weekday(today)]}, ${d}/${m}`, body: lines.join("\n"), hasContent: content };

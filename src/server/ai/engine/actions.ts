@@ -18,6 +18,7 @@ import { extractAmounts } from "../nlu/numbers";
 import { normalizeForNlu } from "../nlu/text";
 import { answerImportConfirmation } from "./statement-import";
 import { isInvestmentAccountType } from "../nlu/investment";
+import { categoryMonthLine } from "../../modules/analytics/receipt";
 import { createAccount } from "../../modules/accounts/service";
 import { can } from "../../auth/permissions";
 import { AppError } from "../../errors";
@@ -269,7 +270,16 @@ async function executeDrafts(ctx: ServiceContext, drafts: ResolvedDraft[], hc: H
       (c) =>
         `${createdLine(c.draft, hc.today)}${natureTag(c)}${c.billLinked ? `\nConta prevista “${c.billLinked}” marcada como paga.` : ""}${c.note ? `\n(${c.note})` : ""}${c.draft.investment && c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`,
     );
-    replies.push(`✅ ${confirmed.length > 1 ? `${confirmed.length} lançamentos registrados` : kindVerb(confirmed[0]!.draft.kind)}:\n${lines.join("\n\n")}`);
+    // Recibo: quanto cada categoria dos gastos já soma no mês (e o orçamento, se houver). Uma linha por categoria.
+    const monthLines: string[] = [];
+    const seenCats = new Set<string>();
+    for (const c of confirmed) {
+      if (c.draft.kind !== "EXPENSE" || !c.draft.categoryId || seenCats.has(c.draft.categoryId)) continue;
+      seenCats.add(c.draft.categoryId);
+      const line = await categoryMonthLine(ctx, c.draft.categoryId, c.draft.labels.category ?? "", c.draft.date);
+      if (line) monthLines.push(`📊 ${line}`);
+    }
+    replies.push(`✅ ${confirmed.length > 1 ? `${confirmed.length} lançamentos registrados` : kindVerb(confirmed[0]!.draft.kind)}:\n${lines.join("\n\n")}${monthLines.length ? `\n\n${monthLines.join("\n")}` : ""}`);
   }
   if (pending.length) {
     const lines = pending.map((c) => `${createdLine(c.draft, hc.today)}${natureTag(c)}${c.note ? `\n(${c.note})` : ""}${c.draft.warnings.length ? `\n_${c.draft.warnings.join(" ")}_` : ""}`);

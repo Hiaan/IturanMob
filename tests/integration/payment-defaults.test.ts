@@ -3,7 +3,7 @@ import { prisma } from "@/server/db";
 import { createAccount, updateAccount } from "@/server/modules/accounts/service";
 import { createCard } from "@/server/modules/cards/service";
 import { getPaymentDefaults, setPaymentDefaults } from "@/server/modules/members/payment-defaults";
-import { clearTestQueues, createWaFamily, initTestQueues, sendMessage, teardownTestQueues } from "./ai-pipeline-support";
+import { clearTestQueues, createWaFamily, initTestQueues, messageState, sendMessage, teardownTestQueues } from "./ai-pipeline-support";
 import { resetDatabase } from "./helpers";
 
 /** Conta e forma de pagamento padrão por pessoa: gasto sem conta dita sai dela (motor local). */
@@ -34,6 +34,9 @@ describe("conta padrão de pagamento", () => {
     await sendMessage(wa, { text: "gastei 50 no mercado" });
     const def = await prisma.transaction.findFirstOrThrow({ where: { householdId: wa.householdId, amountCents: 5_000 } });
     expect([def.accountId, def.paymentMethod, def.status]).toEqual([c6.id, "PIX", "CONFIRMED"]);
+    // Recibo do motor local: o total da categoria no mês vem junto.
+    const reply = (await messageState(wa, (await prisma.whatsAppMessage.findFirstOrThrow({ where: { householdId: wa.householdId, text: "gastei 50 no mercado" } })).id)).reply;
+    expect(reply).toMatch(/📊 Alimentação no mês: R\$ 50,00/);
 
     // Conta dita na mensagem vence o padrão; forma de pagamento padrão não é forçada em outra conta.
     await sendMessage(wa, { text: "gastei 30 na padaria no nubank" });

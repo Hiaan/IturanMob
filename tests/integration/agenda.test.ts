@@ -6,7 +6,8 @@ import { buildMorningSummary, runAppointmentReminders, runMorningSummaries } fro
 import { disconnectGoogle, finishGoogleConnect, getGoogleStatus, saveGoogleApp, startGoogleConnect, syncGoogleConnection, updateGoogleSettings } from "@/server/modules/agenda/google";
 import { createBill } from "@/server/modules/bills/service";
 import { createTransaction } from "@/server/modules/transactions/service";
-import { createBasicAccounts, createFamily, resetDatabase } from "./helpers";
+import { categoryId, createBasicAccounts, createFamily, resetDatabase } from "./helpers";
+import { upsertBudget } from "@/server/modules/budgets/service";
 import { clearTestQueues, createWaFamily, initTestQueues, messageState, sendMessage, TZ } from "./ai-pipeline-support";
 
 /**
@@ -113,6 +114,15 @@ describe("agenda", () => {
     expect(text.body).toContain("1 conta(s) vencida(s) sem pagamento: R$ 500,00");
     expect(text.body).toContain("Ontem: R$ 123,45 em gastos");
     expect(text.body).not.toContain("Exame particular");
+    expect(text.body).not.toContain("Orçamento do mês");
+
+    // Orçamento a partir de 80%: entra no resumo, com quanto resta.
+    const food = await categoryId(fam.householdId, "Alimentação");
+    await upsertBudget(fam.ctx, { categoryId: food, month: today.slice(0, 7), limitCents: 10_000 });
+    await createTransaction(fam.ctx, { type: "EXPENSE", amountCents: 9_000, description: "Feira", date: today, accountId: itau.id, categoryId: food });
+    const withBudget = await buildMorningSummary(fam.householdId, TZ, today);
+    expect(withBudget.body).toContain("📊 *Orçamento do mês*");
+    expect(withBudget.body).toContain("Alimentação: 90% usado, restam R$ 10,00");
 
     const seven = at(today, "07:10");
     expect(await runMorningSummaries(at(today, "06:30"), { householdId: fam.householdId })).toMatchObject({ sent: 0 });

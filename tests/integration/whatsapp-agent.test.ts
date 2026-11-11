@@ -269,6 +269,44 @@ describe("assistente conversacional do WhatsApp", () => {
     expect((await listAccounts(wa.ctx)).find((a) => a.name === "Caixa - Hian")!.balanceCents).toBe(25_874);
   });
 
+  it("pacote de organização: orçamento, recorrência, regra, cartão, meta de receita e recibo com o total do mês", async () => {
+    const wa = await aiFamily();
+    await createAccount(wa.ctx, { name: "C6 Bank", type: "CHECKING", initialBalanceCents: 100_000 });
+    fake.script.push(async (req) => {
+      const orc = (await req.execute("definir_orcamento", { categoria: "Alimentação", valor: 800, mes: null })) as { limite: string; resta: string };
+      expect(orc).toMatchObject({ limite: "R$ 800,00", resta: "R$ 800,00" });
+      await expect(req.execute("definir_orcamento", { categoria: "Alimentação", valor: 950, mes: null })).rejects.toThrow(/não aparece/);
+      const rec = (await req.execute("criar_recorrencia", {
+        tipo: "despesa", descricao: "Academia", valor: 89.9, frequencia: "semanal", dia_do_mes: null, dia_da_semana: "segunda",
+        categoria: null, conta: "C6 Bank", cartao: null, lancar_automatico: true, valor_variavel: false,
+      })) as { criada: string; lanca_sozinho: boolean };
+      expect(rec).toMatchObject({ criada: "Academia", lanca_sozinho: true });
+      await req.execute("criar_regra", { palavra: "guincho", categoria: "Transporte", tipo: "despesa" });
+      const card = (await req.execute("cadastrar_cartao", { nome: "Nubank", dia_fechamento: 20, dia_vencimento: 27, limite: null, conta_pagamento: "C6 Bank" })) as { cartao_criado: string };
+      expect(card.cartao_criado).toBe("Nubank");
+      await expect(req.execute("cadastrar_cartao", { nome: "Nubank", dia_fechamento: 1, dia_vencimento: 8, limite: null, conta_pagamento: null })).rejects.toThrow(/Já existe/);
+      const meta = (await req.execute("meta_de_receita", { valor: 15000, natureza: null })) as { meta: string; recorte: string };
+      expect(meta).toMatchObject({ meta: "R$ 15.000,00", recorte: "pessoal" });
+      // Recibo: gasto em Alimentação mostra o total do mês e o orçamento.
+      const out = (await req.execute("registrar_lancamentos", {
+        lancamentos: [{ tipo: "despesa", valor: 120, descricao: "Mercado", data: null, categoria: "Alimentação", conta: "C6 Bank", cartao: null, forma_pagamento: "PIX", parcelas: null, pessoa: null, natureza: null }],
+      })) as { resultados: Array<{ no_mes: string | null }> };
+      expect(out.resultados[0]!.no_mes).toBe("Alimentação no mês: R$ 120,00 de R$ 800,00 (15%), restam R$ 680,00");
+      const rep = (await req.execute("gastos_que_se_repetem", {})) as { encontrados: unknown[] };
+      expect(Array.isArray(rep.encontrados)).toBe(true);
+      return { text: "Feito: orçamento, academia, regra do guincho, cartão Nubank e meta de 15 mil. Mercado R$ 120,00 · Alimentação no mês: R$ 120,00 de R$ 800,00.", calls: [] };
+    });
+    await sendMessage(wa, { text: "define 800 pra alimentação, toda segunda tem 89,90 da academia ja deixa lançado no c6, guincho é sempre transporte, cadastra meu cartão nubank fecha dia 20 e vence 27, minha meta de receita é 15000, e gastei 120 no mercado" });
+    const month = new Date().toISOString().slice(0, 7);
+    expect(await prisma.budget.count({ where: { householdId: wa.householdId, month, limitCents: 80_000 } })).toBe(1);
+    const rec = await prisma.recurringTransaction.findFirstOrThrow({ where: { householdId: wa.householdId, description: "Academia" } });
+    expect([rec.amountCents, rec.frequency, rec.autoPost]).toEqual([8_990, "WEEKLY", true]);
+    expect(new Date(rec.startDate).getUTCDay()).toBe(1); // segunda-feira
+    expect(await prisma.financialRule.count({ where: { householdId: wa.householdId, pattern: "guincho" } })).toBe(1);
+    expect(await prisma.creditCard.count({ where: { householdId: wa.householdId, name: "Nubank", closingDay: 20, dueDay: 27 } })).toBe(1);
+    expect(await prisma.incomeGoal.count({ where: { householdId: wa.householdId, targetCents: 1_500_000, active: true } })).toBe(1);
+  });
+
   it("na tela do app, a Isa também registra (mesmas ferramentas) e marca a resposta como alteração", async () => {
     const wa = await aiFamily();
     await createAccount(wa.ctx, { name: "Caixa", type: "WALLET", initialBalanceCents: 0 });
